@@ -1,0 +1,54 @@
+from lager_manager import add_card, add_storage_slot, update_card, delete_card, list_all_cards
+
+def show_menu():
+    print("\n🎴 MTG Lagerverwaltung")
+    print("1. Karte hinzufügen")
+    print("2. Alle Karten anzeigen")
+    print("3. Karte bearbeiten")
+    print("4. Karte löschen")
+    print("5. Lagerplatz hinzufügen")
+    print("0. Beenden")
+
+def run():
+    while True:
+        show_menu()
+        choice = input("➤ Auswahl: ")
+
+        if choice == "1":
+            name = input("Kartennamen: ")
+            set_code = input("Set-Code (z. B. M21): ")
+            language = input("Sprache: ")
+            condition = input("Zustand (z. B. Near Mint): ")
+            price = float(input("Preis (€): "))
+            storage_code = input("Lagercode (z. B. O01-S01-H01): ")
+            cardmarket_id = input("Cardmarket-ID (optional): ")
+            add_card(name, set_code, language, condition, price, storage_code, cardmarket_id)
+
+        elif choice == "2":
+            list_all_cards()
+
+        elif choice == "3":
+            card_id = int(input("Karten-ID zum Bearbeiten: "))
+            field = input("Welches Feld bearbeiten? (z. B. price): ")
+            value = input("Neuer Wert: ")
+            if field == "price":
+                value = float(value)
+            update_card(card_id, **{field: value})
+
+        elif choice == "4":
+            card_id = int(input("Karten-ID zum Löschen: "))
+            delete_card(card_id)
+
+        elif choice == "5":
+            code = input("Neuer Lagerplatz-Code (z. B. O02-S04-H09): ")
+            add_storage_slot(code)
+
+        elif choice == "0":
+            print("👋 Programm beendet.")
+            break
+
+        else:
+            print("❌ Ungültige Eingabe!")
+
+if __name__ == "__main__":
+    run()
