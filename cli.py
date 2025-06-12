@@ -15,7 +15,7 @@ from TCGInventory import DB_FILE
 def initialize_if_needed() -> None:
     """Create the database if it does not yet exist."""
     if not os.path.exists(DB_FILE):
-        initialize_database(DB_FILE)
+        initialize_database()
         print("ℹ️  Datenbank initialisiert.")
 
 def show_menu():
