@@ -4,6 +4,19 @@ from tabulate import tabulate
 
 from . import DB_FILE
 
+# Valid columns in the ``cards`` table that can be updated via ``update_card``
+ALLOWED_FIELDS = {
+    "name",
+    "set_code",
+    "language",
+    "condition",
+    "price",
+    "storage_code",
+    "cardmarket_id",
+    "status",
+    "date_added",
+}
+
 # 📦 Funktion: Karte hinzufügen
 def add_card(name, set_code, language, condition, price, storage_code, cardmarket_id):
     conn = sqlite3.connect(DB_FILE)
@@ -63,6 +76,18 @@ def list_all_cards():
         print("Keine Karten gefunden.")
 
 def update_card(card_id, **kwargs):
+    """Update fields of a card if the field names are valid."""
+    invalid_fields = [key for key in kwargs if key not in ALLOWED_FIELDS]
+    if invalid_fields:
+        print(
+            f"❌ Ungültige Felder: {', '.join(invalid_fields)}. Aktualisierung abgebrochen."
+        )
+        return
+
+    if not kwargs:
+        print("⚠️ Keine Felder zum Aktualisieren angegeben.")
+        return
+
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
 
