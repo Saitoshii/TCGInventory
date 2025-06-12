@@ -1,6 +1,6 @@
 import sqlite3
 
-DB_FILE = "mtg_lager.db"
+from . import DB_FILE
 
 
 def initialize_database() -> None:

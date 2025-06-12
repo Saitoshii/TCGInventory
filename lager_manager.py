@@ -2,7 +2,7 @@ import sqlite3
 from datetime import datetime
 from tabulate import tabulate
 
-DB_FILE = "mtg_lager.db"
+from . import DB_FILE
 
 # Valid columns in the ``cards`` table that can be updated via ``update_card``
 ALLOWED_FIELDS = {
