@@ -75,9 +75,7 @@ def update_card(card_id, **kwargs):
     """Update fields of a card if the field names are valid."""
     invalid_fields = [key for key in kwargs if key not in ALLOWED_FIELDS]
     if invalid_fields:
-        print(
-            f"❌ Ungültige Felder: {', '.join(invalid_fields)}. Aktualisierung abgebrochen."
-        )
+        print(f"❌ Ungültige Felder: {', '.join(invalid_fields)}. Aktualisierung abgebrochen.")
         return
 
     if not kwargs:
