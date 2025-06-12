@@ -1,10 +1,25 @@
 # TCGInventory
 
-This project provides simple utilities to manage Magic: The Gathering cards via SQLite.
+This project provides simple utilities to manage Magic: The Gathering cards via
+SQLite.
+
+## Installation
+
+Install the required dependencies with ``pip``:
+
+```bash
+pip install -r requirements.txt
+```
 
 ## Usage
 
-Run the CLI via the module path so Python can resolve the `TCGInventory` package:
+If you haven't created the SQLite database yet, initialize it first:
+
+```bash
+python -m TCGInventory.setup_db
+```
+
+Run the CLI via the module path so Python can resolve the ``TCGInventory`` package:
 
 ```bash
 python -m TCGInventory.cli
