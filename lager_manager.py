@@ -57,6 +57,7 @@ def list_all_cards():
     else:
         print("Keine Karten gefunden.")
 
+# ✏️ Funktion: Karte aktualisieren
 def update_card(card_id, **kwargs):
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
@@ -75,6 +76,7 @@ def update_card(card_id, **kwargs):
 
     print(f"📝 Karte mit ID {card_id} wurde aktualisiert.")
 
+# ❌ Funktion: Karte löschen
 def delete_card(card_id):
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
