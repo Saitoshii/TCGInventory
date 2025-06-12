@@ -8,8 +8,8 @@ from TCGInventory.lager_manager import (
     list_all_cards,
 )
 from TCGInventory.setup_db import initialize_database
+from TCGInventory import DB_FILE
 
-DB_FILE = "mtg_lager.db"
 
 
 def initialize_if_needed() -> None:
