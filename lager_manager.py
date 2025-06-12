@@ -1,5 +1,6 @@
 import sqlite3
 from datetime import datetime
+from tabulate import tabulate
 
 DB_NAME = 'mtg_lager.db'
 
@@ -39,14 +40,27 @@ def list_all_cards():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
-    cursor.execute("SELECT id, name, set_code, language, condition, price, storage_code, status FROM cards")
+    cursor.execute(
+        "SELECT id, name, set_code, language, condition, price, storage_code, status FROM cards"
+    )
     cards = cursor.fetchall()
+    conn.close()
 
     print("\n📋 Aktuelle Karten im Lager:")
-    for card in cards:
-        print(card)
-
-    conn.close()
+    if cards:
+        headers = [
+            "ID",
+            "Name",
+            "Set",
+            "Sprache",
+            "Zustand",
+            "Preis (€)",
+            "Lagerplatz",
+            "Status",
+        ]
+        print(tabulate(cards, headers=headers, tablefmt="github"))
+    else:
+        print("Keine Karten gefunden.")
 
 def update_card(card_id, **kwargs):
     conn = sqlite3.connect(DB_NAME)

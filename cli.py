@@ -1,7 +1,13 @@
 import os
 
-from lager_manager import add_card, add_storage_slot, update_card, delete_card, list_all_cards
-from setup_db import initialize_database
+from TCGInventory.lager_manager import (
+    add_card,
+    add_storage_slot,
+    update_card,
+    delete_card,
+    list_all_cards,
+)
+from TCGInventory.setup_db import initialize_database
 
 DB_FILE = "mtg_lager.db"
 
