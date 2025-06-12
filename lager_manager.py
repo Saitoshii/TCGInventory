@@ -2,11 +2,11 @@ import sqlite3
 from datetime import datetime
 from tabulate import tabulate
 
-DB_NAME = 'mtg_lager.db'
+from . import DB_FILE
 
 # 📦 Funktion: Karte hinzufügen
 def add_card(name, set_code, language, condition, price, storage_code, cardmarket_id):
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
 
     # Lagerplatz als belegt markieren
@@ -23,7 +23,7 @@ def add_card(name, set_code, language, condition, price, storage_code, cardmarke
 
 # 📍 Funktion: Lagerplatz hinzufügen
 def add_storage_slot(code):
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
 
     cursor.execute('''
@@ -37,7 +37,7 @@ def add_storage_slot(code):
 
 # 🔍 Funktion: Alle Karten anzeigen
 def list_all_cards():
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
 
     cursor.execute(
@@ -63,7 +63,7 @@ def list_all_cards():
         print("Keine Karten gefunden.")
 
 def update_card(card_id, **kwargs):
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
 
     fields = []
@@ -83,7 +83,7 @@ def update_card(card_id, **kwargs):
     print(f"📝 Karte mit ID {card_id} wurde aktualisiert.")
 
 def delete_card(card_id):
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
 
     # Lagerplatz freigeben
