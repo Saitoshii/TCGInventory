@@ -9,6 +9,8 @@ from TCGInventory.lager_manager import (
 )
 from TCGInventory.setup_db import initialize_database
 from TCGInventory import DB_FILE
+from TCGInventory.card_scanner import scan_and_queue, SCANNER_QUEUE
+from TCGInventory.cardmarket_api import upload_card
 
 
 
@@ -25,6 +27,8 @@ def show_menu():
     print("3. Karte bearbeiten")
     print("4. Karte löschen")
     print("5. Lagerplatz hinzufügen")
+    print("6. Karte scannen (Bild)")
+    print("7. Karte aus Queue hochladen")
     print("0. Beenden")
 
 
@@ -80,6 +84,17 @@ def run():
         elif choice == "5":
             code = input("Neuer Lagerplatz-Code (z. B. O02-S04-H09): ")
             add_storage_slot(code)
+
+        elif choice == "6":
+            path = input("Pfad zum Kartenbild: ")
+            scan_and_queue(path)
+
+        elif choice == "7":
+            if SCANNER_QUEUE.empty():
+                print("⚠️ Keine Karten in der Queue.")
+            else:
+                card = SCANNER_QUEUE.get()
+                upload_card(card)
 
         elif choice == "0":
             print("👋 Programm beendet.")
