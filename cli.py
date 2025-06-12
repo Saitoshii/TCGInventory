@@ -1,4 +1,16 @@
+import os
+
 from lager_manager import add_card, add_storage_slot, update_card, delete_card, list_all_cards
+from setup_db import initialize_database
+
+DB_FILE = "mtg_lager.db"
+
+
+def initialize_if_needed() -> None:
+    """Create the database if it does not yet exist."""
+    if not os.path.exists(DB_FILE):
+        initialize_database(DB_FILE)
+        print("ℹ️  Datenbank initialisiert.")
 
 def show_menu():
     print("\n🎴 MTG Lagerverwaltung")
@@ -10,6 +22,7 @@ def show_menu():
     print("0. Beenden")
 
 def run():
+    initialize_if_needed()
     while True:
         show_menu()
         choice = input("➤ Auswahl: ")
