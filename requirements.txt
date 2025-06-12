@@ -1,3 +1,9 @@
 # Application dependencies
 # Only tabulate is needed for pretty-printing tables.
 tabulate
+
+# Scanner and API dependencies
+opencv-python
+pyzbar
+requests
+pillow
