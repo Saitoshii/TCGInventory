@@ -1,0 +1,3 @@
+# Application dependencies
+# Only tabulate is needed for pretty-printing tables.
+tabulate

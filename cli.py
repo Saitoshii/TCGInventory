@@ -15,7 +15,7 @@ from TCGInventory import DB_FILE
 def initialize_if_needed() -> None:
     """Create the database if it does not yet exist."""
     if not os.path.exists(DB_FILE):
-        initialize_database(DB_FILE)
+        initialize_database()
         print("ℹ️  Datenbank initialisiert.")
 
 def show_menu():
@@ -26,6 +26,24 @@ def show_menu():
     print("4. Karte löschen")
     print("5. Lagerplatz hinzufügen")
     print("0. Beenden")
+
+
+def _get_float(prompt: str) -> float:
+    """Prompt the user for a float until valid input is given."""
+    while True:
+        try:
+            return float(input(prompt))
+        except ValueError:
+            print("Bitte eine gültige Zahl eingeben.")
+
+
+def _get_int(prompt: str) -> int:
+    """Prompt the user for an integer until valid input is given."""
+    while True:
+        try:
+            return int(input(prompt))
+        except ValueError:
+            print("Bitte eine gültige Ganzzahl eingeben.")
 
 def run():
     initialize_if_needed()
@@ -38,7 +56,7 @@ def run():
             set_code = input("Set-Code (z. B. M21): ")
             language = input("Sprache: ")
             condition = input("Zustand (z. B. Near Mint): ")
-            price = float(input("Preis (€): "))
+            price = _get_float("Preis (€): ")
             storage_code = input("Lagercode (z. B. O01-S01-H01): ")
             cardmarket_id = input("Cardmarket-ID (optional): ")
             add_card(name, set_code, language, condition, price, storage_code, cardmarket_id)
@@ -47,15 +65,16 @@ def run():
             list_all_cards()
 
         elif choice == "3":
-            card_id = int(input("Karten-ID zum Bearbeiten: "))
+            card_id = _get_int("Karten-ID zum Bearbeiten: ")
             field = input("Welches Feld bearbeiten? (z. B. price): ")
-            value = input("Neuer Wert: ")
             if field == "price":
-                value = float(value)
+                value = _get_float("Neuer Wert: ")
+            else:
+                value = input("Neuer Wert: ")
             update_card(card_id, **{field: value})
 
         elif choice == "4":
-            card_id = int(input("Karten-ID zum Löschen: "))
+            card_id = _get_int("Karten-ID zum Löschen: ")
             delete_card(card_id)
 
         elif choice == "5":
