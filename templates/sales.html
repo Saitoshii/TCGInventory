@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Sales</h2>
+{% if sales %}
+<table border="1">
+<tr><th>ID</th><th>Buyer</th><th>Address</th><th>Price</th></tr>
+{% for sale in sales %}
+<tr>
+<td>{{ sale.get('idOrder') }}</td>
+<td>{{ sale.get('buyer', {}).get('name') }}</td>
+<td>{{ sale.get('buyer', {}).get('address') }}</td>
+<td>{{ sale.get('price') }}</td>
+</tr>
+{% endfor %}
+</table>
+{% else %}
+<p>No sales found.</p>
+{% endif %}
+{% endblock %}

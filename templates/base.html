@@ -1,0 +1,23 @@
+<!doctype html>
+<title>TCG Inventory</title>
+<h1>TCG Inventory</h1>
+<nav>
+  <a href="{{ url_for('list_cards') }}">Cards</a> |
+  <a href="{{ url_for('add_card_view') }}">Add Card</a> |
+  <a href="{{ url_for('add_storage_view') }}">Add Storage</a> |
+  <a href="{{ url_for('scan_view') }}">Scan Card</a> |
+  <a href="{{ url_for('queue_view') }}">Queue</a> |
+  <a href="{{ url_for('update_price_view') }}">Update Price</a> |
+  <a href="{{ url_for('fetch_sales') }}">Sales</a>
+</nav>
+<hr>
+{% with messages = get_flashed_messages() %}
+  {% if messages %}
+    <ul>
+    {% for m in messages %}
+      <li>{{ m }}</li>
+    {% endfor %}
+    </ul>
+  {% endif %}
+{% endwith %}
+{% block content %}{% endblock %}
