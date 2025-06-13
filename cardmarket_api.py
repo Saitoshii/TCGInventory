@@ -24,6 +24,7 @@ class CardmarketClient:
     """Helper class for Cardmarket operations."""
 
     BASE_URL = "https://api.cardmarket.com/ws/v2.0/output.json"
+    TIMEOUT = 10
 
     def __init__(self, app_token: str, app_secret: str, token: str, token_secret: str) -> None:
         self.auth = OAuth1(app_token, app_secret, token, token_secret)
@@ -31,6 +32,15 @@ class CardmarketClient:
     @classmethod
     def from_env(cls) -> "CardmarketClient":
         """Create a client using credentials stored in environment variables."""
+        missing = [
+            var
+            for var in ("MKM_APP_TOKEN", "MKM_APP_SECRET", "MKM_TOKEN", "MKM_TOKEN_SECRET")
+            if not os.environ.get(var)
+        ]
+        if missing:
+            print(
+                "⚠️  Folgende Cardmarket-Credentials fehlen: " + ", ".join(missing)
+            )
         return cls(
             os.environ.get("MKM_APP_TOKEN", ""),
             os.environ.get("MKM_APP_SECRET", ""),
@@ -56,7 +66,7 @@ class CardmarketClient:
             "condition": card.get("condition", "NM"),
         }
         try:
-            resp = requests.post(url, auth=self.auth, data=data)
+            resp = requests.post(url, auth=self.auth, data=data, timeout=self.TIMEOUT)
             if resp.status_code == 200:
                 print(
                     f"🔗 Karte '{card['name']}' zu Cardmarket hochgeladen."  # type: ignore[index]
@@ -72,7 +82,9 @@ class CardmarketClient:
         """Update the price of an existing article."""
         url = f"{self.BASE_URL}/stock/article/{article_id}"
         try:
-            resp = requests.put(url, auth=self.auth, data={"price": new_price})
+            resp = requests.put(
+                url, auth=self.auth, data={"price": new_price}, timeout=self.TIMEOUT
+            )
             if resp.status_code == 200:
                 print(f"💰 Preis für Artikel {article_id} aktualisiert.")
             else:
@@ -89,7 +101,7 @@ class CardmarketClient:
         """Retrieve the current sales from Cardmarket."""
         url = f"{self.BASE_URL}/orders?sales=1"
         try:
-            resp = requests.get(url, auth=self.auth)
+            resp = requests.get(url, auth=self.auth, timeout=self.TIMEOUT)
             resp.raise_for_status()
         except requests.RequestException as exc:
             print(f"❌ Fehler beim Abrufen der Verkäufe: {exc}")

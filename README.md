@@ -19,6 +19,7 @@ MKM_APP_TOKEN=<your app token>
 MKM_APP_SECRET=<your app secret>
 MKM_TOKEN=<your access token>
 MKM_TOKEN_SECRET=<your access token secret>
+FLASK_SECRET_KEY=<secret for the web interface>
 ```
 
 ## Usage
