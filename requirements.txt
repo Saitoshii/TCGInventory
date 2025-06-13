@@ -7,3 +7,5 @@ opencv-python
 pyzbar
 requests
 pillow
+requests_oauthlib
+fpdf2

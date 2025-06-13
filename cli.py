@@ -10,7 +10,9 @@ from TCGInventory.lager_manager import (
 from TCGInventory.setup_db import initialize_database
 from TCGInventory import DB_FILE
 from TCGInventory.card_scanner import scan_and_queue, SCANNER_QUEUE
-from TCGInventory.cardmarket_api import upload_card
+from TCGInventory.cardmarket_api import upload_card, CardmarketClient
+
+MKM_CLIENT = CardmarketClient.from_env()
 
 
 
@@ -29,6 +31,8 @@ def show_menu():
     print("5. Lagerplatz hinzufügen")
     print("6. Karte scannen (Bild)")
     print("7. Karte aus Queue hochladen")
+    print("8. Preis auf Cardmarket aktualisieren")
+    print("9. Verkäufe abrufen und als PDF speichern")
     print("0. Beenden")
 
 
@@ -95,6 +99,19 @@ def run():
             else:
                 card = SCANNER_QUEUE.get()
                 upload_card(card)
+
+        elif choice == "8":
+            article_id = _get_int("Cardmarket Artikel-ID: ")
+            new_price = _get_float("Neuer Preis (€): ")
+            MKM_CLIENT.update_price(article_id, new_price)
+
+        elif choice == "9":
+            sales = MKM_CLIENT.fetch_sales()
+            if not sales:
+                print("Keine Verkäufe gefunden.")
+            else:
+                path = input("PDF-Datei speichern unter: ")
+                MKM_CLIENT.sales_to_pdf(sales, path)
 
         elif choice == "0":
             print("👋 Programm beendet.")
