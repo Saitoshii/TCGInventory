@@ -1,17 +1,26 @@
+"""Helper utilities for scanning barcodes from card images."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from queue import Queue
+from typing import Dict, Optional
+
 import cv2
 from pyzbar.pyzbar import decode
-from queue import Queue
-from typing import Optional, Dict
 import requests
 
 SCRYFALL_API_URL = "https://api.scryfall.com/cards/"
 
+#: Result type for ``fetch_card_info`` and queue entries
+CardInfo = Dict[str, str]
+
 # Queue für gescannte Karten
-SCANNER_QUEUE: Queue[Dict] = Queue()
+SCANNER_QUEUE: Queue[CardInfo] = Queue()
 
 def scan_image(path: str) -> Optional[str]:
     """Scan an image file for barcodes and return the first result as string."""
-    image = cv2.imread(path)
+    image = cv2.imread(str(Path(path)))
     if image is None:
         print(f"❌ Bild {path} konnte nicht geladen werden.")
         return None
@@ -21,10 +30,10 @@ def scan_image(path: str) -> Optional[str]:
         return None
     return codes[0].data.decode("utf-8")
 
-def fetch_card_info(card_id: str) -> Optional[Dict]:
+def fetch_card_info(card_id: str) -> Optional[CardInfo]:
     """Retrieve card details from Scryfall."""
     try:
-        resp = requests.get(f"{SCRYFALL_API_URL}{card_id}")
+        resp = requests.get(f"{SCRYFALL_API_URL}{card_id}", timeout=5)
         resp.raise_for_status()
     except requests.RequestException as exc:
         print(f"❌ Fehler beim Abrufen der Kartendaten: {exc}")

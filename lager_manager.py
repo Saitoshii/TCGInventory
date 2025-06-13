@@ -4,6 +4,14 @@ from tabulate import tabulate
 
 from . import DB_FILE
 
+__all__ = [
+    "add_card",
+    "add_storage_slot",
+    "list_all_cards",
+    "update_card",
+    "delete_card",
+]
+
 # Valid columns in the ``cards`` table that can be updated via ``update_card``
 ALLOWED_FIELDS = {
     "name",

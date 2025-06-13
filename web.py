@@ -10,7 +10,7 @@ from TCGInventory.setup_db import initialize_database
 from TCGInventory import DB_FILE
 
 app = Flask(__name__)
-app.secret_key = "tcg-secret"
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "tcg-secret")
 
 MKM_CLIENT = CardmarketClient.from_env()
 
