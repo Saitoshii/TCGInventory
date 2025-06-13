@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Update Cardmarket Price</h2>
+<form method="post">
+  Article ID: <input name="article_id"><br>
+  New Price: <input name="new_price" step="0.01"><br>
+  <input type="submit" value="Update">
+</form>
+{% endblock %}

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Scanner Queue</h2>
+{% if queue %}
+  <ul>
+  {% for card in queue %}
+    <li>{{ card['name'] }} - <a href="{{ url_for('upload_card_route', index=loop.index0) }}">Upload</a></li>
+  {% endfor %}
+  </ul>
+{% else %}
+  <p>No cards in queue.</p>
+{% endif %}
+{% endblock %}

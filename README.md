@@ -47,3 +47,19 @@ from TCGInventory import DB_FILE  # default path to ``mtg_lager.db``
 
 You can change ``DB_FILE`` before calling any functions if you want to store the
 data elsewhere.
+
+## Web Interface
+
+In addition to the CLI a small Flask based web application is available.  It
+provides the same basic functionality like viewing, adding and editing cards as
+well as interacting with Cardmarket.
+
+Start the local server with:
+
+```bash
+python web.py
+```
+
+The application will initialize the SQLite database on first start if it does
+not exist.  Open ``http://localhost:5000`` in your browser to use the
+interface.

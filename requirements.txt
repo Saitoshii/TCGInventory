@@ -9,3 +9,4 @@ requests
 pillow
 requests_oauthlib
 fpdf2
+flask

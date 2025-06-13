@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Scan Card Image</h2>
+<form method="post" enctype="multipart/form-data">
+  <input type="file" name="image">
+  <input type="submit" value="Scan">
+</form>
+{% endblock %}
