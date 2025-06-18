@@ -1,19 +1,28 @@
 <!doctype html>
-<title>TCG Inventory</title>
-<h1>TCG Inventory</h1>
-<nav>
-  <a href="{{ url_for('list_cards') }}">Cards</a> |
-  <a href="{{ url_for('add_card_view') }}">Add Card</a> |
-  <a href="{{ url_for('add_storage_view') }}">Add Storage</a>
-</nav>
-<hr>
-{% with messages = get_flashed_messages() %}
-  {% if messages %}
-    <ul>
-    {% for m in messages %}
-      <li>{{ m }}</li>
-    {% endfor %}
-    </ul>
-  {% endif %}
-{% endwith %}
-{% block content %}{% endblock %}
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>TCG Inventory</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+  <div class="container py-4">
+    <h1 class="mb-4">TCG Inventory</h1>
+    <nav class="mb-4">
+      <a class="btn btn-primary me-2" href="{{ url_for('list_cards') }}">Cards</a>
+      <a class="btn btn-secondary me-2" href="{{ url_for('add_card_view') }}">Add Card</a>
+      <a class="btn btn-secondary" href="{{ url_for('add_storage_view') }}">Add Storage</a>
+    </nav>
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <div class="alert alert-info">
+          {% for m in messages %}
+            <div>{{ m }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

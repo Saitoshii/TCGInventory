@@ -1,9 +1,15 @@
 {% extends "base.html" %}
 {% block content %}
-<h2>Update Cardmarket Price</h2>
+<h2 class="mb-4">Update Cardmarket Price</h2>
 <form method="post">
-  Article ID: <input name="article_id"><br>
-  New Price: <input name="new_price" step="0.01"><br>
-  <input type="submit" value="Update">
+  <div class="mb-3">
+    <label class="form-label">Article ID</label>
+    <input class="form-control" name="article_id">
+  </div>
+  <div class="mb-3">
+    <label class="form-label">New Price</label>
+    <input class="form-control" name="new_price" step="0.01" type="number">
+  </div>
+  <button type="submit" class="btn btn-primary">Update</button>
 </form>
 {% endblock %}
