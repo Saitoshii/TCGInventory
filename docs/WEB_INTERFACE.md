@@ -33,6 +33,8 @@ The **Cards** page shows the current inventory. Use the search field to filter b
 - *Cardmarket ID* – Optional link to the Cardmarket entry.
 - *Folder* – Assign the card to a folder (set) if one exists.
 
+When typing the name a list of suggestions from the Scryfall API appears for quick selection.
+
 To change an existing card, click **Edit** next to the card and modify the fields in the form.
 
 ## Bulk adding cards

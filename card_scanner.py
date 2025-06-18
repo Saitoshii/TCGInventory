@@ -65,6 +65,22 @@ def fetch_card_info_by_name(name: str) -> Optional[CardInfo]:
         "cardmarket_id": data.get("id", ""),
     }
 
+
+def autocomplete_names(query: str) -> list[str]:
+    """Return card name suggestions from Scryfall for the given query."""
+    try:
+        resp = requests.get(
+            "https://api.scryfall.com/cards/autocomplete",
+            params={"q": query},
+            timeout=5,
+        )
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        print(f"❌ Fehler beim Abrufen der Kartenvorschläge: {exc}")
+        return []
+    data = resp.json()
+    return data.get("data", [])
+
 def scan_and_queue(image_path: str) -> None:
     """Scan a card from an image and put its info into the queue."""
     card_id = scan_image(image_path)
