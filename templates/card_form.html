@@ -30,6 +30,17 @@
     <label class="form-label">Cardmarket ID</label>
     <input class="form-control" name="cardmarket_id" value="{{ card[7] if card else '' }}">
   </div>
+  {% if folders is not none %}
+  <div class="mb-3">
+    <label class="form-label">Folder</label>
+    <select name="folder_id" class="form-select">
+      <option value="">-- none --</option>
+      {% for f in folders %}
+      <option value="{{ f[0] }}" {% if card and card[8]==f[0] %}selected{% endif %}>{{ f[1] }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
   <button type="submit" class="btn btn-primary">Save</button>
 </form>
 {% endblock %}

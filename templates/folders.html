@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<h2 class="mb-4">Folders</h2>
+<table class="table table-striped">
+<tr><th>ID</th><th>Name</th></tr>
+{% for f in folders %}
+<tr><td>{{ f[0] }}</td><td>{{ f[1] }}</td></tr>
+{% endfor %}
+</table>
+<a href="{{ url_for('add_folder_view') }}" class="btn btn-primary">Add Folder</a>
+{% endblock %}

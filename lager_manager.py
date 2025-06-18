@@ -14,6 +14,8 @@ __all__ = [
     "update_card",
     "delete_card",
     "get_next_free_slot",
+    "add_folder",
+    "list_folders",
 ]
 
 # Valid columns in the ``cards`` table that can be updated via ``update_card``
@@ -25,12 +27,22 @@ ALLOWED_FIELDS = {
     "price",
     "storage_code",
     "cardmarket_id",
+    "folder_id",
     "status",
     "date_added",
 }
 
 # 📦 Funktion: Karte hinzufügen
-def add_card(name, set_code, language, condition, price, storage_code=None, cardmarket_id=""):
+def add_card(
+    name,
+    set_code,
+    language,
+    condition,
+    price,
+    storage_code=None,
+    cardmarket_id="",
+    folder_id=None,
+):
     """Add a card and automatically reserve a storage slot if none is given."""
     if not storage_code:
         storage_code = get_next_free_slot(set_code)
@@ -49,8 +61,8 @@ def add_card(name, set_code, language, condition, price, storage_code=None, card
 
         cursor.execute(
             """
-        INSERT INTO cards (name, set_code, language, condition, price, storage_code, cardmarket_id, date_added)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO cards (name, set_code, language, condition, price, storage_code, cardmarket_id, date_added, folder_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 name,
@@ -61,6 +73,7 @@ def add_card(name, set_code, language, condition, price, storage_code=None, card
                 storage_code,
                 cardmarket_id,
                 datetime.now().isoformat(),
+                folder_id,
             ),
         )
 
@@ -104,7 +117,13 @@ def list_all_cards():
         cursor = conn.cursor()
 
         cursor.execute(
-            "SELECT id, name, set_code, language, condition, price, storage_code, status FROM cards"
+            """
+            SELECT cards.id, cards.name, cards.set_code, cards.language,
+                   cards.condition, cards.price, cards.storage_code,
+                   COALESCE(folders.name, ''), cards.status
+            FROM cards
+            LEFT JOIN folders ON cards.folder_id = folders.id
+            """
         )
         cards = cursor.fetchall()
 
@@ -118,6 +137,7 @@ def list_all_cards():
             "Zustand",
             "Preis (€)",
             "Lagerplatz",
+            "Ordner",
             "Status",
         ]
         print(tabulate(cards, headers=headers, tablefmt="github"))
@@ -169,3 +189,29 @@ def delete_card(card_id):
             print(f"🗑️ Karte mit ID {card_id} wurde gelöscht und Lagerplatz '{storage_code}' freigegeben.")
         else:
             print(f"⚠️ Keine Karte mit ID {card_id} gefunden.")
+
+
+# ---------------------------------------------------------------------------
+# Folder helpers
+# ---------------------------------------------------------------------------
+
+def add_folder(name: str) -> int | None:
+    """Create a folder entry if it does not exist and return its ID."""
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("INSERT OR IGNORE INTO folders (name) VALUES (?)", (name,))
+        conn.commit()
+        cursor.execute("SELECT id FROM folders WHERE name = ?", (name,))
+        row = cursor.fetchone()
+        if row:
+            print(f"📁 Ordner '{name}' angelegt.")
+            return row[0]
+    return None
+
+
+def list_folders():
+    """Return a list of all folders."""
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, name FROM folders ORDER BY name")
+        return cursor.fetchall()

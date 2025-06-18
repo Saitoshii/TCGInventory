@@ -7,6 +7,8 @@ from TCGInventory.lager_manager import (
     update_card,
     delete_card,
     add_storage_slot,
+    add_folder,
+    list_folders,
 )
 from TCGInventory.setup_db import initialize_database
 from TCGInventory import DB_FILE
@@ -20,12 +22,24 @@ def init_db() -> None:
         initialize_database()
 
 
-def fetch_cards():
+def fetch_cards(search: str | None = None):
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
-        c.execute(
-            "SELECT id, name, set_code, language, condition, price, storage_code, status, cardmarket_id FROM cards"
+        query = (
+            """
+            SELECT cards.id, cards.name, cards.set_code, cards.language,
+                   cards.condition, cards.price, cards.storage_code,
+                   COALESCE(folders.name, ''), cards.status
+            FROM cards
+            LEFT JOIN folders ON cards.folder_id = folders.id
+            """
         )
+        params: tuple = ()
+        if search:
+            query += " WHERE cards.name LIKE ? OR cards.set_code LIKE ?"
+            like = f"%{search}%"
+            params = (like, like)
+        c.execute(query, params)
         return c.fetchall()
 
 
@@ -33,7 +47,11 @@ def get_card(card_id: int):
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         c.execute(
-            "SELECT id, name, set_code, language, condition, price, storage_code, cardmarket_id FROM cards WHERE id = ?",
+            """
+            SELECT id, name, set_code, language, condition, price, storage_code,
+                   cardmarket_id, folder_id
+            FROM cards WHERE id = ?
+            """,
             (card_id,),
         )
         return c.fetchone()
@@ -46,12 +64,14 @@ def index():
 
 @app.route("/cards")
 def list_cards():
-    cards = fetch_cards()
-    return render_template("cards.html", cards=cards)
+    search = request.args.get("q", "")
+    cards = fetch_cards(search if search else None)
+    return render_template("cards.html", cards=cards, search=search)
 
 
 @app.route("/cards/add", methods=["GET", "POST"])
 def add_card_view():
+    folders = list_folders()
     if request.method == "POST":
         add_card(
             request.form["name"],
@@ -61,15 +81,17 @@ def add_card_view():
             float(request.form.get("price", 0) or 0),
             request.form.get("storage_code", ""),
             request.form.get("cardmarket_id", ""),
+            request.form.get("folder_id"),
         )
         flash("Card added")
         return redirect(url_for("list_cards"))
-    return render_template("card_form.html", card=None)
+    return render_template("card_form.html", card=None, folders=folders)
 
 
 @app.route("/cards/<int:card_id>/edit", methods=["GET", "POST"])
 def edit_card_view(card_id: int):
     card = get_card(card_id)
+    folders = list_folders()
     if request.method == "POST":
         update_card(
             card_id,
@@ -80,10 +102,11 @@ def edit_card_view(card_id: int):
             price=float(request.form.get("price", 0) or 0),
             storage_code=request.form.get("storage_code", ""),
             cardmarket_id=request.form.get("cardmarket_id", ""),
+            folder_id=request.form.get("folder_id"),
         )
         flash("Card updated")
         return redirect(url_for("list_cards"))
-    return render_template("card_form.html", card=card)
+    return render_template("card_form.html", card=card, folders=folders)
 
 
 @app.route("/cards/<int:card_id>/delete")
@@ -93,6 +116,21 @@ def delete_card_route(card_id: int):
     return redirect(url_for("list_cards"))
 
 
+@app.route("/folders")
+def list_folders_view():
+    folders = list_folders()
+    return render_template("folders.html", folders=folders)
+
+
+@app.route("/folders/add", methods=["GET", "POST"])
+def add_folder_view():
+    if request.method == "POST":
+        add_folder(request.form["name"])
+        flash("Folder added")
+        return redirect(url_for("list_folders_view"))
+    return render_template("folder_form.html")
+
+
 @app.route("/storage/add", methods=["GET", "POST"])
 def add_storage_view():
     if request.method == "POST":
@@ -100,6 +138,20 @@ def add_storage_view():
         flash("Storage slot added")
         return redirect(url_for("list_cards"))
     return render_template("storage_form.html")
+
+
+@app.route("/cards/bulk_add", methods=["GET", "POST"])
+def bulk_add_view():
+    folders = list_folders()
+    if request.method == "POST":
+        folder = request.form.get("folder_id")
+        for line in request.form.get("cards", "").splitlines():
+            parts = [p.strip() for p in line.split(",") if p.strip()]
+            if len(parts) >= 2:
+                add_card(parts[0], parts[1], "", "", 0, None, "", folder)
+        flash("Cards added")
+        return redirect(url_for("list_cards"))
+    return render_template("bulk_add.html", folders=folders)
 
 
 
