@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h2 class="mb-4">Bulk Add Cards</h2>
-<form method="post">
+<form method="post" enctype="multipart/form-data">
   <div class="mb-3">
     <label class="form-label">Folder</label>
     <select name="folder_id" class="form-select">
@@ -12,8 +12,12 @@
     </select>
   </div>
   <div class="mb-3">
-    <label class="form-label">Cards (name,set_code per line)</label>
+    <label class="form-label">Cards (one name per line)</label>
     <textarea name="cards" class="form-control" rows="6"></textarea>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">JSON File</label>
+    <input type="file" name="json_file" class="form-control">
   </div>
   <button type="submit" class="btn btn-primary">Add</button>
 </form>

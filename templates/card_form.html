@@ -7,10 +7,6 @@
     <input class="form-control" name="name" value="{{ card[1] if card else '' }}" required>
   </div>
   <div class="mb-3">
-    <label class="form-label">Set Code</label>
-    <input class="form-control" name="set_code" value="{{ card[2] if card else '' }}" required>
-  </div>
-  <div class="mb-3">
     <label class="form-label">Language</label>
     <input class="form-control" name="language" value="{{ card[3] if card else '' }}">
   </div>
@@ -32,7 +28,7 @@
   </div>
   {% if folders is not none %}
   <div class="mb-3">
-    <label class="form-label">Folder</label>
+    <label class="form-label">Folder (Set)</label>
     <select name="folder_id" class="form-select">
       <option value="">-- none --</option>
       {% for f in folders %}
