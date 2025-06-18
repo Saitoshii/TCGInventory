@@ -3,16 +3,13 @@ import os
 from TCGInventory.lager_manager import (
     add_card,
     add_storage_slot,
+    create_binder,
     update_card,
     delete_card,
     list_all_cards,
 )
 from TCGInventory.setup_db import initialize_database
 from TCGInventory import DB_FILE
-from TCGInventory.card_scanner import scan_and_queue, SCANNER_QUEUE
-from TCGInventory.cardmarket_api import upload_card, CardmarketClient
-
-MKM_CLIENT = CardmarketClient.from_env()
 
 
 
@@ -28,11 +25,7 @@ def show_menu():
     print("2. Alle Karten anzeigen")
     print("3. Karte bearbeiten")
     print("4. Karte löschen")
-    print("5. Lagerplatz hinzufügen")
-    print("6. Karte scannen (Bild)")
-    print("7. Karte aus Queue hochladen")
-    print("8. Preis auf Cardmarket aktualisieren")
-    print("9. Verkäufe abrufen und als PDF speichern")
+    print("5. Ordner anlegen")
     print("0. Beenden")
 
 
@@ -66,16 +59,12 @@ def run():
                 language = input("Sprache: ")
                 condition = input("Zustand (z. B. Near Mint): ")
                 price = _get_float("Preis (€): ")
-                storage_code = input("Lagercode (z. B. O01-S01-H01): ")
-                cardmarket_id = input("Cardmarket-ID (optional): ")
                 add_card(
                     name,
                     set_code,
                     language,
                     condition,
                     price,
-                    storage_code,
-                    cardmarket_id,
                 )
 
             elif choice == "2":
@@ -95,32 +84,9 @@ def run():
                 delete_card(card_id)
 
             elif choice == "5":
-                code = input("Neuer Lagerplatz-Code (z. B. O02-S04-H09): ")
-                add_storage_slot(code)
-
-            elif choice == "6":
-                path = input("Pfad zum Kartenbild: ")
-                scan_and_queue(path)
-
-            elif choice == "7":
-                if SCANNER_QUEUE.empty():
-                    print("⚠️ Keine Karten in der Queue.")
-                else:
-                    card = SCANNER_QUEUE.get()
-                    upload_card(card)
-
-            elif choice == "8":
-                article_id = _get_int("Cardmarket Artikel-ID: ")
-                new_price = _get_float("Neuer Preis (€): ")
-                MKM_CLIENT.update_price(article_id, new_price)
-
-            elif choice == "9":
-                sales = MKM_CLIENT.fetch_sales()
-                if not sales:
-                    print("Keine Verkäufe gefunden.")
-                else:
-                    path = input("PDF-Datei speichern unter: ")
-                    MKM_CLIENT.sales_to_pdf(sales, path)
+                set_code = input("Set-Code für den Ordner: ")
+                pages = _get_int("Anzahl Seiten: ")
+                create_binder(set_code, pages)
 
             elif choice == "0":
                 print("👋 Programm beendet.")

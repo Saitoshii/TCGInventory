@@ -11,16 +11,7 @@ Install the required dependencies with ``pip``:
 pip install -r requirements.txt
 ```
 
-The Cardmarket integration requires additional environment variables for OAuth1
-authentication:
-
-```
-MKM_APP_TOKEN=<your app token>
-MKM_APP_SECRET=<your app secret>
-MKM_TOKEN=<your access token>
-MKM_TOKEN_SECRET=<your access token secret>
-FLASK_SECRET_KEY=<secret for the web interface>
-```
+For the optional web interface set ``FLASK_SECRET_KEY`` in your environment.
 
 ## Usage
 
@@ -36,8 +27,12 @@ Run the CLI via the module path so Python can resolve the ``TCGInventory`` packa
 python -m TCGInventory.cli
 ```
 
-Within the CLI you can now update article prices on Cardmarket and fetch your
-current sales.  When sales are fetched, a PDF summary can be generated.
+The CLI automatically manages storage slots.  Create binders for each set using
+option ``Ordner anlegen``.  Specify the set code and the number of pages; each
+page provides nine slots.  When you add a card without specifying a storage
+code, the next free slot in the corresponding binder will be used.
+
+
 
 Example functions can also be called programmatically, e.g.:
 
@@ -52,8 +47,7 @@ data elsewhere.
 ## Web Interface
 
 In addition to the CLI a small Flask based web application is available.  It
-provides the same basic functionality like viewing, adding and editing cards as
-well as interacting with Cardmarket.
+provides basic functionality like viewing, adding and editing cards.
 
 Start the local server with:
 
