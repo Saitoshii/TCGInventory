@@ -1,6 +1,6 @@
 import os
 import sqlite3
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 
 from TCGInventory.lager_manager import (
     add_card,
@@ -10,7 +10,7 @@ from TCGInventory.lager_manager import (
     add_folder,
     list_folders,
 )
-from TCGInventory.card_scanner import fetch_card_info_by_name
+from TCGInventory.card_scanner import fetch_card_info_by_name, autocomplete_names
 from TCGInventory.setup_db import initialize_database
 from TCGInventory import DB_FILE
 
@@ -56,6 +56,15 @@ def get_card(card_id: int):
             (card_id,),
         )
         return c.fetchone()
+
+
+@app.route("/api/autocomplete")
+def autocomplete_api():
+    """Return card name suggestions for the given query."""
+    query = request.args.get("q", "")
+    if not query:
+        return jsonify([])
+    return jsonify(autocomplete_names(query))
 
 
 @app.route("/")

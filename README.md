@@ -60,3 +60,7 @@ not exist.  Open ``http://localhost:5000`` in your browser to use the
 interface.
 
 For a detailed walkthrough of the available pages and forms, see [docs/WEB_INTERFACE.md](docs/WEB_INTERFACE.md).
+
+## Autocomplete
+
+When adding a card through the web interface the **Name** field now shows suggestions provided by the Scryfall API. Start typing to get a dropdown list of matching card names.
