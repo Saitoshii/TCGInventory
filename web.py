@@ -80,7 +80,7 @@ def add_card_view():
             if str(f[0]) == str(folder_id):
                 set_code = f[1]
                 break
-        add_card(
+        success = add_card(
             request.form["name"],
             set_code,
             request.form.get("language", ""),
@@ -90,8 +90,10 @@ def add_card_view():
             request.form.get("cardmarket_id", ""),
             folder_id,
         )
-        flash("Card added")
-        return redirect(url_for("list_cards"))
+        if success:
+            flash("Card added")
+            return redirect(url_for("list_cards"))
+        flash("No free storage slot for this set", "error")
     return render_template("card_form.html", card=None, folders=folders)
 
 
@@ -175,6 +177,7 @@ def bulk_add_view():
 
         # handle uploaded JSON file
         json_file = request.files.get("json_file")
+        added_any = False
         if json_file and json_file.filename:
             try:
                 import json
@@ -188,7 +191,7 @@ def bulk_add_view():
                             continue
                         info = fetch_card_info_by_name(name)
                         if info:
-                            add_card(
+                            if add_card(
                                 info.get("name", name),
                                 set_code or info.get("set_code", ""),
                                 info.get("language", ""),
@@ -197,9 +200,15 @@ def bulk_add_view():
                                 None,
                                 info.get("cardmarket_id", ""),
                                 folder_id,
-                            )
+                            ):
+                                added_any = True
+                            else:
+                                flash(f"No slot for {name}", "error")
                         else:
-                            add_card(name, set_code, "", "", 0, None, "", folder_id)
+                            if add_card(name, set_code, "", "", 0, None, "", folder_id):
+                                added_any = True
+                            else:
+                                flash(f"No slot for {name}", "error")
             except Exception:
                 flash("Invalid JSON file")
 
@@ -209,7 +218,7 @@ def bulk_add_view():
                 continue
             info = fetch_card_info_by_name(name)
             if info:
-                add_card(
+                if add_card(
                     info.get("name", name),
                     set_code or info.get("set_code", ""),
                     info.get("language", ""),
@@ -218,11 +227,20 @@ def bulk_add_view():
                     None,
                     info.get("cardmarket_id", ""),
                     folder_id,
-                )
+                ):
+                    added_any = True
+                else:
+                    flash(f"No slot for {name}", "error")
             else:
-                add_card(name, set_code, "", "", 0, None, "", folder_id)
+                if add_card(name, set_code, "", "", 0, None, "", folder_id):
+                    added_any = True
+                else:
+                    flash(f"No slot for {name}", "error")
 
-        flash("Cards added")
+        if added_any:
+            flash("Cards added")
+        else:
+            flash("No cards added", "error")
         return redirect(url_for("list_cards"))
     return render_template("bulk_add.html", folders=folders)
 

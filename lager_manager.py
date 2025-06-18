@@ -43,12 +43,16 @@ def add_card(
     cardmarket_id="",
     folder_id=None,
 ):
-    """Add a card and automatically reserve a storage slot if none is given."""
+    """Add a card and automatically reserve a storage slot if none is given.
+
+    Returns ``True`` on success and ``False`` if the card could not be added
+    (for example if no free storage slot exists).
+    """
     if not storage_code:
         storage_code = get_next_free_slot(set_code)
         if not storage_code:
             print(f"⚠️ Kein freier Lagerplatz für Set {set_code} vorhanden.")
-            return
+            return False
 
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
@@ -78,6 +82,7 @@ def add_card(
         )
 
     print(f"✅ Karte '{name}' erfolgreich hinzugefügt und auf '{storage_code}' abgelegt.")
+    return True
 
 # 📍 Funktion: Lagerplatz hinzufügen
 def add_storage_slot(code):
