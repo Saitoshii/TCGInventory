@@ -1,11 +1,22 @@
 {% extends "base.html" %}
 {% block content %}
 <h2 class="mb-4">Folders</h2>
-<table class="table table-striped">
-<tr><th>ID</th><th>Name</th></tr>
 {% for f in folders %}
-<tr><td>{{ f[0] }}</td><td>{{ f[1] }}</td></tr>
+  <h4 class="mt-4">{{ f[1] }}</h4>
+  <table class="table table-sm table-striped">
+    <tr><th>ID</th><th>Name</th><th>Set</th><th>Storage</th></tr>
+    {% for c in folder_cards.get(f[0], []) %}
+    <tr>
+      <td>{{ c[0] }}</td>
+      <td>{{ c[1] }}</td>
+      <td>{{ c[2] }}</td>
+      <td>{{ c[3] }}</td>
+    </tr>
+    {% endfor %}
+    {% if not folder_cards.get(f[0], []) %}
+    <tr><td colspan="4" class="text-muted">No cards</td></tr>
+    {% endif %}
+  </table>
 {% endfor %}
-</table>
-<a href="{{ url_for('add_folder_view') }}" class="btn btn-primary">Add Folder</a>
+<a href="{{ url_for('add_folder_view') }}" class="btn btn-primary mt-3">Add Folder</a>
 {% endblock %}

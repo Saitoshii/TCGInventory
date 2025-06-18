@@ -46,6 +46,25 @@ def fetch_card_info(card_id: str) -> Optional[CardInfo]:
         "cardmarket_id": data.get("id"),
     }
 
+
+def fetch_card_info_by_name(name: str) -> Optional[CardInfo]:
+    """Retrieve card details from Scryfall using the card name."""
+    try:
+        resp = requests.get(
+            f"https://api.scryfall.com/cards/named", params={"exact": name}, timeout=5
+        )
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        print(f"❌ Fehler beim Abrufen der Kartendaten: {exc}")
+        return None
+    data = resp.json()
+    return {
+        "name": data.get("name", name),
+        "set_code": data.get("set", ""),
+        "language": data.get("lang", ""),
+        "cardmarket_id": data.get("id", ""),
+    }
+
 def scan_and_queue(image_path: str) -> None:
     """Scan a card from an image and put its info into the queue."""
     card_id = scan_image(image_path)

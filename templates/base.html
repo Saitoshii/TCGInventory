@@ -13,7 +13,7 @@
       <a class="btn btn-secondary me-2" href="{{ url_for('add_card_view') }}">Add Card</a>
       <a class="btn btn-secondary me-2" href="{{ url_for('bulk_add_view') }}">Bulk Add</a>
       <a class="btn btn-secondary me-2" href="{{ url_for('list_folders_view') }}">Folders</a>
-      <a class="btn btn-secondary" href="{{ url_for('add_storage_view') }}">Add Storage</a>
+      {# Storage management not required right now #}
     </nav>
     {% with messages = get_flashed_messages() %}
       {% if messages %}

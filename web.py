@@ -10,6 +10,7 @@ from TCGInventory.lager_manager import (
     add_folder,
     list_folders,
 )
+from TCGInventory.card_scanner import fetch_card_info_by_name
 from TCGInventory.setup_db import initialize_database
 from TCGInventory import DB_FILE
 
@@ -73,15 +74,21 @@ def list_cards():
 def add_card_view():
     folders = list_folders()
     if request.method == "POST":
+        folder_id = request.form.get("folder_id")
+        set_code = ""
+        for f in folders:
+            if str(f[0]) == str(folder_id):
+                set_code = f[1]
+                break
         add_card(
             request.form["name"],
-            request.form["set_code"],
+            set_code,
             request.form.get("language", ""),
             request.form.get("condition", ""),
             float(request.form.get("price", 0) or 0),
             request.form.get("storage_code", ""),
             request.form.get("cardmarket_id", ""),
-            request.form.get("folder_id"),
+            folder_id,
         )
         flash("Card added")
         return redirect(url_for("list_cards"))
@@ -93,16 +100,22 @@ def edit_card_view(card_id: int):
     card = get_card(card_id)
     folders = list_folders()
     if request.method == "POST":
+        folder_id = request.form.get("folder_id")
+        set_code = card[2]
+        for f in folders:
+            if str(f[0]) == str(folder_id):
+                set_code = f[1]
+                break
         update_card(
             card_id,
             name=request.form["name"],
-            set_code=request.form["set_code"],
+            set_code=set_code,
             language=request.form.get("language", ""),
             condition=request.form.get("condition", ""),
             price=float(request.form.get("price", 0) or 0),
             storage_code=request.form.get("storage_code", ""),
             cardmarket_id=request.form.get("cardmarket_id", ""),
-            folder_id=request.form.get("folder_id"),
+            folder_id=folder_id,
         )
         flash("Card updated")
         return redirect(url_for("list_cards"))
@@ -119,7 +132,16 @@ def delete_card_route(card_id: int):
 @app.route("/folders")
 def list_folders_view():
     folders = list_folders()
-    return render_template("folders.html", folders=folders)
+    folder_cards = {}
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        for fid, _ in folders:
+            c.execute(
+                "SELECT id, name, set_code, storage_code FROM cards WHERE folder_id=? ORDER BY name",
+                (fid,),
+            )
+            folder_cards[fid] = c.fetchall()
+    return render_template("folders.html", folders=folders, folder_cards=folder_cards)
 
 
 @app.route("/folders/add", methods=["GET", "POST"])
@@ -144,11 +166,62 @@ def add_storage_view():
 def bulk_add_view():
     folders = list_folders()
     if request.method == "POST":
-        folder = request.form.get("folder_id")
+        folder_id = request.form.get("folder_id")
+        set_code = ""
+        for f in folders:
+            if str(f[0]) == str(folder_id):
+                set_code = f[1]
+                break
+
+        # handle uploaded JSON file
+        json_file = request.files.get("json_file")
+        if json_file and json_file.filename:
+            try:
+                import json
+                data = json.load(json_file)
+                if isinstance(data, list):
+                    for entry in data:
+                        name = entry.get("name") if isinstance(entry, dict) else None
+                        if not name and isinstance(entry, str):
+                            name = entry
+                        if not name:
+                            continue
+                        info = fetch_card_info_by_name(name)
+                        if info:
+                            add_card(
+                                info.get("name", name),
+                                set_code or info.get("set_code", ""),
+                                info.get("language", ""),
+                                "",
+                                0,
+                                None,
+                                info.get("cardmarket_id", ""),
+                                folder_id,
+                            )
+                        else:
+                            add_card(name, set_code, "", "", 0, None, "", folder_id)
+            except Exception:
+                flash("Invalid JSON file")
+
         for line in request.form.get("cards", "").splitlines():
-            parts = [p.strip() for p in line.split(",") if p.strip()]
-            if len(parts) >= 2:
-                add_card(parts[0], parts[1], "", "", 0, None, "", folder)
+            name = line.strip()
+            if not name:
+                continue
+            info = fetch_card_info_by_name(name)
+            if info:
+                add_card(
+                    info.get("name", name),
+                    set_code or info.get("set_code", ""),
+                    info.get("language", ""),
+                    "",
+                    0,
+                    None,
+                    info.get("cardmarket_id", ""),
+                    folder_id,
+                )
+            else:
+                add_card(name, set_code, "", "", 0, None, "", folder_id)
+
         flash("Cards added")
         return redirect(url_for("list_cards"))
     return render_template("bulk_add.html", folders=folders)
