@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import sqlite3
 from datetime import datetime
 from tabulate import tabulate
@@ -7,9 +9,11 @@ from . import DB_FILE
 __all__ = [
     "add_card",
     "add_storage_slot",
+    "create_binder",
     "list_all_cards",
     "update_card",
     "delete_card",
+    "get_next_free_slot",
 ]
 
 # Valid columns in the ``cards`` table that can be updated via ``update_card``
@@ -26,19 +30,41 @@ ALLOWED_FIELDS = {
 }
 
 # 📦 Funktion: Karte hinzufügen
-def add_card(name, set_code, language, condition, price, storage_code, cardmarket_id):
+def add_card(name, set_code, language, condition, price, storage_code=None, cardmarket_id=""):
+    """Add a card and automatically reserve a storage slot if none is given."""
+    if not storage_code:
+        storage_code = get_next_free_slot(set_code)
+        if not storage_code:
+            print(f"⚠️ Kein freier Lagerplatz für Set {set_code} vorhanden.")
+            return
+
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
 
         # Lagerplatz als belegt markieren
-        cursor.execute("UPDATE storage_slots SET is_occupied = 1 WHERE code = ?", (storage_code,))
+        cursor.execute(
+            "UPDATE storage_slots SET is_occupied = 1 WHERE code = ?",
+            (storage_code,),
+        )
 
-        cursor.execute('''
+        cursor.execute(
+            """
         INSERT INTO cards (name, set_code, language, condition, price, storage_code, cardmarket_id, date_added)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (name, set_code, language, condition, price, storage_code, cardmarket_id, datetime.now().isoformat()))
+        """,
+            (
+                name,
+                set_code,
+                language,
+                condition,
+                price,
+                storage_code,
+                cardmarket_id,
+                datetime.now().isoformat(),
+            ),
+        )
 
-    print(f"✅ Karte '{name}' erfolgreich hinzugefügt.")
+    print(f"✅ Karte '{name}' erfolgreich hinzugefügt und auf '{storage_code}' abgelegt.")
 
 # 📍 Funktion: Lagerplatz hinzufügen
 def add_storage_slot(code):
@@ -51,6 +77,26 @@ def add_storage_slot(code):
         ''', (code,))
 
     print(f"📁 Lagerplatz '{code}' hinzugefügt oder bereits vorhanden.")
+
+
+def create_binder(set_code: str, pages: int) -> None:
+    """Create storage slots for a binder consisting of several pages."""
+    for page in range(1, pages + 1):
+        for slot in range(1, 10):
+            code = f"{set_code}-P{page:02d}-S{slot:02d}"
+            add_storage_slot(code)
+
+
+def get_next_free_slot(set_code: str) -> str | None:
+    """Return the first free slot for a given set code."""
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT code FROM storage_slots WHERE code LIKE ? AND is_occupied = 0 ORDER BY code LIMIT 1",
+            (f"{set_code}-%",),
+        )
+        result = cursor.fetchone()
+        return result[0] if result else None
 
 # 🔍 Funktion: Alle Karten anzeigen
 def list_all_cards():
