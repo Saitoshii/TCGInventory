@@ -58,3 +58,5 @@ python web.py
 The application will initialize the SQLite database on first start if it does
 not exist.  Open ``http://localhost:5000`` in your browser to use the
 interface.
+
+For a detailed walkthrough of the available pages and forms, see [docs/WEB_INTERFACE.md](docs/WEB_INTERFACE.md).
