@@ -20,11 +20,27 @@ def initialize_database() -> None:
                 price REAL,
                 storage_code TEXT,
                 cardmarket_id TEXT,
+                folder_id INTEGER,
                 status TEXT DEFAULT 'verfügbar',
                 date_added TEXT
             )
             """
         )
+
+        # create folders table and column if missing
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS folders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE
+            )
+            """
+        )
+
+        cursor.execute("PRAGMA table_info(cards)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "folder_id" not in columns:
+            cursor.execute("ALTER TABLE cards ADD COLUMN folder_id INTEGER")
 
         # Tabelle 2: Lagerplätze
         cursor.execute(

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<h2 class="mb-4">Bulk Add Cards</h2>
+<form method="post">
+  <div class="mb-3">
+    <label class="form-label">Folder</label>
+    <select name="folder_id" class="form-select">
+      <option value="">-- none --</option>
+      {% for f in folders %}
+      <option value="{{ f[0] }}">{{ f[1] }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Cards (name,set_code per line)</label>
+    <textarea name="cards" class="form-control" rows="6"></textarea>
+  </div>
+  <button type="submit" class="btn btn-primary">Add</button>
+</form>
+{% endblock %}
