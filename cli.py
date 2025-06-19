@@ -2,7 +2,6 @@ import os
 
 from TCGInventory.lager_manager import (
     add_card,
-    add_storage_slot,
     create_binder,
     update_card,
     delete_card,

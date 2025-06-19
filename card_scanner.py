@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from queue import Queue
-from typing import Dict, Optional, List, Iterable
+from typing import Dict, Optional, List
 
 import json
 import sqlite3
@@ -149,7 +149,7 @@ def fetch_card_info_by_name(name: str) -> Optional[CardInfo]:
 
     try:
         resp = requests.get(
-            f"https://api.scryfall.com/cards/named", params={"exact": name}, timeout=5
+            "https://api.scryfall.com/cards/named", params={"exact": name}, timeout=5
         )
         resp.raise_for_status()
     except requests.RequestException as exc:
