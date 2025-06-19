@@ -43,25 +43,23 @@ def add_card(
     cardmarket_id="",
     folder_id=None,
 ):
-    """Add a card and automatically reserve a storage slot if none is given.
-
-    Returns ``True`` on success and ``False`` if the card could not be added
-    (for example if no free storage slot exists).
-    """
+    """Add a card and reserve a storage slot if available."""
     if not storage_code:
         storage_code = get_next_free_slot(set_code)
         if not storage_code:
-            print(f"⚠️ Kein freier Lagerplatz für Set {set_code} vorhanden.")
-            return False
+            print(
+                f"ℹ️ Kein freier Lagerplatz für Set {set_code}. Karte wird ohne Lagerplatz gespeichert."
+            )
 
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
 
         # Lagerplatz als belegt markieren
-        cursor.execute(
-            "UPDATE storage_slots SET is_occupied = 1 WHERE code = ?",
-            (storage_code,),
-        )
+        if storage_code:
+            cursor.execute(
+                "UPDATE storage_slots SET is_occupied = 1 WHERE code = ?",
+                (storage_code,),
+            )
 
         cursor.execute(
             """
@@ -81,7 +79,12 @@ def add_card(
             ),
         )
 
-    print(f"✅ Karte '{name}' erfolgreich hinzugefügt und auf '{storage_code}' abgelegt.")
+    message = f"✅ Karte '{name}' erfolgreich hinzugefügt"
+    if storage_code:
+        message += f" und auf '{storage_code}' abgelegt."
+    else:
+        message += "."
+    print(message)
     return True
 
 # 📍 Funktion: Lagerplatz hinzufügen
@@ -189,9 +192,18 @@ def delete_card(card_id):
 
         if result:
             storage_code = result[0]
-            cursor.execute("UPDATE storage_slots SET is_occupied = 0 WHERE code = ?", (storage_code,))
+            if storage_code:
+                cursor.execute(
+                    "UPDATE storage_slots SET is_occupied = 0 WHERE code = ?",
+                    (storage_code,),
+                )
             cursor.execute("DELETE FROM cards WHERE id = ?", (card_id,))
-            print(f"🗑️ Karte mit ID {card_id} wurde gelöscht und Lagerplatz '{storage_code}' freigegeben.")
+            if storage_code:
+                print(
+                    f"🗑️ Karte mit ID {card_id} wurde gelöscht und Lagerplatz '{storage_code}' freigegeben."
+                )
+            else:
+                print(f"🗑️ Karte mit ID {card_id} wurde gelöscht.")
         else:
             print(f"⚠️ Keine Karte mit ID {card_id} gefunden.")
 
