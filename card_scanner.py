@@ -34,7 +34,8 @@ def _load_card_database() -> None:
     if _DB_CONN:
         return
     if DEFAULT_DB_PATH.exists():
-        _DB_CONN = sqlite3.connect(DEFAULT_DB_PATH)
+        # allow usage across threads when served via Flask
+        _DB_CONN = sqlite3.connect(DEFAULT_DB_PATH, check_same_thread=False)
         _DB_CONN.row_factory = sqlite3.Row
         try:
             _DB_CONN.execute("SELECT 1 FROM cards LIMIT 1")
