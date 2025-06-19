@@ -4,19 +4,48 @@ from __future__ import annotations
 
 from pathlib import Path
 from queue import Queue
-from typing import Dict, Optional
+from typing import Dict, Optional, List
+
+import json
 
 import cv2
 from pyzbar.pyzbar import decode
 import requests
 
 SCRYFALL_API_URL = "https://api.scryfall.com/cards/"
+DEFAULT_CARDS_PATH = Path(__file__).resolve().parent / "data" / "default-cards.json"
+
+_CARDS_BY_ID: Dict[str, Dict] = {}
+_CARDS_BY_NAME: Dict[str, Dict] = {}
 
 #: Result type for ``fetch_card_info`` and queue entries
 CardInfo = Dict[str, str]
 
 # Queue für gescannte Karten
 SCANNER_QUEUE: Queue[CardInfo] = Queue()
+
+
+def _load_card_database() -> None:
+    """Load the local card database if available."""
+    if _CARDS_BY_ID:
+        return
+    if not DEFAULT_CARDS_PATH.exists():
+        print(f"⚠️  Lokale Kartendatei {DEFAULT_CARDS_PATH} nicht gefunden.")
+        return
+    try:
+        with DEFAULT_CARDS_PATH.open("r", encoding="utf-8") as f:
+            cards: List[Dict] = json.load(f)
+    except Exception as exc:  # pragma: no cover - simple placeholder
+        print(f"❌ Fehler beim Laden der Kartendaten: {exc}")
+        return
+
+    for card in cards:
+        cid = card.get("id")
+        name = card.get("name", "").lower()
+        if cid:
+            _CARDS_BY_ID[cid] = card
+        if name and name not in _CARDS_BY_NAME:
+            _CARDS_BY_NAME[name] = card
 
 def scan_image(path: str) -> Optional[str]:
     """Scan an image file for barcodes and return the first result as string."""
@@ -31,7 +60,17 @@ def scan_image(path: str) -> Optional[str]:
     return codes[0].data.decode("utf-8")
 
 def fetch_card_info(card_id: str) -> Optional[CardInfo]:
-    """Retrieve card details from Scryfall."""
+    """Retrieve card details from the local database or Scryfall."""
+    _load_card_database()
+    card = _CARDS_BY_ID.get(card_id)
+    if card:
+        return {
+            "name": card.get("name", ""),
+            "set_code": card.get("set", ""),
+            "language": card.get("lang", ""),
+            "cardmarket_id": card.get("id", ""),
+        }
+
     try:
         resp = requests.get(f"{SCRYFALL_API_URL}{card_id}", timeout=5)
         resp.raise_for_status()
@@ -48,7 +87,17 @@ def fetch_card_info(card_id: str) -> Optional[CardInfo]:
 
 
 def fetch_card_info_by_name(name: str) -> Optional[CardInfo]:
-    """Retrieve card details from Scryfall using the card name."""
+    """Retrieve card details from the local database or Scryfall."""
+    _load_card_database()
+    card = _CARDS_BY_NAME.get(name.lower())
+    if card:
+        return {
+            "name": card.get("name", name),
+            "set_code": card.get("set", ""),
+            "language": card.get("lang", ""),
+            "cardmarket_id": card.get("id", ""),
+        }
+
     try:
         resp = requests.get(
             f"https://api.scryfall.com/cards/named", params={"exact": name}, timeout=5
@@ -67,7 +116,18 @@ def fetch_card_info_by_name(name: str) -> Optional[CardInfo]:
 
 
 def autocomplete_names(query: str) -> list[str]:
-    """Return card name suggestions from Scryfall for the given query."""
+    """Return card name suggestions from the local database or Scryfall."""
+    _load_card_database()
+    if _CARDS_BY_NAME:
+        query_l = query.lower()
+        matches = [
+            card.get("name", "")
+            for name, card in _CARDS_BY_NAME.items()
+            if name.startswith(query_l)
+        ]
+        if matches:
+            return matches[:20]
+
     try:
         resp = requests.get(
             "https://api.scryfall.com/cards/autocomplete",
