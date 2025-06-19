@@ -64,4 +64,7 @@ For a detailed walkthrough of the available pages and forms, see [docs/WEB_INTER
 
 ## Autocomplete
 
-When adding a card through the web interface the **Name** field now shows suggestions provided by the Scryfall API. Start typing to get a dropdown list of matching card names.
+The application can provide name suggestions when adding a card.  Download the
+Scryfall ``default-cards`` JSON manually and place it in ``TCGInventory/data`` as
+``default-cards.json``.  If this file exists, suggestions and card lookups are
+served from the local data; otherwise the Scryfall API is used as fallback.
