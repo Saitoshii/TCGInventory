@@ -36,7 +36,13 @@ def _load_card_database() -> None:
     if DEFAULT_DB_PATH.exists():
         _DB_CONN = sqlite3.connect(DEFAULT_DB_PATH)
         _DB_CONN.row_factory = sqlite3.Row
-        return
+        try:
+            _DB_CONN.execute("SELECT 1 FROM cards LIMIT 1")
+            return
+        except sqlite3.Error:
+            # invalid or empty database file -> ignore
+            _DB_CONN.close()
+            _DB_CONN = None
     if not DEFAULT_CARDS_PATH.exists():
         print(f"⚠️  Lokale Kartendatei {DEFAULT_CARDS_PATH} nicht gefunden.")
         return
