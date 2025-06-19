@@ -33,9 +33,14 @@ The **Cards** page shows the current inventory. Use the search field to filter b
 - *Cardmarket ID* – Optional link to the Cardmarket entry.
 - *Folder* – Assign the card to a folder (set) if one exists.
 
-When typing the name a list of suggestions appears.  If
-``TCGInventory/data/default-cards.json`` is present the suggestions are loaded
-from that file; otherwise they are retrieved from the Scryfall API.
+When typing the name a list of suggestions appears.  Place the Scryfall
+``default-cards.json`` in ``TCGInventory/data`` and convert it with
+``python -m TCGInventory.build_card_db``.  Suggestions and automatic
+card lookups are then served from the local SQLite database without
+internet access.  If no local data is found the Scryfall API is used as
+fallback.
+Selecting a suggested entry automatically fills language and ID fields. If
+multiple versions exist a second dropdown lets you choose the exact variant.
 
 To change an existing card, click **Edit** next to the card and modify the fields in the form.
 

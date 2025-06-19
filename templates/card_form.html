@@ -27,6 +27,18 @@
     <label class="form-label">Cardmarket ID</label>
     <input class="form-control" name="cardmarket_id" value="{{ card[7] if card else '' }}">
   </div>
+  <div class="mb-3">
+    <label class="form-label">Collector Number</label>
+    <input class="form-control" name="collector_number" value="{{ card[9] if card else '' }}">
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Scryfall ID</label>
+    <input class="form-control" name="scryfall_id" value="{{ card[10] if card else '' }}">
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Image URL</label>
+    <input class="form-control" name="image_url" value="{{ card[11] if card else '' }}">
+  </div>
   {% if folders is not none %}
   <div class="mb-3">
     <label class="form-label">Folder (Set)</label>
@@ -38,12 +50,14 @@
     </select>
   </div>
   {% endif %}
+  <select id="variant-select" class="form-select mb-3 d-none"></select>
   <button type="submit" class="btn btn-primary">Save</button>
 </form>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
   const nameInput = document.getElementById('name-input');
   const dataList = document.getElementById('name-options');
+  const variantSelect = document.getElementById('variant-select');
   let timeout = null;
 
   nameInput.addEventListener('input', function() {
@@ -66,6 +80,49 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }, 300);
   });
+
+  nameInput.addEventListener('change', lookupCard);
+  variantSelect.addEventListener('change', function() {
+    if (this.value) fillFields(JSON.parse(this.value));
+  });
+
+  function lookupCard() {
+    const q = nameInput.value.trim();
+    if (!q) return;
+    fetch(`/api/lookup?name=${encodeURIComponent(q)}`)
+      .then(resp => resp.json())
+      .then(list => {
+        if (!Array.isArray(list) || !list.length) return;
+        if (list.length === 1) {
+          variantSelect.classList.add('d-none');
+          fillFields(list[0]);
+        } else {
+          variantSelect.innerHTML = '';
+          list.forEach(info => {
+            const opt = document.createElement('option');
+            opt.value = JSON.stringify(info);
+            opt.textContent = `${info.set_code} (${info.language})`;
+            variantSelect.appendChild(opt);
+          });
+          variantSelect.classList.remove('d-none');
+          fillFields(list[0]);
+        }
+      });
+  }
+
+  function fillFields(info) {
+    document.querySelector('input[name=language]').value = info.language || '';
+    document.querySelector('input[name=cardmarket_id]').value = info.cardmarket_id || '';
+    document.querySelector('input[name=collector_number]').value = info.collector_number || '';
+    document.querySelector('input[name=scryfall_id]').value = info.scryfall_id || '';
+    document.querySelector('input[name=image_url]').value = info.image_url || '';
+    const folderSel = document.querySelector('select[name=folder_id]');
+    if (folderSel) {
+      for (const opt of folderSel.options) {
+        if (opt.text === info.set_code) { opt.selected = true; break; }
+      }
+    }
+  }
 });
 </script>
 {% endblock %}

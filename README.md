@@ -66,5 +66,6 @@ For a detailed walkthrough of the available pages and forms, see [docs/WEB_INTER
 
 The application can provide name suggestions when adding a card.  Download the
 Scryfall ``default-cards`` JSON manually and place it in ``TCGInventory/data`` as
-``default-cards.json``.  If this file exists, suggestions and card lookups are
-served from the local data; otherwise the Scryfall API is used as fallback.
+``default-cards.json``.  Run ``python -m TCGInventory.build_card_db`` once to
+convert the JSON file into ``default-cards.db`` which enables fast offline
+search. If no database is available the Scryfall API is used as fallback.
