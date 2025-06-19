@@ -66,20 +66,28 @@ def fetch_card_info_by_name(name: str) -> Optional[CardInfo]:
     }
 
 
-def autocomplete_names(query: str) -> list[str]:
-    """Return card name suggestions from Scryfall for the given query."""
-    try:
-        resp = requests.get(
-            "https://api.scryfall.com/cards/autocomplete",
-            params={"q": query},
-            timeout=5,
-        )
-        resp.raise_for_status()
-    except requests.RequestException as exc:
-        print(f"❌ Fehler beim Abrufen der Kartenvorschläge: {exc}")
-        return []
-    data = resp.json()
-    return data.get("data", [])
+_CARD_NAMES: list[str] | None = None
+CARD_NAMES_FILE = Path(__file__).resolve().parents[0] / "data" / "card_names.txt"
+
+
+def _load_names() -> list[str]:
+    global _CARD_NAMES
+    if _CARD_NAMES is None:
+        try:
+            text = CARD_NAMES_FILE.read_text(encoding="utf-8")
+            _CARD_NAMES = [line.strip() for line in text.splitlines() if line.strip()]
+        except FileNotFoundError:
+            print(f"⚠️  Card names file {CARD_NAMES_FILE} not found")
+            _CARD_NAMES = []
+    return _CARD_NAMES
+
+
+def autocomplete_names(query: str, limit: int = 20) -> list[str]:
+    """Return card name suggestions matching the query from the local list."""
+    names = _load_names()
+    q = query.lower()
+    matches = [n for n in names if q in n.lower()]
+    return matches[:limit]
 
 def scan_and_queue(image_path: str) -> None:
     """Scan a card from an image and put its info into the queue."""

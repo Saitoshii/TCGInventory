@@ -63,4 +63,7 @@ For a detailed walkthrough of the available pages and forms, see [docs/WEB_INTER
 
 ## Autocomplete
 
-When adding a card through the web interface the **Name** field now shows suggestions provided by the Scryfall API. Start typing to get a dropdown list of matching card names.
+Card names for the autocomplete field are read from ``data/card_names.txt``. A small
+sample list is included.  Run ``python scripts/update_card_names.py`` to download the
+full list from Scryfall when network access is available.  The **Name** field in the
+web interface then presents matching suggestions while typing.

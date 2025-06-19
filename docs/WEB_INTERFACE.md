@@ -33,7 +33,9 @@ The **Cards** page shows the current inventory. Use the search field to filter b
 - *Cardmarket ID* – Optional link to the Cardmarket entry.
 - *Folder* – Assign the card to a folder (set) if one exists.
 
-When typing the name a list of suggestions from the Scryfall API appears for quick selection.
+When typing the name a list of suggestions from ``data/card_names.txt`` appears.
+Run ``python scripts/update_card_names.py`` to refresh this list from Scryfall
+when network access is available.
 
 To change an existing card, click **Edit** next to the card and modify the fields in the form.
 
