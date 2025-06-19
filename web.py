@@ -10,7 +10,11 @@ from TCGInventory.lager_manager import (
     add_folder,
     list_folders,
 )
-from TCGInventory.card_scanner import fetch_card_info_by_name, autocomplete_names
+from TCGInventory.card_scanner import (
+    fetch_card_info_by_name,
+    autocomplete_names,
+    fetch_variants,
+)
 from TCGInventory.setup_db import initialize_database
 from TCGInventory import DB_FILE
 
@@ -50,7 +54,8 @@ def get_card(card_id: int):
         c.execute(
             """
             SELECT id, name, set_code, language, condition, price, storage_code,
-                   cardmarket_id, folder_id
+                   cardmarket_id, folder_id, collector_number, scryfall_id,
+                   image_url
             FROM cards WHERE id = ?
             """,
             (card_id,),
@@ -65,6 +70,15 @@ def autocomplete_api():
     if not query:
         return jsonify([])
     return jsonify(autocomplete_names(query))
+
+
+@app.route("/api/lookup")
+def lookup_api():
+    """Return card variants for the given name."""
+    name = request.args.get("name", "")
+    if not name:
+        return jsonify([])
+    return jsonify(fetch_variants(name))
 
 
 @app.route("/")
@@ -98,6 +112,9 @@ def add_card_view():
             request.form.get("storage_code", ""),
             request.form.get("cardmarket_id", ""),
             folder_id,
+            request.form.get("collector_number", ""),
+            request.form.get("scryfall_id", ""),
+            request.form.get("image_url", ""),
         )
         if success:
             flash("Card added")
@@ -127,6 +144,9 @@ def edit_card_view(card_id: int):
             storage_code=request.form.get("storage_code", ""),
             cardmarket_id=request.form.get("cardmarket_id", ""),
             folder_id=folder_id,
+            collector_number=request.form.get("collector_number", ""),
+            scryfall_id=request.form.get("scryfall_id", ""),
+            image_url=request.form.get("image_url", ""),
         )
         flash("Card updated")
         return redirect(url_for("list_cards"))
@@ -209,12 +229,15 @@ def bulk_add_view():
                                 None,
                                 info.get("cardmarket_id", ""),
                                 folder_id,
+                                info.get("collector_number", ""),
+                                info.get("scryfall_id", ""),
+                                info.get("image_url", ""),
                             ):
                                 added_any = True
                             else:
                                 flash(f"No slot for {name}", "error")
                         else:
-                            if add_card(name, set_code, "", "", 0, None, "", folder_id):
+                            if add_card(name, set_code, "", "", 0, None, "", folder_id, "", "", ""):
                                 added_any = True
                             else:
                                 flash(f"No slot for {name}", "error")
@@ -236,12 +259,15 @@ def bulk_add_view():
                     None,
                     info.get("cardmarket_id", ""),
                     folder_id,
+                    info.get("collector_number", ""),
+                    info.get("scryfall_id", ""),
+                    info.get("image_url", ""),
                 ):
                     added_any = True
                 else:
                     flash(f"No slot for {name}", "error")
             else:
-                if add_card(name, set_code, "", "", 0, None, "", folder_id):
+                if add_card(name, set_code, "", "", 0, None, "", folder_id, "", "", ""):
                     added_any = True
                 else:
                     flash(f"No slot for {name}", "error")

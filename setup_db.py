@@ -22,7 +22,10 @@ def initialize_database() -> None:
                 cardmarket_id TEXT,
                 folder_id INTEGER,
                 status TEXT DEFAULT 'verfügbar',
-                date_added TEXT
+                date_added TEXT,
+                collector_number TEXT,
+                scryfall_id TEXT,
+                image_url TEXT
             )
             """
         )
@@ -41,6 +44,12 @@ def initialize_database() -> None:
         columns = [row[1] for row in cursor.fetchall()]
         if "folder_id" not in columns:
             cursor.execute("ALTER TABLE cards ADD COLUMN folder_id INTEGER")
+        if "collector_number" not in columns:
+            cursor.execute("ALTER TABLE cards ADD COLUMN collector_number TEXT")
+        if "scryfall_id" not in columns:
+            cursor.execute("ALTER TABLE cards ADD COLUMN scryfall_id TEXT")
+        if "image_url" not in columns:
+            cursor.execute("ALTER TABLE cards ADD COLUMN image_url TEXT")
 
         # Tabelle 2: Lagerplätze
         cursor.execute(

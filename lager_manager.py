@@ -30,6 +30,9 @@ ALLOWED_FIELDS = {
     "folder_id",
     "status",
     "date_added",
+    "collector_number",
+    "scryfall_id",
+    "image_url",
 }
 
 # 📦 Funktion: Karte hinzufügen
@@ -42,6 +45,9 @@ def add_card(
     storage_code=None,
     cardmarket_id="",
     folder_id=None,
+    collector_number="",
+    scryfall_id="",
+    image_url="",
 ):
     """Add a card and reserve a storage slot if available."""
     if not storage_code:
@@ -63,8 +69,10 @@ def add_card(
 
         cursor.execute(
             """
-        INSERT INTO cards (name, set_code, language, condition, price, storage_code, cardmarket_id, date_added, folder_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO cards (name, set_code, language, condition, price, storage_code,
+                           cardmarket_id, date_added, folder_id, collector_number,
+                           scryfall_id, image_url)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 name,
@@ -76,6 +84,9 @@ def add_card(
                 cardmarket_id,
                 datetime.now().isoformat(),
                 folder_id,
+                collector_number,
+                scryfall_id,
+                image_url,
             ),
         )
 
