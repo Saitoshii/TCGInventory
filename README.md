@@ -27,10 +27,11 @@ Run the CLI via the module path so Python can resolve the ``TCGInventory`` packa
 python -m TCGInventory.cli
 ```
 
-The CLI automatically manages storage slots.  Create binders for each set using
-option ``Ordner anlegen``.  Specify the set code and the number of pages; each
-page provides nine slots.  When you add a card without specifying a storage
-code, the next free slot in the corresponding binder will be used.
+
+The CLI can manage optional storage slots for physical binders.  Use option
+``Ordner anlegen`` to create slots for a set (one page equals nine slots).  When
+adding a card without a storage code, the next free slot will be used if
+available.  If no slot exists the card is still stored without a location.
 
 
 
