@@ -191,17 +191,33 @@ def delete_card_route(card_id: int):
 
 @app.route("/folders")
 def list_folders_view():
+    sort = request.args.get("sort", "name")
+    search = request.args.get("q", "").strip()
+
+    allowed = {"id": "id", "storage": "storage_code", "name": "name"}
+    order_col = allowed.get(sort, "name")
+
     folders = list_folders()
     folder_cards = {}
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         for fid, _ in folders:
-            c.execute(
-                "SELECT id, name, set_code, storage_code FROM cards WHERE folder_id=? ORDER BY name",
-                (fid,),
-            )
+            query = "SELECT id, name, set_code, storage_code FROM cards WHERE folder_id=?"
+            params = [fid]
+            if search:
+                query += " AND (CAST(id AS TEXT) LIKE ? OR storage_code LIKE ?)"
+                like = f"%{search}%"
+                params.extend([like, like])
+            query += f" ORDER BY {order_col}"
+            c.execute(query, params)
             folder_cards[fid] = c.fetchall()
-    return render_template("folders.html", folders=folders, folder_cards=folder_cards)
+    return render_template(
+        "folders.html",
+        folders=folders,
+        folder_cards=folder_cards,
+        sort=sort,
+        search=search,
+    )
 
 
 @app.route("/folders/add", methods=["GET", "POST"])
