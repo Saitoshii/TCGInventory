@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import re
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 
 from TCGInventory.lager_manager import (
@@ -103,13 +104,21 @@ def add_card_view():
             if str(f[0]) == str(folder_id):
                 set_code = f[1]
                 break
+        page = request.form.get("page")
+        slot = request.form.get("slot")
+        storage_code = ""
+        if page and slot and folder_id:
+            try:
+                storage_code = f"O{int(folder_id):02d}-S{int(page):02d}-P{int(slot)}"
+            except ValueError:
+                storage_code = ""
         success = add_card(
             request.form["name"],
             set_code,
             request.form.get("language", ""),
             request.form.get("condition", ""),
             float(request.form.get("price", 0) or 0),
-            request.form.get("storage_code", ""),
+            storage_code,
             request.form.get("cardmarket_id", ""),
             folder_id,
             request.form.get("collector_number", ""),
@@ -119,8 +128,10 @@ def add_card_view():
         if success:
             flash("Card added")
             return redirect(url_for("list_cards"))
-        flash("No free storage slot for this set", "error")
-    return render_template("card_form.html", card=None, folders=folders)
+        flash("No free storage slot", "error")
+    return render_template(
+        "card_form.html", card=None, folders=folders, folder_part="", page="", slot=""
+    )
 
 
 @app.route("/cards/<int:card_id>/edit", methods=["GET", "POST"])
@@ -134,6 +145,14 @@ def edit_card_view(card_id: int):
             if str(f[0]) == str(folder_id):
                 set_code = f[1]
                 break
+        page = request.form.get("page")
+        slot = request.form.get("slot")
+        storage_code = ""
+        if page and slot and folder_id:
+            try:
+                storage_code = f"O{int(folder_id):02d}-S{int(page):02d}-P{int(slot)}"
+            except ValueError:
+                storage_code = ""
         update_card(
             card_id,
             name=request.form["name"],
@@ -141,7 +160,7 @@ def edit_card_view(card_id: int):
             language=request.form.get("language", ""),
             condition=request.form.get("condition", ""),
             price=float(request.form.get("price", 0) or 0),
-            storage_code=request.form.get("storage_code", ""),
+            storage_code=storage_code,
             cardmarket_id=request.form.get("cardmarket_id", ""),
             folder_id=folder_id,
             collector_number=request.form.get("collector_number", ""),
@@ -150,7 +169,16 @@ def edit_card_view(card_id: int):
         )
         flash("Card updated")
         return redirect(url_for("list_cards"))
-    return render_template("card_form.html", card=card, folders=folders)
+    folder_part = page = slot = ""
+    if card and card[6]:
+        m = re.match(r"O(\d+)\-S(\d+)\-P(\d+)", card[6])
+        if m:
+            folder_part = f"O{int(m.group(1)):02d}"
+            page = m.group(2)
+            slot = m.group(3)
+    return render_template(
+        "card_form.html", card=card, folders=folders, folder_part=folder_part, page=page, slot=slot
+    )
 
 
 @app.route("/cards/<int:card_id>/delete")

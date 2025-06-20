@@ -51,10 +51,12 @@ def add_card(
 ):
     """Add a card and reserve a storage slot if available."""
     if not storage_code:
-        storage_code = get_next_free_slot(set_code)
+        prefix = f"O{int(folder_id):02d}-" if folder_id else f"{set_code}-"
+        storage_code = get_next_free_slot(prefix)
         if not storage_code:
+            target = f"Ordner {folder_id}" if folder_id else f"Set {set_code}"
             print(
-                f"ℹ️ Kein freier Lagerplatz für Set {set_code}. Karte wird ohne Lagerplatz gespeichert."
+                f"ℹ️ Kein freier Lagerplatz für {target}. Karte wird ohne Lagerplatz gespeichert."
             )
 
     with sqlite3.connect(DB_FILE) as conn:
@@ -111,21 +113,22 @@ def add_storage_slot(code):
     print(f"📁 Lagerplatz '{code}' hinzugefügt oder bereits vorhanden.")
 
 
-def create_binder(set_code: str, pages: int) -> None:
+def create_binder(folder_id: int, pages: int) -> None:
     """Create storage slots for a binder consisting of several pages."""
+    prefix = f"O{int(folder_id):02d}-"
     for page in range(1, pages + 1):
         for slot in range(1, 10):
-            code = f"{set_code}-P{page:02d}-S{slot:02d}"
+            code = f"{prefix}S{page:02d}-P{slot}"
             add_storage_slot(code)
 
 
-def get_next_free_slot(set_code: str) -> str | None:
-    """Return the first free slot for a given set code."""
+def get_next_free_slot(prefix: str) -> str | None:
+    """Return the first free slot for a given prefix."""
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
         cursor.execute(
             "SELECT code FROM storage_slots WHERE code LIKE ? AND is_occupied = 0 ORDER BY code LIMIT 1",
-            (f"{set_code}-%",),
+            (f"{prefix}%",),
         )
         result = cursor.fetchone()
         return result[0] if result else None
