@@ -61,7 +61,7 @@
     <select name="folder_id" class="form-select">
       <option value="">-- none --</option>
       {% for f in folders %}
-      <option value="{{ f[0] }}" {% if card and card[8]==f[0] %}selected{% endif %}>{{ f[1] }}</option>
+      <option value="{{ f[0] }}" {% if card and card[8]==f[0] %}selected{% endif %}>{{ f[1] }} ({{ '%02d'|format(f[0]) }})</option>
       {% endfor %}
     </select>
   </div>
