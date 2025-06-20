@@ -26,7 +26,17 @@
   </div>
   <div class="mb-3">
     <label class="form-label">Storage Code (optional)</label>
-    <input class="form-control" name="storage_code" value="{{ card[6] if card else '' }}">
+    <div class="row g-2">
+      <div class="col-auto">
+        <input class="form-control" name="folder_part" readonly value="{{ folder_part }}" placeholder="Ordner">
+      </div>
+      <div class="col-auto">
+        <input class="form-control" name="page" value="{{ page }}" placeholder="Seite">
+      </div>
+      <div class="col-auto">
+        <input class="form-control" name="slot" value="{{ slot }}" placeholder="Platz" min="1" max="9">
+      </div>
+    </div>
   </div>
   <div class="mb-3">
     <label class="form-label">Cardmarket ID</label>
@@ -63,6 +73,8 @@ document.addEventListener('DOMContentLoaded', function() {
   const nameInput = document.getElementById('name-input');
   const dataList = document.getElementById('name-options');
   const variantSelect = document.getElementById('variant-select');
+  const folderSel = document.querySelector('select[name=folder_id]');
+  const folderPart = document.querySelector('input[name=folder_part]');
   let timeout = null;
 
   nameInput.addEventListener('input', function() {
@@ -85,6 +97,15 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }, 300);
   });
+
+  function updateFolderPart() {
+    if (folderSel) {
+      const fid = folderSel.value;
+      folderPart.value = fid ? `O${String(fid).padStart(2, '0')}` : '';
+    }
+  }
+  updateFolderPart();
+  if (folderSel) folderSel.addEventListener('change', updateFolderPart);
 
   nameInput.addEventListener('change', lookupCard);
   variantSelect.addEventListener('change', function() {
