@@ -2,11 +2,12 @@
 {% block content %}
 <h2 class="mb-4">{{ 'Edit' if card else 'Add' }} Card</h2>
 <form method="post">
-  <div class="mb-3">
+  <div class="mb-3 position-relative">
     <label class="form-label">Name</label>
-    <input id="name-input" class="form-control" name="name" list="name-options" value="{{ card[1] if card else '' }}" required>
-    <datalist id="name-options"></datalist>
+    <input id="name-input" class="form-control" autocomplete="off" name="name" value="{{ card[1] if card else '' }}" required>
+    <div id="name-suggestions" class="dropdown-menu w-100"></div>
   </div>
+  <img id="preview-image" class="img-thumbnail mb-3{% if not card or not card[11] %} d-none{% endif %}" style="max-width:200px;" src="{{ card[11] if card else '' }}">
   <div class="mb-3">
     <label class="form-label">Language</label>
     <input class="form-control" name="language" value="{{ card[3] if card else '' }}">
@@ -61,27 +62,37 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
   const nameInput = document.getElementById('name-input');
-  const dataList = document.getElementById('name-options');
+  const suggestions = document.getElementById('name-suggestions');
   const variantSelect = document.getElementById('variant-select');
+  const previewImg = document.getElementById('preview-image');
   let timeout = null;
 
   nameInput.addEventListener('input', function() {
     clearTimeout(timeout);
     const query = this.value.trim();
     if (query.length < 2) {
-      dataList.innerHTML = '';
+      suggestions.classList.remove('show');
       return;
     }
     timeout = setTimeout(function() {
       fetch(`/api/autocomplete?q=${encodeURIComponent(query)}`)
         .then(resp => resp.json())
         .then(data => {
-          dataList.innerHTML = '';
+          suggestions.innerHTML = '';
           data.forEach(name => {
-            const option = document.createElement('option');
-            option.value = name;
-            dataList.appendChild(option);
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = 'dropdown-item';
+            item.textContent = name;
+            item.addEventListener('click', () => {
+              nameInput.value = name;
+              suggestions.classList.remove('show');
+              lookupCard();
+            });
+            suggestions.appendChild(item);
           });
+          if (data.length) suggestions.classList.add('show');
+          else suggestions.classList.remove('show');
         });
     }, 300);
   });
@@ -121,6 +132,12 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelector('input[name=collector_number]').value = info.collector_number || '';
     document.querySelector('input[name=scryfall_id]').value = info.scryfall_id || '';
     document.querySelector('input[name=image_url]').value = info.image_url || '';
+    if (info.image_url) {
+      previewImg.src = info.image_url;
+      previewImg.classList.remove('d-none');
+    } else {
+      previewImg.classList.add('d-none');
+    }
     const folderSel = document.querySelector('select[name=folder_id]');
     if (folderSel) {
       for (const opt of folderSel.options) {
@@ -128,6 +145,12 @@ document.addEventListener('DOMContentLoaded', function() {
       }
     }
   }
+
+  document.addEventListener('click', (e) => {
+    if (!nameInput.contains(e.target) && !suggestions.contains(e.target)) {
+      suggestions.classList.remove('show');
+    }
+  });
 });
 </script>
 {% endblock %}
