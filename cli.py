@@ -6,6 +6,7 @@ from TCGInventory.lager_manager import (
     update_card,
     delete_card,
     list_all_cards,
+    add_folder,
 )
 from TCGInventory.setup_db import initialize_database
 from TCGInventory import DB_FILE
@@ -83,9 +84,11 @@ def run():
                 delete_card(card_id)
 
             elif choice == "5":
-                set_code = input("Set-Code für den Ordner: ")
+                name = input("Set-Code für den Ordner: ")
                 pages = _get_int("Anzahl Seiten: ")
-                create_binder(set_code, pages)
+                folder_id = add_folder(name)
+                if folder_id is not None:
+                    create_binder(folder_id, pages)
 
             elif choice == "0":
                 print("👋 Programm beendet.")
