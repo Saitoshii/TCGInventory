@@ -12,6 +12,8 @@ python web.py
 
 On first launch the SQLite database will be created automatically if it does not exist. Visit `http://localhost:5000` in your browser.
 
+To access the interface from another machine set `FLASK_RUN_HOST=0.0.0.0` when starting the server. You can also change the port with `FLASK_RUN_PORT`.
+
 ## Navigation
 
 The navigation bar at the top links to the most important pages:

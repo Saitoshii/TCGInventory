@@ -60,6 +60,15 @@ The application will initialize the SQLite database on first start if it does
 not exist.  Open ``http://localhost:5000`` in your browser to use the
 interface.
 
+To expose the web interface to the entire local network set ``FLASK_RUN_HOST``
+before running the command, for example:
+
+```bash
+FLASK_RUN_HOST=0.0.0.0 python web.py
+```
+
+Optionally change the port with ``FLASK_RUN_PORT``.
+
 For a detailed walkthrough of the available pages and forms, see [docs/WEB_INTERFACE.md](docs/WEB_INTERFACE.md).
 
 ## Autocomplete
