@@ -18,6 +18,7 @@ def initialize_database() -> None:
                 language TEXT,
                 condition TEXT,
                 price REAL,
+                quantity INTEGER DEFAULT 1,
                 storage_code TEXT,
                 cardmarket_id TEXT,
                 folder_id INTEGER,
@@ -50,6 +51,8 @@ def initialize_database() -> None:
             cursor.execute("ALTER TABLE cards ADD COLUMN scryfall_id TEXT")
         if "image_url" not in columns:
             cursor.execute("ALTER TABLE cards ADD COLUMN image_url TEXT")
+        if "quantity" not in columns:
+            cursor.execute("ALTER TABLE cards ADD COLUMN quantity INTEGER DEFAULT 1")
 
         # Tabelle 2: Lagerplätze
         cursor.execute(

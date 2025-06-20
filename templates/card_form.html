@@ -7,7 +7,7 @@
     <input id="name-input" class="form-control" autocomplete="off" name="name" value="{{ card[1] if card else '' }}" required>
     <div id="name-suggestions" class="dropdown-menu w-100"></div>
   </div>
-  <img id="preview-image" class="img-thumbnail mb-3{% if not card or not card[11] %} d-none{% endif %}" style="max-width:200px;" src="{{ card[11] if card else '' }}">
+  <img id="preview-image" class="img-thumbnail mb-3{% if not card or not card[12] %} d-none{% endif %}" style="max-width:200px;" src="{{ card[12] if card else '' }}">
   <div class="mb-3">
     <label class="form-label">Language</label>
     <input class="form-control" name="language" value="{{ card[3] if card else '' }}">
@@ -26,6 +26,10 @@
     <input type="number" step="0.01" class="form-control" name="price" value="{{ card[5] if card else '' }}">
   </div>
   <div class="mb-3">
+    <label class="form-label">Quantity</label>
+    <input type="number" class="form-control" name="quantity" min="1" value="{{ card[6] if card else 1 }}">
+  </div>
+  <div class="mb-3">
     <label class="form-label">Storage Code (optional)</label>
     <div class="row g-2">
       <div class="col-auto">
@@ -41,19 +45,19 @@
   </div>
   <div class="mb-3">
     <label class="form-label">Cardmarket ID</label>
-    <input class="form-control" name="cardmarket_id" value="{{ card[7] if card else '' }}">
+    <input class="form-control" name="cardmarket_id" value="{{ card[8] if card else '' }}">
   </div>
   <div class="mb-3">
     <label class="form-label">Collector Number</label>
-    <input class="form-control" name="collector_number" value="{{ card[9] if card else '' }}">
+    <input class="form-control" name="collector_number" value="{{ card[10] if card else '' }}">
   </div>
   <div class="mb-3">
     <label class="form-label">Scryfall ID</label>
-    <input class="form-control" name="scryfall_id" value="{{ card[10] if card else '' }}">
+    <input class="form-control" name="scryfall_id" value="{{ card[11] if card else '' }}">
   </div>
   <div class="mb-3">
     <label class="form-label">Image URL</label>
-    <input class="form-control" name="image_url" value="{{ card[11] if card else '' }}">
+    <input class="form-control" name="image_url" value="{{ card[12] if card else '' }}">
   </div>
   {% if folders is not none %}
   <div class="mb-3">
@@ -61,7 +65,7 @@
     <select name="folder_id" class="form-select">
       <option value="">-- none --</option>
       {% for f in folders %}
-      <option value="{{ f[0] }}" {% if card and card[8]==f[0] %}selected{% endif %}>{{ f[1] }} ({{ '%02d'|format(f[0]) }})</option>
+      <option value="{{ f[0] }}" {% if card and card[9]==f[0] %}selected{% endif %}>{{ f[1] }} ({{ '%02d'|format(f[0]) }})</option>
       {% endfor %}
     </select>
   </div>

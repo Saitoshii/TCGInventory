@@ -35,7 +35,7 @@ def fetch_cards(search: str | None = None):
         query = (
             """
             SELECT cards.id, cards.name, cards.set_code, cards.language,
-                   cards.condition, cards.price, cards.storage_code,
+                   cards.condition, cards.price, cards.quantity, cards.storage_code,
                    COALESCE(folders.name, ''), cards.status, cards.image_url
             FROM cards
             LEFT JOIN folders ON cards.folder_id = folders.id
@@ -55,7 +55,7 @@ def get_card(card_id: int):
         c = conn.cursor()
         c.execute(
             """
-            SELECT id, name, set_code, language, condition, price, storage_code,
+            SELECT id, name, set_code, language, condition, price, quantity, storage_code,
                    cardmarket_id, folder_id, collector_number, scryfall_id,
                    image_url
             FROM cards WHERE id = ?
@@ -119,6 +119,7 @@ def add_card_view():
             request.form.get("language", ""),
             request.form.get("condition", ""),
             float(request.form.get("price", 0) or 0),
+            int(request.form.get("quantity", 1) or 1),
             storage_code,
             request.form.get("cardmarket_id", ""),
             folder_id,
@@ -161,6 +162,7 @@ def edit_card_view(card_id: int):
             language=request.form.get("language", ""),
             condition=request.form.get("condition", ""),
             price=float(request.form.get("price", 0) or 0),
+            quantity=int(request.form.get("quantity", 1) or 1),
             storage_code=storage_code,
             cardmarket_id=request.form.get("cardmarket_id", ""),
             folder_id=folder_id,
@@ -171,8 +173,8 @@ def edit_card_view(card_id: int):
         flash("Card updated")
         return redirect(url_for("list_cards"))
     folder_part = page = slot = ""
-    if card and card[6]:
-        m = re.match(r"O(\d+)\-S(\d+)\-P(\d+)", card[6])
+    if card and card[7]:
+        m = re.match(r"O(\d+)\-S(\d+)\-P(\d+)", card[7])
         if m:
             folder_part = f"O{int(m.group(1)):02d}"
             page = m.group(2)
@@ -197,7 +199,7 @@ def list_folders_view():
         c = conn.cursor()
         for fid, _ in folders:
             c.execute(
-                "SELECT id, name, set_code, storage_code FROM cards WHERE folder_id=? ORDER BY name",
+                "SELECT id, name, set_code, quantity, storage_code FROM cards WHERE folder_id=? ORDER BY name",
                 (fid,),
             )
             folder_cards[fid] = c.fetchall()

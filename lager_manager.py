@@ -25,6 +25,7 @@ ALLOWED_FIELDS = {
     "language",
     "condition",
     "price",
+    "quantity",
     "storage_code",
     "cardmarket_id",
     "folder_id",
@@ -42,6 +43,7 @@ def add_card(
     language,
     condition,
     price,
+    quantity=1,
     storage_code=None,
     cardmarket_id="",
     folder_id=None,
@@ -71,10 +73,10 @@ def add_card(
 
         cursor.execute(
             """
-        INSERT INTO cards (name, set_code, language, condition, price, storage_code,
+        INSERT INTO cards (name, set_code, language, condition, price, quantity, storage_code,
                            cardmarket_id, date_added, folder_id, collector_number,
                            scryfall_id, image_url)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 name,
@@ -82,6 +84,7 @@ def add_card(
                 language,
                 condition,
                 price,
+                quantity,
                 storage_code,
                 cardmarket_id,
                 datetime.now().isoformat(),
@@ -141,7 +144,7 @@ def list_all_cards():
         cursor.execute(
             """
             SELECT cards.id, cards.name, cards.set_code, cards.language,
-                   cards.condition, cards.price, cards.storage_code,
+                   cards.condition, cards.price, cards.quantity, cards.storage_code,
                    COALESCE(folders.name, ''), cards.status
             FROM cards
             LEFT JOIN folders ON cards.folder_id = folders.id
@@ -158,6 +161,7 @@ def list_all_cards():
             "Sprache",
             "Zustand",
             "Preis (€)",
+            "Anzahl",
             "Lagerplatz",
             "Ordner",
             "Status",

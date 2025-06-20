@@ -10,6 +10,7 @@ add_card(
     language="Deutsch",
     condition="Near Mint",
     price=1.50,
+    quantity=1,
     storage_code="O01-S01-P1",
     cardmarket_id="123456"
 )
