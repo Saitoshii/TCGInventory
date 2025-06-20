@@ -9,6 +9,7 @@ from TCGInventory.lager_manager import (
     delete_card,
     add_storage_slot,
     add_folder,
+    create_binder,
     list_folders,
 )
 from TCGInventory.card_scanner import (
@@ -206,7 +207,14 @@ def list_folders_view():
 @app.route("/folders/add", methods=["GET", "POST"])
 def add_folder_view():
     if request.method == "POST":
-        add_folder(request.form["name"])
+        name = request.form["name"]
+        pages = request.form.get("pages", "1")
+        folder_id = add_folder(name)
+        if folder_id is not None:
+            try:
+                create_binder(folder_id, int(pages))
+            except ValueError:
+                pass
         flash("Folder added")
         return redirect(url_for("list_folders_view"))
     return render_template("folder_form.html")
