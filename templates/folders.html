@@ -21,17 +21,18 @@
 {% for f in folders %}
   <h4 class="mt-4">{{ f[1] }} ({{ '%02d'|format(f[0]) }})</h4>
   <table class="table table-sm table-striped">
-    <tr><th>ID</th><th>Name</th><th>Set</th><th>Storage</th></tr>
+    <tr><th>ID</th><th>Name</th><th>Set</th><th>Qty</th><th>Storage</th></tr>
     {% for c in folder_cards.get(f[0], []) %}
     <tr>
       <td>{{ c[0] }}</td>
       <td>{{ c[1] }}</td>
       <td>{{ c[2] }}</td>
       <td>{{ c[3] }}</td>
+      <td>{{ c[4] }}</td>
     </tr>
     {% endfor %}
     {% if not folder_cards.get(f[0], []) %}
-    <tr><td colspan="4" class="text-muted">No cards</td></tr>
+    <tr><td colspan="5" class="text-muted">No cards</td></tr>
     {% endif %}
   </table>
 {% endfor %}

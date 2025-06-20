@@ -29,6 +29,7 @@ The **Cards** page shows the current inventory. Use the search field to filter b
 - *Language* – Language of the card, e.g. `EN` or `DE`.
 - *Condition* – Condition such as `Near Mint`.
 - *Price* – Price in Euro; use `0` if unknown.
+- *Quantity* – Number of copies to add.
 - *Storage Code* – Optional storage slot identifier.
 - *Cardmarket ID* – Optional link to the Cardmarket entry.
 - *Folder* – Assign the card to a folder (set) if one exists.

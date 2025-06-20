@@ -59,12 +59,14 @@ def run():
                 language = input("Sprache: ")
                 condition = input("Zustand (z. B. Near Mint): ")
                 price = _get_float("Preis (€): ")
+                quantity = _get_int("Anzahl: ")
                 add_card(
                     name,
                     set_code,
                     language,
                     condition,
                     price,
+                    quantity,
                 )
 
             elif choice == "2":
