@@ -52,4 +52,5 @@ Use the **Bulk Add** page to quickly insert many cards. Enter one card name per 
 ## Managing folders
 
 Folders correspond to sets or binders. The **Folders** page lists all folders and the cards stored inside each one. When clicking **Add Folder** you can enter a name and the number of pages of the binder. Each page provides nine storage slots.  Cards can then be assigned to a folder and stored on a specific page and slot when adding or editing them.
+The overview also offers a small form to filter the listed cards by ID or storage code and to sort them by name, ID or storage.
 
