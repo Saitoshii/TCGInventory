@@ -1,15 +1,19 @@
 {% extends "base.html" %}
 {% block content %}
 <h2 class="mb-4">All Cards</h2>
-<form method="get" class="mb-3 d-flex">
-  <input class="form-control me-2" type="text" name="q" placeholder="Search" value="{{ search }}">
-  <button class="btn btn-outline-secondary" type="submit">Search</button>
+<form method="get" class="mb-3 position-relative" id="search-form">
+  <div class="input-group">
+    <input id="search-input" class="form-control" autocomplete="off" type="text" name="q" placeholder="Search" value="{{ search }}">
+    <button class="btn btn-outline-secondary" type="submit">Search</button>
+  </div>
+  <div id="search-suggestions" class="dropdown-menu w-100"></div>
 </form>
 <table class="table table-striped">
-<tr><th>ID</th><th>Name</th><th>Set</th><th>Lang</th><th>Condition</th><th>Price</th><th>Storage</th><th>Folder</th><th>Status</th><th>Actions</th></tr>
+<tr><th>ID</th><th>Image</th><th>Name</th><th>Set</th><th>Lang</th><th>Condition</th><th>Price</th><th>Storage</th><th>Folder</th><th>Status</th><th>Actions</th></tr>
 {% for c in cards %}
 <tr>
 <td>{{ c[0] }}</td>
+<td>{% if c[9] %}<img src="{{ c[9] }}" style="max-height:80px;" class="img-thumbnail">{% endif %}</td>
 <td>{{ c[1] }}</td>
 <td>{{ c[2] }}</td>
 <td>{{ c[3] }}</td>
@@ -22,4 +26,46 @@
 </tr>
 {% endfor %}
 </table>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const input = document.getElementById('search-input');
+  const list = document.getElementById('search-suggestions');
+  let timeout = null;
+
+  input.addEventListener('input', function() {
+    clearTimeout(timeout);
+    const query = this.value.trim();
+    if (query.length < 2) {
+      list.classList.remove('show');
+      return;
+    }
+    timeout = setTimeout(function() {
+      fetch(`/api/autocomplete?q=${encodeURIComponent(query)}`)
+        .then(resp => resp.json())
+        .then(data => {
+          list.innerHTML = '';
+          data.forEach(name => {
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = 'dropdown-item';
+            item.textContent = name;
+            item.addEventListener('click', () => {
+              input.value = name;
+              list.classList.remove('show');
+            });
+            list.appendChild(item);
+          });
+          if (data.length) list.classList.add('show');
+          else list.classList.remove('show');
+        });
+    }, 300);
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!input.contains(e.target) && !list.contains(e.target)) {
+      list.classList.remove('show');
+    }
+  });
+});
+</script>
 {% endblock %}

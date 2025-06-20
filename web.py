@@ -35,7 +35,7 @@ def fetch_cards(search: str | None = None):
             """
             SELECT cards.id, cards.name, cards.set_code, cards.language,
                    cards.condition, cards.price, cards.storage_code,
-                   COALESCE(folders.name, ''), cards.status
+                   COALESCE(folders.name, ''), cards.status, cards.image_url
             FROM cards
             LEFT JOIN folders ON cards.folder_id = folders.id
             """
