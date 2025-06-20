@@ -204,8 +204,10 @@ def list_folders_view():
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         for fid, _ in folders:
-          codex/filter-und-sortiere-nach-id-oder-storage
-            query = "SELECT id, name, set_code, storage_code FROM cards WHERE folder_id=?"
+            query = (
+                "SELECT id, name, set_code, quantity, storage_code FROM cards "
+                "WHERE folder_id=?"
+            )
             params = [fid]
             if search:
                 query += " AND (CAST(id AS TEXT) LIKE ? OR storage_code LIKE ?)"
@@ -213,11 +215,6 @@ def list_folders_view():
                 params.extend([like, like])
             query += f" ORDER BY {order_col}"
             c.execute(query, params)
-            c.execute(
-                "SELECT id, name, set_code, quantity, storage_code FROM cards WHERE folder_id=? ORDER BY name",
-                (fid,),
-            )
-            main
             folder_cards[fid] = c.fetchall()
     return render_template(
         "folders.html",
