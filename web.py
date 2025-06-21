@@ -9,7 +9,10 @@ from flask import (
     url_for,
     flash,
     jsonify,
+  codex/sicherheitsfunktionen-implementieren
     session,
+    Response,
+  main
 )
 import csv
 import io
@@ -161,6 +164,31 @@ def list_cards():
     search = request.args.get("q", "")
     cards = fetch_cards(search if search else None)
     return render_template("cards.html", cards=cards, search=search)
+
+
+@app.route("/cards/export")
+def export_cards():
+    """Return a CSV export of all cards."""
+    rows = fetch_cards()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "ID",
+        "Name",
+        "Set",
+        "Sprache",
+        "Zustand",
+        "Preis (€)",
+        "Anzahl",
+        "Lagerplatz",
+        "Ordner",
+        "Status",
+        "Bild",
+    ])
+    writer.writerows(rows)
+    resp = Response(output.getvalue(), mimetype="text/csv")
+    resp.headers["Content-Disposition"] = "attachment; filename=inventory.csv"
+    return resp
 
 
 @app.route("/cards/add", methods=["GET", "POST"])

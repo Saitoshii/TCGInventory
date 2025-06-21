@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime
 from tabulate import tabulate
+import csv
 
 from . import DB_FILE
 
@@ -16,6 +17,7 @@ __all__ = [
     "get_next_free_slot",
     "add_folder",
     "list_folders",
+    "export_inventory_csv",
 ]
 
 # Valid columns in the ``cards`` table that can be updated via ``update_card``
@@ -169,6 +171,36 @@ def list_all_cards():
         print(tabulate(cards, headers=headers, tablefmt="github"))
     else:
         print("Keine Karten gefunden.")
+
+
+def export_inventory_csv(path: str) -> None:
+    """Write the current card list to a CSV file."""
+    with sqlite3.connect(DB_FILE) as conn, open(path, "w", newline="", encoding="utf-8") as f:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT cards.id, cards.name, cards.set_code, cards.language,
+                   cards.condition, cards.price, cards.quantity, cards.storage_code,
+                   COALESCE(folders.name, ''), cards.status
+            FROM cards
+            LEFT JOIN folders ON cards.folder_id = folders.id
+            """
+        )
+        writer = csv.writer(f)
+        writer.writerow([
+            "ID",
+            "Name",
+            "Set",
+            "Sprache",
+            "Zustand",
+            "Preis (€)",
+            "Anzahl",
+            "Lagerplatz",
+            "Ordner",
+            "Status",
+        ])
+        writer.writerows(cursor.fetchall())
+    print(f"📤 Kartenexport gespeichert unter '{path}'.")
 
 # ✏️ Funktion: Karte aktualisieren
 def update_card(card_id, **kwargs):
