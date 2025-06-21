@@ -78,3 +78,7 @@ Scryfall ``default-cards`` JSON manually and place it in ``TCGInventory/data`` a
 ``default-cards.json``.  Run ``python -m TCGInventory.build_card_db`` once to
 convert the JSON file into ``default-cards.db`` which enables fast offline
 search. If no database is available the Scryfall API is used as fallback.
+
+## Export
+
+Use the CLI option **Karten exportieren** or the *Export* link in the web interface to download all cards as a CSV file.

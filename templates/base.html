@@ -14,6 +14,7 @@
       <a class="btn btn-secondary me-2" href="{{ url_for('bulk_add_view') }}">Bulk Add</a>
       <a class="btn btn-secondary me-2" href="{{ url_for('upload_queue_view') }}">Upload Queue</a>
       <a class="btn btn-secondary me-2" href="{{ url_for('list_folders_view') }}">Folders</a>
+      <a class="btn btn-secondary me-2" href="{{ url_for('export_cards') }}">Export</a>
       {# Storage management not required right now #}
     </nav>
     {% with messages = get_flashed_messages() %}

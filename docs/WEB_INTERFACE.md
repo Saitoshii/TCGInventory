@@ -22,6 +22,7 @@ The navigation bar at the top links to the most important pages:
 - **Add Card** – Open a form to add a single card manually.
 - **Bulk Add** – Add many cards at once by entering a list of names or uploading a JSON or CSV file.
 - **Folders** – Manage folders (sets) and see which cards belong to each folder.
+- **Export** – Download a CSV file containing all cards.
 
 ## Working with cards
 
