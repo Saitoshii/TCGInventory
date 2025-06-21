@@ -210,9 +210,11 @@ def list_folders_view():
             )
             params = [fid]
             if search:
-                query += " AND (CAST(id AS TEXT) LIKE ? OR storage_code LIKE ?)"
+                query += (
+                    " AND (CAST(id AS TEXT) LIKE ? OR storage_code LIKE ? OR name LIKE ?)"
+                )
                 like = f"%{search}%"
-                params.extend([like, like])
+                params.extend([like, like, like])
             query += f" ORDER BY {order_col}"
             c.execute(query, params)
             folder_cards[fid] = c.fetchall()
