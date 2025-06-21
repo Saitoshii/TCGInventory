@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<h2 class="mb-4">Upload Queue</h2>
+{% if queue %}
+<table class="table">
+  <thead>
+    <tr>
+      <th>Image</th>
+      <th>Name</th>
+      <th>Qty</th>
+      <th>Set</th>
+      <th>Language</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for card in queue %}
+    <tr>
+      <td>{% if card.image_url %}<img src="{{ card.image_url }}" style="max-width:80px;">{% endif %}</td>
+      <td>{{ card.name }}</td>
+      <td>{{ card.quantity }}</td>
+      <td>{{ card.set_code }}</td>
+      <td>{{ card.language }}</td>
+      <td>
+        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('upload_card_route', index=loop.index0) }}">Add</a>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<a class="btn btn-primary" href="{{ url_for('upload_all_route') }}">Add All</a>
+{% else %}
+<p>No cards in queue.</p>
+{% endif %}
+{% endblock %}
