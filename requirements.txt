@@ -1,6 +1,7 @@
 # Application dependencies
 # Only tabulate is needed for pretty-printing tables.
 tabulate
+colorama
 
 # Scanner and API dependencies
 opencv-python

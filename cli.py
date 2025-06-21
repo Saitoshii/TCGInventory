@@ -1,5 +1,9 @@
 import os
 
+from colorama import init, Fore, Style
+
+init(autoreset=True)
+
 from TCGInventory.lager_manager import (
     add_card,
     create_binder,
@@ -17,16 +21,16 @@ def initialize_if_needed() -> None:
     """Create the database if it does not yet exist."""
     if not os.path.exists(DB_FILE):
         initialize_database()
-        print("ℹ️  Datenbank initialisiert.")
+        print(Fore.GREEN + "ℹ️  Datenbank initialisiert.")
 
 def show_menu():
-    print("\n🎴 MTG Lagerverwaltung")
-    print("1. Karte hinzufügen")
-    print("2. Alle Karten anzeigen")
-    print("3. Karte bearbeiten")
-    print("4. Karte löschen")
-    print("5. Ordner anlegen")
-    print("0. Beenden")
+    print(Fore.CYAN + "\n🎴 MTG Lagerverwaltung")
+    print(Fore.YELLOW + "1. Karte hinzufügen")
+    print(Fore.YELLOW + "2. Alle Karten anzeigen")
+    print(Fore.YELLOW + "3. Karte bearbeiten")
+    print(Fore.YELLOW + "4. Karte löschen")
+    print(Fore.YELLOW + "5. Ordner anlegen")
+    print(Fore.YELLOW + "0. Beenden")
 
 
 def _get_float(prompt: str) -> float:
@@ -35,7 +39,7 @@ def _get_float(prompt: str) -> float:
         try:
             return float(input(prompt))
         except ValueError:
-            print("Bitte eine gültige Zahl eingeben.")
+            print(Fore.RED + "Bitte eine gültige Zahl eingeben.")
 
 
 def _get_int(prompt: str) -> int:
@@ -44,7 +48,7 @@ def _get_int(prompt: str) -> int:
         try:
             return int(input(prompt))
         except ValueError:
-            print("Bitte eine gültige Ganzzahl eingeben.")
+            print(Fore.RED + "Bitte eine gültige Ganzzahl eingeben.")
 
 def run():
     initialize_if_needed()
@@ -83,7 +87,11 @@ def run():
 
             elif choice == "4":
                 card_id = _get_int("Karten-ID zum Löschen: ")
-                delete_card(card_id)
+                confirm = input("Sicher löschen (j/n)? ").strip().lower()
+                if confirm == "j":
+                    delete_card(card_id)
+                else:
+                    print(Fore.YELLOW + "Löschen abgebrochen.")
 
             elif choice == "5":
                 name = input("Set-Code für den Ordner: ")
@@ -93,13 +101,13 @@ def run():
                     create_binder(folder_id, pages)
 
             elif choice == "0":
-                print("👋 Programm beendet.")
+                print(Fore.YELLOW + "👋 Programm beendet.")
                 break
 
             else:
-                print("❌ Ungültige Eingabe!")
+                print(Fore.RED + "❌ Ungültige Eingabe!")
     except KeyboardInterrupt:
-        print("\n👋 Programm beendet.")
+        print(Fore.YELLOW + "\n👋 Programm beendet.")
 
 if __name__ == "__main__":
     run()
