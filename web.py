@@ -1,7 +1,17 @@
 import os
 import sqlite3
 import re
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from flask import (
+    Flask,
+    render_template,
+    request,
+    redirect,
+    url_for,
+    flash,
+    jsonify,
+)
+import csv
+import io
 
 from TCGInventory.lager_manager import (
     add_card,
@@ -22,6 +32,9 @@ from TCGInventory import DB_FILE
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "tcg-secret")
+
+# Queue for cards uploaded via the bulk add feature
+UPLOAD_QUEUE: list[dict] = []
 
 
 def init_db() -> None:
@@ -261,9 +274,9 @@ def bulk_add_view():
                 set_code = f[1]
                 break
 
+        added_any = False
         # handle uploaded JSON file
         json_file = request.files.get("json_file")
-        added_any = False
         if json_file and json_file.filename:
             try:
                 import json
@@ -275,66 +288,154 @@ def bulk_add_view():
                             name = entry
                         if not name:
                             continue
-                        info = fetch_card_info_by_name(name)
-                        if info:
-                            if add_card(
-                                info.get("name", name),
-                                set_code or info.get("set_code", ""),
-                                info.get("language", ""),
-                                "",
-                                0,
-                                None,
-                                info.get("cardmarket_id", ""),
-                                folder_id,
-                                info.get("collector_number", ""),
-                                info.get("scryfall_id", ""),
-                                info.get("image_url", ""),
-                            ):
-                                added_any = True
-                            else:
-                                flash(f"No slot for {name}", "error")
-                        else:
-                            if add_card(name, set_code, "", "", 0, None, "", folder_id, "", "", ""):
-                                added_any = True
-                            else:
-                                flash(f"No slot for {name}", "error")
+                        info = fetch_card_info_by_name(name) or {}
+                        UPLOAD_QUEUE.append(
+                            {
+                                "name": info.get("name", name),
+                                "set_code": set_code or info.get("set_code", ""),
+                                "language": info.get("language", ""),
+                                "condition": "",
+                                "quantity": 1,
+                                "cardmarket_id": info.get("cardmarket_id", ""),
+                                "folder_id": folder_id,
+                                "collector_number": info.get("collector_number", ""),
+                                "scryfall_id": info.get("scryfall_id", ""),
+                                "image_url": info.get("image_url", ""),
+                            }
+                        )
+                        added_any = True
             except Exception:
                 flash("Invalid JSON file")
 
+        # handle uploaded CSV file
+        csv_file = request.files.get("csv_file")
+        if csv_file and csv_file.filename:
+            try:
+                content = csv_file.read().decode("utf-8-sig")
+                try:
+                    dialect = csv.Sniffer().sniff(content, delimiters=",;")
+                except csv.Error:
+                    dialect = csv.excel
+                reader = csv.DictReader(io.StringIO(content), dialect=dialect)
+                for row in reader:
+                    normalized = { (k or "").strip().lower().replace(" ", "_"): (v or "").strip() for k, v in row.items() }
+                    name = normalized.get("card_name", "")
+                    if not name:
+                        continue
+                    qty = int(normalized.get("quantity", "1") or 1)
+                    set_row = normalized.get("set_code", "")
+                    card_no = normalized.get("card_number", "")
+                    language = normalized.get("language", "")
+                    condition = normalized.get("condition", "")
+                    info = fetch_card_info_by_name(name)
+                    if info and set_row and info.get("set_code") != set_row:
+                        variants = fetch_variants(name)
+                        for v in variants:
+                            if v.get("set_code") == set_row and (
+                                not card_no or v.get("collector_number") == card_no
+                            ):
+                                info = v
+                                break
+                    if not info:
+                        info = {}
+                    UPLOAD_QUEUE.append(
+                        {
+                            "name": info.get("name", name),
+                            "set_code": set_row or set_code or info.get("set_code", ""),
+                            "language": language or info.get("language", ""),
+                            "condition": condition,
+                            "quantity": qty,
+                            "cardmarket_id": info.get("cardmarket_id", ""),
+                            "folder_id": folder_id,
+                            "collector_number": card_no or info.get("collector_number", ""),
+                            "scryfall_id": info.get("scryfall_id", ""),
+                            "image_url": info.get("image_url", ""),
+                        }
+                    )
+                    added_any = True
+            except Exception:
+                flash("Invalid CSV file")
+
+        # names from textarea
         for line in request.form.get("cards", "").splitlines():
             name = line.strip()
             if not name:
                 continue
-            info = fetch_card_info_by_name(name)
-            if info:
-                if add_card(
-                    info.get("name", name),
-                    set_code or info.get("set_code", ""),
-                    info.get("language", ""),
-                    "",
-                    0,
-                    None,
-                    info.get("cardmarket_id", ""),
-                    folder_id,
-                    info.get("collector_number", ""),
-                    info.get("scryfall_id", ""),
-                    info.get("image_url", ""),
-                ):
-                    added_any = True
-                else:
-                    flash(f"No slot for {name}", "error")
-            else:
-                if add_card(name, set_code, "", "", 0, None, "", folder_id, "", "", ""):
-                    added_any = True
-                else:
-                    flash(f"No slot for {name}", "error")
+            info = fetch_card_info_by_name(name) or {}
+            UPLOAD_QUEUE.append(
+                {
+                    "name": info.get("name", name),
+                    "set_code": set_code or info.get("set_code", ""),
+                    "language": info.get("language", ""),
+                    "condition": "",
+                    "quantity": 1,
+                    "cardmarket_id": info.get("cardmarket_id", ""),
+                    "folder_id": folder_id,
+                    "collector_number": info.get("collector_number", ""),
+                    "scryfall_id": info.get("scryfall_id", ""),
+                    "image_url": info.get("image_url", ""),
+                }
+            )
+            added_any = True
 
         if added_any:
-            flash("Cards added")
-        else:
-            flash("No cards added", "error")
-        return redirect(url_for("list_cards"))
+            flash("Cards queued for review")
+            return redirect(url_for("upload_queue_view"))
+        flash("No cards added", "error")
+        return redirect(url_for("bulk_add_view"))
     return render_template("bulk_add.html", folders=folders)
+
+
+@app.route("/cards/upload_queue")
+def upload_queue_view():
+    """Display queued cards from the bulk upload."""
+    return render_template("upload_queue.html", queue=UPLOAD_QUEUE)
+
+
+@app.route("/cards/upload_queue/add/<int:index>")
+def upload_card_route(index: int):
+    """Add a queued card to the database and remove it from the queue."""
+    if 0 <= index < len(UPLOAD_QUEUE):
+        card = UPLOAD_QUEUE.pop(index)
+        success = add_card(
+            card["name"],
+            card.get("set_code", ""),
+            card.get("language", ""),
+            card.get("condition", ""),
+            0,
+            card.get("quantity", 1),
+            None,
+            card.get("cardmarket_id", ""),
+            card.get("folder_id"),
+            card.get("collector_number", ""),
+            card.get("scryfall_id", ""),
+            card.get("image_url", ""),
+        )
+        flash("Card added" if success else "No slot for " + card["name"], "error" if not success else None)
+    return redirect(url_for("upload_queue_view"))
+
+
+@app.route("/cards/upload_queue/add_all")
+def upload_all_route():
+    """Add all cards from the upload queue."""
+    while UPLOAD_QUEUE:
+        card = UPLOAD_QUEUE.pop(0)
+        add_card(
+            card["name"],
+            card.get("set_code", ""),
+            card.get("language", ""),
+            card.get("condition", ""),
+            0,
+            card.get("quantity", 1),
+            None,
+            card.get("cardmarket_id", ""),
+            card.get("folder_id"),
+            card.get("collector_number", ""),
+            card.get("scryfall_id", ""),
+            card.get("image_url", ""),
+        )
+    flash("All queued cards added")
+    return redirect(url_for("list_cards"))
 
 
 
