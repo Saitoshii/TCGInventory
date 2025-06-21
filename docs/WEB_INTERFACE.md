@@ -11,6 +11,8 @@ python web.py
 ```
 
 On first launch the SQLite database will be created automatically if it does not exist. Visit `http://localhost:5000` in your browser.
+The first start also asks you to create a user account. After registration use
+the `/login` page. Sessions expire after 15 minutes of inactivity.
 
 To access the interface from another machine set `FLASK_RUN_HOST=0.0.0.0` when starting the server. You can also change the port with `FLASK_RUN_PORT`.
 

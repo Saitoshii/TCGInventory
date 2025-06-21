@@ -26,6 +26,8 @@ Run the CLI via the module path so Python can resolve the ``TCGInventory`` packa
 ```bash
 python -m TCGInventory.cli
 ```
+On first launch you will be asked to register a single user. Subsequent starts
+require a login and sessions expire after 15 minutes of inactivity.
 
 
 The CLI can manage optional storage slots for physical binders.  Use option
@@ -59,6 +61,9 @@ python web.py
 The application will initialize the SQLite database on first start if it does
 not exist.  Open ``http://localhost:5000`` in your browser to use the
 interface.
+You will be prompted to register a user on the very first start. Use the
+``/login`` page afterwards. The web session times out after 15 minutes of
+inactivity.
 
 To expose the web interface to the entire local network set ``FLASK_RUN_HOST``
 before running the command, for example:

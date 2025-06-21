@@ -15,6 +15,14 @@ from TCGInventory.lager_manager import (
 )
 from TCGInventory.setup_db import initialize_database
 from TCGInventory import DB_FILE
+from TCGInventory.auth import (
+    init_user_db,
+    user_exists,
+    register_user,
+    verify_user,
+)
+from getpass import getpass
+import time
 
 
 
@@ -23,6 +31,31 @@ def initialize_if_needed() -> None:
     if not os.path.exists(DB_FILE):
         initialize_database()
         print(Fore.GREEN + "ℹ️  Datenbank initialisiert.")
+
+
+def authenticate() -> bool:
+    """Handle user registration on first run and verify login."""
+    init_user_db()
+    if not user_exists():
+        print(Fore.CYAN + "=== Registrierung ===")
+        username = input("Benutzername: ")
+        while True:
+            pw1 = getpass("Passwort: ")
+            pw2 = getpass("Passwort wiederholen: ")
+            if pw1 == pw2:
+                break
+            print(Fore.RED + "Passwörter stimmen nicht überein.")
+        register_user(username, pw1)
+        print(Fore.GREEN + "Benutzer angelegt.")
+        return True
+    else:
+        for _ in range(3):
+            username = input("Benutzername: ")
+            pw = getpass("Passwort: ")
+            if verify_user(username, pw):
+                return True
+            print(Fore.RED + "Falsche Anmeldedaten.")
+        return False
 
 def show_menu():
     print(Fore.CYAN + "\n🎴 MTG Lagerverwaltung")
@@ -54,10 +87,23 @@ def _get_int(prompt: str) -> int:
 
 def run():
     initialize_if_needed()
+    if not authenticate():
+        print(Fore.RED + "Login fehlgeschlagen.")
+        return
+    last_activity = time.time()
     try:
         while True:
+            if time.time() - last_activity > 900:
+                print(Fore.YELLOW + "\n⏰ Sitzung abgelaufen. Bitte erneut anmelden.")
+                if not authenticate():
+                    print(Fore.RED + "Login fehlgeschlagen.")
+                    break
+                last_activity = time.time()
+                continue
+
             show_menu()
             choice = input("➤ Auswahl: ")
+            last_activity = time.time()
 
             if choice == "1":
                 name = input("Kartennamen: ")

@@ -9,13 +9,20 @@
   <div class="container py-4">
     <h1 class="mb-4">TCG Inventory</h1>
     <nav class="mb-4">
+      {% if session.get('user') %}
       <a class="btn btn-primary me-2" href="{{ url_for('list_cards') }}">Cards</a>
       <a class="btn btn-secondary me-2" href="{{ url_for('add_card_view') }}">Add Card</a>
       <a class="btn btn-secondary me-2" href="{{ url_for('bulk_add_view') }}">Bulk Add</a>
       <a class="btn btn-secondary me-2" href="{{ url_for('upload_queue_view') }}">Upload Queue</a>
       <a class="btn btn-secondary me-2" href="{{ url_for('list_folders_view') }}">Folders</a>
+      codex/sicherheitsfunktionen-implementieren
+      <a class="btn btn-danger" href="{{ url_for('logout') }}">Logout</a>
+      {% else %}
+      <a class="btn btn-primary" href="{{ url_for('login') }}">Login</a>
+      {% endif %}
       <a class="btn btn-secondary me-2" href="{{ url_for('export_cards') }}">Export</a>
       {# Storage management not required right now #}
+    main
     </nav>
     {% with messages = get_flashed_messages() %}
       {% if messages %}
