@@ -49,7 +49,11 @@ To change an existing card, click **Edit** next to the card and modify the field
 
 ## Bulk adding cards
 
+8n7hti-codex/csv-upload-im-bulk-add-beheben
 Use the **Bulk Add** page to quickly insert many cards. Enter one card name per line or upload a JSON file containing a list of card names (or objects with a `name` field). Alternatively you can upload a CSV file with the columns `Card Name`, `Set Code`, `Card Number`, `Quantity` and `Language`. Additional columns are ignored. The application tries to fetch additional information automatically if possible. Files encoded as UTF‑8 or Latin‑1 are accepted and Excel's optional `sep=;` line is ignored.
+
+Use the **Bulk Add** page to quickly insert many cards. Enter one card name per line or upload a JSON file containing a list of card names (or objects with a `name` field). Alternatively you can upload a CSV file with the columns `Card Name`, `Set Code`, `Card Number`, `Quantity` and `Language`. The application tries to fetch additional information automatically if possible. Files encoded as UTF‑8 or Latin‑1 are accepted and Excel's optional `sep=;` line is ignored.
+main
 
 ## Managing folders
 
