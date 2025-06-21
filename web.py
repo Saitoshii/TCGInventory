@@ -313,11 +313,22 @@ def bulk_add_view():
         csv_file = request.files.get("csv_file")
         if csv_file and csv_file.filename:
             try:
-                content = csv_file.read().decode("utf-8-sig")
+                raw = csv_file.read()
                 try:
-                    dialect = csv.Sniffer().sniff(content, delimiters=",;")
+                    content = raw.decode("utf-8-sig")
+                except UnicodeDecodeError:
+                    content = raw.decode("latin-1")
+                lines = content.splitlines()
+                delimiter = None
+                if lines and lines[0].lower().startswith("sep="):
+                    delimiter = lines[0][4:].strip()
+                    content = "\n".join(lines[1:])
+                try:
+                    dialect = csv.Sniffer().sniff(content, delimiters=delimiter or ",;")
                 except csv.Error:
                     dialect = csv.excel
+                    if delimiter:
+                        dialect.delimiter = delimiter
                 reader = csv.DictReader(io.StringIO(content), dialect=dialect)
                 for row in reader:
                     normalized = {
@@ -358,8 +369,8 @@ def bulk_add_view():
                         }
                     )
                     added_any = True
-            except Exception:
-                flash("Invalid CSV file")
+            except Exception as exc:
+                flash(f"Invalid CSV file: {exc}")
 
         # names from textarea
         for line in request.form.get("cards", "").splitlines():
