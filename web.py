@@ -9,10 +9,8 @@ from flask import (
     url_for,
     flash,
     jsonify,
-  codex/sicherheitsfunktionen-implementieren
     session,
     Response,
-  main
 )
 import csv
 import io
