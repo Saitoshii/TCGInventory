@@ -331,10 +331,15 @@ def bulk_add_view():
                         dialect.delimiter = delimiter
                 reader = csv.DictReader(io.StringIO(content), dialect=dialect)
                 for row in reader:
-                    normalized = {
-                        (k or "").strip().lower().replace(" ", "_"): (v or "").strip()
-                        for k, v in row.items()
-                    }
+                    normalized = {}
+                    for k, v in row.items():
+                        if not k:
+                            # extra columns end up under the key ``None``
+                            # and may contain a list of values
+                            continue
+                        if isinstance(v, list):
+                            v = v[0] if v else ""
+                        normalized[k.strip().lower().replace(" ", "_")] = (v or "").strip()
                     name = normalized.get("card_name", "")
                     if not name:
                         continue
