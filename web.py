@@ -413,6 +413,70 @@ def upload_queue_view():
     return render_template("upload_queue.html", queue=UPLOAD_QUEUE)
 
 
+@app.route("/cards/upload_queue/edit/<int:index>", methods=["GET", "POST"])
+def edit_queued_card(index: int):
+    """Edit details of a queued card before adding it."""
+    if not (0 <= index < len(UPLOAD_QUEUE)):
+        flash("Invalid card index", "error")
+        return redirect(url_for("upload_queue_view"))
+
+    folders = list_folders()
+    card = UPLOAD_QUEUE[index]
+
+    if request.method == "POST":
+        folder_id = request.form.get("folder_id") or None
+        set_code = card.get("set_code", "")
+        for f in folders:
+            if str(f[0]) == str(folder_id):
+                set_code = f[1]
+                break
+
+        card.update(
+            {
+                "name": request.form["name"],
+                "language": request.form.get("language", ""),
+                "condition": request.form.get("condition", ""),
+                "price": float(request.form.get("price", 0) or 0),
+                "quantity": int(request.form.get("quantity", 1) or 1),
+                "cardmarket_id": request.form.get("cardmarket_id", ""),
+                "folder_id": folder_id,
+                "set_code": set_code,
+                "collector_number": request.form.get("collector_number", ""),
+                "scryfall_id": request.form.get("scryfall_id", ""),
+                "image_url": request.form.get("image_url", ""),
+            }
+        )
+        flash("Card updated")
+        return redirect(url_for("upload_queue_view"))
+
+    tuple_card = (
+        0,
+        card.get("name", ""),
+        card.get("set_code", ""),
+        card.get("language", ""),
+        card.get("condition", ""),
+        card.get("price", 0),
+        card.get("quantity", 1),
+        "",
+        card.get("cardmarket_id", ""),
+        card.get("folder_id"),
+        card.get("collector_number", ""),
+        card.get("scryfall_id", ""),
+        card.get("image_url", ""),
+    )
+    folder_part = ""
+    if card.get("folder_id"):
+        folder_part = f"O{int(card['folder_id']):02d}"
+    return render_template(
+        "card_form.html",
+        card=tuple_card,
+        folders=folders,
+        folder_part=folder_part,
+        page="",
+        slot="",
+    )
+
+
 @app.route("/cards/upload_queue/add/<int:index>")
 def upload_card_route(index: int):
     """Add a queued card to the database and remove it from the queue."""
