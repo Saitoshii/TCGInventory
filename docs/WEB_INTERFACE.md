@@ -20,7 +20,7 @@ The navigation bar at the top links to the most important pages:
 
 - **Cards** – List all cards with a search field.
 - **Add Card** – Open a form to add a single card manually.
-- **Bulk Add** – Add many cards at once by entering a list of names or uploading a JSON file.
+- **Bulk Add** – Add many cards at once by entering a list of names or uploading a JSON or CSV file.
 - **Folders** – Manage folders (sets) and see which cards belong to each folder.
 
 ## Working with cards
@@ -49,7 +49,7 @@ To change an existing card, click **Edit** next to the card and modify the field
 
 ## Bulk adding cards
 
-Use the **Bulk Add** page to quickly insert many cards. Enter one card name per line or upload a JSON file containing a list of card names (or objects with a `name` field). The application tries to fetch additional information automatically if possible.
+Use the **Bulk Add** page to quickly insert many cards. Enter one card name per line or upload a JSON file containing a list of card names (or objects with a `name` field). Alternatively you can upload a CSV file with the columns `Card Name`, `Set Code`, `Card Number`, `Quantity` and `Language`. The application tries to fetch additional information automatically if possible. Files encoded as UTF‑8 or Latin‑1 are accepted and Excel's optional `sep=;` line is ignored.
 
 ## Managing folders
 
