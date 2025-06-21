@@ -29,12 +29,13 @@ from TCGInventory.card_scanner import (
 )
 from TCGInventory.setup_db import initialize_database
 from TCGInventory import DB_FILE
+from typing import List, Optional
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "tcg-secret")
 
 # Queue for cards uploaded via the bulk add feature
-UPLOAD_QUEUE: list[dict] = []
+UPLOAD_QUEUE: List[dict] = []
 
 
 def init_db() -> None:
@@ -42,7 +43,7 @@ def init_db() -> None:
         initialize_database()
 
 
-def fetch_cards(search: str | None = None):
+def fetch_cards(search: Optional[str] = None):
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         query = (
