@@ -313,7 +313,6 @@ def bulk_add_view():
         csv_file = request.files.get("csv_file")
         if csv_file and csv_file.filename:
             try:
-              8a2swe-codex/bulk-add-funktion-für-csv-und-json-erweitern
                 content = csv_file.read().decode("utf-8-sig")
                 try:
                     dialect = csv.Sniffer().sniff(content, delimiters=",;")
@@ -321,7 +320,10 @@ def bulk_add_view():
                     dialect = csv.excel
                 reader = csv.DictReader(io.StringIO(content), dialect=dialect)
                 for row in reader:
-                    normalized = { (k or "").strip().lower().replace(" ", "_"): (v or "").strip() for k, v in row.items() }
+                    normalized = {
+                        (k or "").strip().lower().replace(" ", "_"): (v or "").strip()
+                        for k, v in row.items()
+                    }
                     name = normalized.get("card_name", "")
                     if not name:
                         continue
@@ -330,18 +332,6 @@ def bulk_add_view():
                     card_no = normalized.get("card_number", "")
                     language = normalized.get("language", "")
                     condition = normalized.get("condition", "")
-                content = csv_file.stream.read().decode("utf-8")
-                reader = csv.DictReader(io.StringIO(content))
-                for row in reader:
-                    name = (row.get("Card Name") or "").strip()
-                    if not name:
-                        continue
-                    qty = int(row.get("Quantity", "1") or 1)
-                    set_row = (row.get("Set Code") or "").strip()
-                    card_no = (row.get("Card Number") or "").strip()
-                    language = (row.get("Language") or "").strip()
-                    condition = (row.get("Condition") or "").strip()
-                    main
                     info = fetch_card_info_by_name(name)
                     if info and set_row and info.get("set_code") != set_row:
                         variants = fetch_variants(name)
