@@ -1,12 +1,14 @@
 import sqlite3
 
 from . import DB_FILE
+from .auth import init_user_db
 
 
 def initialize_database() -> None:
     """Create the SQLite database and all required tables."""
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
+        init_user_db()
 
         # Tabelle 1: Karten
         cursor.execute(

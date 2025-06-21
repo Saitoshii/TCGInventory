@@ -9,6 +9,7 @@ from flask import (
     url_for,
     flash,
     jsonify,
+    session,
 )
 import csv
 import io
@@ -29,9 +30,18 @@ from TCGInventory.card_scanner import (
 )
 from TCGInventory.setup_db import initialize_database
 from TCGInventory import DB_FILE
+from TCGInventory.auth import (
+    init_user_db,
+    user_exists,
+    register_user,
+    verify_user,
+    login_required,
+)
+from datetime import timedelta
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "tcg-secret")
+app.permanent_session_lifetime = timedelta(minutes=15)
 
 # Queue for cards uploaded via the bulk add feature
 UPLOAD_QUEUE: list[dict] = []
@@ -40,6 +50,8 @@ UPLOAD_QUEUE: list[dict] = []
 def init_db() -> None:
     if not os.path.exists(DB_FILE):
         initialize_database()
+    else:
+        init_user_db()
 
 
 def fetch_cards(search: str | None = None):
@@ -78,6 +90,47 @@ def get_card(card_id: int):
         return c.fetchone()
 
 
+@app.route("/register", methods=["GET", "POST"])
+def register_view():
+    init_user_db()
+    if user_exists():
+        return redirect(url_for("login"))
+    if request.method == "POST":
+        username = request.form["username"]
+        password = request.form["password"]
+        register_user(username, password)
+        session["user"] = username
+        session.permanent = True
+        flash("Registration successful")
+        return redirect(url_for("index"))
+    return render_template("register.html")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    init_user_db()
+    if not user_exists():
+        return redirect(url_for("register_view"))
+    if request.method == "POST":
+        username = request.form["username"]
+        password = request.form["password"]
+        if verify_user(username, password):
+            session["user"] = username
+            session.permanent = True
+            flash("Logged in")
+            next_page = request.args.get("next") or url_for("index")
+            return redirect(next_page)
+        flash("Invalid credentials", "error")
+    return render_template("login.html")
+
+
+@app.route("/logout")
+def logout():
+    session.pop("user", None)
+    flash("Logged out")
+    return redirect(url_for("login"))
+
+
 @app.route("/api/autocomplete")
 def autocomplete_api():
     """Return card name suggestions for the given query."""
@@ -97,11 +150,13 @@ def lookup_api():
 
 
 @app.route("/")
+@login_required
 def index():
     return redirect(url_for("list_cards"))
 
 
 @app.route("/cards")
+@login_required
 def list_cards():
     search = request.args.get("q", "")
     cards = fetch_cards(search if search else None)
@@ -109,6 +164,7 @@ def list_cards():
 
 
 @app.route("/cards/add", methods=["GET", "POST"])
+@login_required
 def add_card_view():
     folders = list_folders()
     if request.method == "POST":
@@ -150,6 +206,7 @@ def add_card_view():
 
 
 @app.route("/cards/<int:card_id>/edit", methods=["GET", "POST"])
+@login_required
 def edit_card_view(card_id: int):
     card = get_card(card_id)
     folders = list_folders()
@@ -198,6 +255,7 @@ def edit_card_view(card_id: int):
 
 
 @app.route("/cards/<int:card_id>/delete")
+@login_required
 def delete_card_route(card_id: int):
     delete_card(card_id)
     flash("Card deleted")
@@ -205,6 +263,7 @@ def delete_card_route(card_id: int):
 
 
 @app.route("/folders")
+@login_required
 def list_folders_view():
     sort = request.args.get("sort", "name")
     search = request.args.get("q", "").strip()
@@ -241,6 +300,7 @@ def list_folders_view():
 
 
 @app.route("/folders/add", methods=["GET", "POST"])
+@login_required
 def add_folder_view():
     if request.method == "POST":
         name = request.form["name"]
@@ -257,6 +317,7 @@ def add_folder_view():
 
 
 @app.route("/storage/add", methods=["GET", "POST"])
+@login_required
 def add_storage_view():
     if request.method == "POST":
         add_storage_slot(request.form["code"])
@@ -266,6 +327,7 @@ def add_storage_view():
 
 
 @app.route("/cards/bulk_add", methods=["GET", "POST"])
+@login_required
 def bulk_add_view():
     folders = list_folders()
     if request.method == "POST":
@@ -408,12 +470,14 @@ def bulk_add_view():
 
 
 @app.route("/cards/upload_queue")
+@login_required
 def upload_queue_view():
     """Display queued cards from the bulk upload."""
     return render_template("upload_queue.html", queue=UPLOAD_QUEUE)
 
 
 @app.route("/cards/upload_queue/edit/<int:index>", methods=["GET", "POST"])
+@login_required
 def edit_queued_card(index: int):
     """Edit details of a queued card before adding it."""
     if not (0 <= index < len(UPLOAD_QUEUE)):
@@ -478,6 +542,7 @@ def edit_queued_card(index: int):
 
 
 @app.route("/cards/upload_queue/add/<int:index>")
+@login_required
 def upload_card_route(index: int):
     """Add a queued card to the database and remove it from the queue."""
     if 0 <= index < len(UPLOAD_QUEUE):
@@ -501,6 +566,7 @@ def upload_card_route(index: int):
 
 
 @app.route("/cards/upload_queue/add_all")
+@login_required
 def upload_all_route():
     """Add all cards from the upload queue."""
     while UPLOAD_QUEUE:
