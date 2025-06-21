@@ -19,7 +19,11 @@
   </div>
 </form>
 {% for f in folders %}
-  <h4 class="mt-4">{{ f[1] }} ({{ '%02d'|format(f[0]) }})</h4>
+  <h4 class="mt-4">
+    <button class="btn btn-sm btn-outline-secondary me-2 folder-toggle" data-target="folder-{{ f[0] }}">Hide</button>
+    {{ f[1] }} ({{ '%02d'|format(f[0]) }})
+  </h4>
+  <div id="folder-{{ f[0] }}">
   <table class="table table-sm table-striped">
     <tr><th>ID</th><th>Name</th><th>Set</th><th>Qty</th><th>Storage</th></tr>
     {% for c in folder_cards.get(f[0], []) %}
@@ -35,6 +39,24 @@
     <tr><td colspan="5" class="text-muted">No cards</td></tr>
     {% endif %}
   </table>
+  </div>
 {% endfor %}
 <a href="{{ url_for('add_folder_view') }}" class="btn btn-primary mt-3">Add Folder</a>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.folder-toggle').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const target = document.getElementById(this.dataset.target);
+      if (!target) return;
+      if (target.classList.contains('d-none')) {
+        target.classList.remove('d-none');
+        this.textContent = 'Hide';
+      } else {
+        target.classList.add('d-none');
+        this.textContent = 'Show';
+      }
+    });
+  });
+});
+</script>
 {% endblock %}
