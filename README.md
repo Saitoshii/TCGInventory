@@ -88,4 +88,4 @@ search. If no database is available the Scryfall API is used as fallback.
 
 ## Export
 
-Use the CLI option **Karten exportieren** or the *Export* link in the web interface to download all cards as a CSV file.
+Use the CLI option **Karten exportieren** or the *Export* link in the web interface to download the inventory as a CSV file. You can optionally export a single folder by specifying its name (CLI) or by using the folder-specific link in the web interface. The CSV uses a semicolon as separator for better compatibility with spreadsheet applications.

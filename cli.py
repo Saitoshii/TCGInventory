@@ -151,13 +151,16 @@ def run():
                     create_binder(folder_id, pages)
 
             elif choice == "6":
+              codex/erweiterte-exportfunktion-für-lager-hinzufügen
+                folder = input("Ordnername für Export (leer = alle): ").strip() or None
                 folder_id = _get_int("Ordner-ID zum Umbenennen: ")
                 new_name = input("Neuer Name: ")
                 rename_folder(folder_id, new_name)
 
             elif choice == "7":
+              main
                 path = input("Dateiname für CSV-Export [inventory.csv]: ").strip() or "inventory.csv"
-                export_inventory_csv(path)
+                export_inventory_csv(path, folder)
 
             elif choice == "0":
                 print(Fore.YELLOW + "👋 Programm beendet.")
