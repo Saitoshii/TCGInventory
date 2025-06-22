@@ -16,6 +16,7 @@ __all__ = [
     "delete_card",
     "get_next_free_slot",
     "add_folder",
+    "rename_folder",
     "list_folders",
     "export_inventory_csv",
 ]
@@ -282,3 +283,20 @@ def list_folders():
         cursor = conn.cursor()
         cursor.execute("SELECT id, name FROM folders ORDER BY name")
         return cursor.fetchall()
+
+
+def rename_folder(folder_id: int, new_name: str) -> bool:
+    """Rename a folder without touching its cards."""
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE folders SET name = ? WHERE id = ?",
+            (new_name, folder_id),
+        )
+        conn.commit()
+        if cursor.rowcount:
+            print(f"📁 Ordner {folder_id} umbenannt in '{new_name}'.")
+            return True
+        print(f"⚠️ Kein Ordner mit ID {folder_id} gefunden.")
+        return False
+

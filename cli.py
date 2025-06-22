@@ -11,6 +11,7 @@ from TCGInventory.lager_manager import (
     delete_card,
     list_all_cards,
     add_folder,
+    rename_folder,
     export_inventory_csv,
 )
 from TCGInventory.setup_db import initialize_database
@@ -64,7 +65,8 @@ def show_menu():
     print(Fore.YELLOW + "3. Karte bearbeiten")
     print(Fore.YELLOW + "4. Karte löschen")
     print(Fore.YELLOW + "5. Ordner anlegen")
-    print(Fore.YELLOW + "6. Karten exportieren")
+    print(Fore.YELLOW + "6. Ordner umbenennen")
+    print(Fore.YELLOW + "7. Karten exportieren")
     print(Fore.YELLOW + "0. Beenden")
 
 
@@ -149,6 +151,11 @@ def run():
                     create_binder(folder_id, pages)
 
             elif choice == "6":
+                folder_id = _get_int("Ordner-ID zum Umbenennen: ")
+                new_name = input("Neuer Name: ")
+                rename_folder(folder_id, new_name)
+
+            elif choice == "7":
                 path = input("Dateiname für CSV-Export [inventory.csv]: ").strip() or "inventory.csv"
                 export_inventory_csv(path)
 
