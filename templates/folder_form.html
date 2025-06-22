@@ -1,15 +1,17 @@
 {% extends "base.html" %}
 {% block content %}
-<h2 class="mb-4">Add Folder</h2>
+<h2 class="mb-4">{{ 'Edit Folder' if folder else 'Add Folder' }}</h2>
 <form method="post">
   <div class="mb-3">
     <label class="form-label">Name</label>
-    <input class="form-control" name="name" required>
+    <input class="form-control" name="name" required value="{{ folder[1] if folder else '' }}">
   </div>
+  {% if not folder %}
   <div class="mb-3">
     <label class="form-label">Pages</label>
     <input type="number" class="form-control" name="pages" min="1" value="1" required>
   </div>
-  <button type="submit" class="btn btn-primary">Add</button>
+  {% endif %}
+  <button type="submit" class="btn btn-primary">{{ 'Save' if folder else 'Add' }}</button>
 </form>
 {% endblock %}
