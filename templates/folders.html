@@ -21,6 +21,7 @@
 {% for f in folders %}
   <h4 class="mt-4">
     <button class="btn btn-sm btn-outline-secondary me-2 folder-toggle" data-target="folder-{{ f[0] }}">Hide</button>
+    <a href="{{ url_for('export_cards', folder=f[0]) }}" class="btn btn-sm btn-outline-secondary me-2">Export CSV</a>
     {{ f[1] }} ({{ '%02d'|format(f[0]) }})
   </h4>
   <div id="folder-{{ f[0] }}">

@@ -173,11 +173,11 @@ def list_all_cards():
         print("Keine Karten gefunden.")
 
 
-def export_inventory_csv(path: str) -> None:
-    """Write the current card list to a CSV file."""
+def export_inventory_csv(path: str, folder: str | None = None) -> None:
+    """Write the current card list to a CSV file, optionally filtered by folder."""
     with sqlite3.connect(DB_FILE) as conn, open(path, "w", newline="", encoding="utf-8") as f:
         cursor = conn.cursor()
-        cursor.execute(
+        query = (
             """
             SELECT cards.id, cards.name, cards.set_code, cards.language,
                    cards.condition, cards.price, cards.quantity, cards.storage_code,
@@ -186,7 +186,12 @@ def export_inventory_csv(path: str) -> None:
             LEFT JOIN folders ON cards.folder_id = folders.id
             """
         )
-        writer = csv.writer(f)
+        params: tuple = ()
+        if folder:
+            query += " WHERE folders.name = ?"
+            params = (folder,)
+        cursor.execute(query, params)
+        writer = csv.writer(f, delimiter=";")
         writer.writerow([
             "ID",
             "Name",

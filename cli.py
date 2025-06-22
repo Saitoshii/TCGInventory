@@ -149,8 +149,9 @@ def run():
                     create_binder(folder_id, pages)
 
             elif choice == "6":
+                folder = input("Ordnername für Export (leer = alle): ").strip() or None
                 path = input("Dateiname für CSV-Export [inventory.csv]: ").strip() or "inventory.csv"
-                export_inventory_csv(path)
+                export_inventory_csv(path, folder)
 
             elif choice == "0":
                 print(Fore.YELLOW + "👋 Programm beendet.")
