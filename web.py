@@ -165,6 +165,7 @@ def list_cards():
 
 
 @app.route("/cards/export")
+@login_required
 def export_cards():
     """Return a CSV export of all cards."""
     rows = fetch_cards()
