@@ -33,10 +33,14 @@ require a login and sessions expire after 15 minutes of inactivity.
 The CLI can manage optional storage slots for physical binders.  Use option
 ``Ordner anlegen`` to create slots for a set (one page equals nine slots).  When
 adding a card without a storage code, the next free slot will be used if
-available.  If no slot exists the card is still stored without a location.
+available.  If no slot exists the card is still stored without a loc
+d7qlx2-codex/erweiterte-ordnerbearbeitung-ohne-löschen
 Existing folders can be edited via ``Ordner bearbeiten`` to change the name or
 page count without affecting the cards stored inside. Increasing the page count
 automatically creates additional storage slots.
+Existing folders can be renamed via ``Ordner umbenennen`` without affecting the
+cards stored inside.
+main
 
 
 
@@ -89,4 +93,4 @@ search. If no database is available the Scryfall API is used as fallback.
 
 ## Export
 
-Use the CLI option **Karten exportieren** or the *Export* link in the web interface to download all cards as a CSV file.
+Use the CLI option **Karten exportieren** or the *Export* link in the web interface to download the inventory as a CSV file. You can optionally export a single folder by specifying its name (CLI) or by using the folder-specific link in the web interface. The CSV uses a semicolon as separator for better compatibility with spreadsheet applications.

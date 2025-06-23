@@ -58,6 +58,10 @@ After submitting the form the cards appear in the **Upload Queue** where each en
 
 ## Managing folders
 
+d7qlx2-codex/erweiterte-ordnerbearbeitung-ohne-löschen
 Folders correspond to sets or binders. The **Folders** page lists all folders and the cards stored inside each one. When clicking **Add Folder** you can enter a name and the number of pages of the binder. Each page provides nine storage slots.  Cards can then be assigned to a folder and stored on a specific page and slot when adding or editing them. Existing folders can be edited using the **Edit** link next to each entry to change the name or page count. Increasing the number of pages automatically adds more storage slots.
+
+Folders correspond to sets or binders. The **Folders** page lists all folders and the cards stored inside each one. When clicking **Add Folder** you can enter a name and the number of pages of the binder. Each page provides nine storage slots.  Cards can then be assigned to a folder and stored on a specific page and slot when adding or editing them. Existing folders can be renamed using the **Edit** link next to each entry.
+main
 The overview also offers a small form to filter the listed cards by name, ID or storage code and to sort them by name, ID or storage.
 

@@ -16,7 +16,9 @@ __all__ = [
     "delete_card",
     "get_next_free_slot",
     "add_folder",
+d7qlx2-codex/erweiterte-ordnerbearbeitung-ohne-löschen
     "edit_folder",
+main
     "rename_folder",
     "list_folders",
     "export_inventory_csv",
@@ -175,11 +177,11 @@ def list_all_cards():
         print("Keine Karten gefunden.")
 
 
-def export_inventory_csv(path: str) -> None:
-    """Write the current card list to a CSV file."""
+def export_inventory_csv(path: str, folder: str | None = None) -> None:
+    """Write the current card list to a CSV file, optionally filtered by folder."""
     with sqlite3.connect(DB_FILE) as conn, open(path, "w", newline="", encoding="utf-8") as f:
         cursor = conn.cursor()
-        cursor.execute(
+        query = (
             """
             SELECT cards.id, cards.name, cards.set_code, cards.language,
                    cards.condition, cards.price, cards.quantity, cards.storage_code,
@@ -188,7 +190,12 @@ def export_inventory_csv(path: str) -> None:
             LEFT JOIN folders ON cards.folder_id = folders.id
             """
         )
-        writer = csv.writer(f)
+        params: tuple = ()
+        if folder:
+            query += " WHERE folders.name = ?"
+            params = (folder,)
+        cursor.execute(query, params)
+        writer = csv.writer(f, delimiter=";")
         writer.writerow([
             "ID",
             "Name",
@@ -293,6 +300,7 @@ def list_folders():
 
 def rename_folder(folder_id: int, new_name: str) -> bool:
     """Rename a folder without touching its cards."""
+d7qlx2-codex/erweiterte-ordnerbearbeitung-ohne-löschen
     return edit_folder(folder_id, new_name)
 
 
@@ -316,6 +324,16 @@ def edit_folder(folder_id: int, new_name: str, pages: int | None = None) -> bool
             create_binder(folder_id, new_pages - current_pages)
         if cursor.rowcount:
             print(f"📁 Ordner {folder_id} aktualisiert.")
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE folders SET name = ? WHERE id = ?",
+            (new_name, folder_id),
+        )
+        conn.commit()
+        if cursor.rowcount:
+            print(f"📁 Ordner {folder_id} umbenannt in '{new_name}'.")
+ main
             return True
         print(f"⚠️ Kein Ordner mit ID {folder_id} gefunden.")
         return False

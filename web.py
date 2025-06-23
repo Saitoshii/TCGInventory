@@ -21,7 +21,9 @@ from TCGInventory.lager_manager import (
     delete_card,
     add_storage_slot,
     add_folder,
+d7qlx2-codex/erweiterte-ordnerbearbeitung-ohne-löschen
     edit_folder,
+main
     rename_folder,
     create_binder,
     list_folders,
@@ -57,7 +59,8 @@ def init_db() -> None:
         init_user_db()
 
 
-def fetch_cards(search: str | None = None):
+def fetch_cards(search: str | None = None, folder_id: int | None = None):
+    """Return card rows optionally filtered by search term and folder."""
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         query = (
@@ -69,12 +72,18 @@ def fetch_cards(search: str | None = None):
             LEFT JOIN folders ON cards.folder_id = folders.id
             """
         )
-        params: tuple = ()
+        conditions = []
+        params: list[str | int] = []
         if search:
-            query += " WHERE cards.name LIKE ? OR cards.set_code LIKE ?"
             like = f"%{search}%"
-            params = (like, like)
-        c.execute(query, params)
+            conditions.append("(cards.name LIKE ? OR cards.set_code LIKE ?)")
+            params.extend([like, like])
+        if folder_id is not None:
+            conditions.append("cards.folder_id = ?")
+            params.append(folder_id)
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        c.execute(query, tuple(params))
         return c.fetchall()
 
 
@@ -162,16 +171,21 @@ def index():
 @login_required
 def list_cards():
     search = request.args.get("q", "")
-    cards = fetch_cards(search if search else None)
-    return render_template("cards.html", cards=cards, search=search)
+    folder = request.args.get("folder")
+    fid = int(folder) if folder and folder.isdigit() else None
+    cards = fetch_cards(search if search else None, fid)
+    return render_template("cards.html", cards=cards, search=search, folder=fid)
 
 
 @app.route("/cards/export")
+@login_required
 def export_cards():
-    """Return a CSV export of all cards."""
-    rows = fetch_cards()
+    """Return a CSV export of all cards or a single folder."""
+    folder = request.args.get("folder")
+    fid = int(folder) if folder and folder.isdigit() else None
+    rows = fetch_cards(folder_id=fid)
     output = io.StringIO()
-    writer = csv.writer(output)
+    writer = csv.writer(output, delimiter=";")
     writer.writerow([
         "ID",
         "Name",
@@ -187,7 +201,8 @@ def export_cards():
     ])
     writer.writerows(rows)
     resp = Response(output.getvalue(), mimetype="text/csv")
-    resp.headers["Content-Disposition"] = "attachment; filename=inventory.csv"
+    filename = "inventory.csv" if fid is None else f"folder_{fid}.csv"
+    resp.headers["Content-Disposition"] = f"attachment; filename={filename}"
     return resp
 
 
@@ -346,14 +361,22 @@ def add_folder_view():
 def edit_folder_view(folder_id: int):
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
+        d7qlx2-codex/erweiterte-ordnerbearbeitung-ohne-löschen
         c.execute("SELECT id, name, pages FROM folders WHERE id=?", (folder_id,))
+
+        c.execute("SELECT id, name FROM folders WHERE id=?", (folder_id,))
+main
         folder = c.fetchone()
     if not folder:
         flash("Folder not found", "error")
         return redirect(url_for("list_folders_view"))
     if request.method == "POST":
+d7qlx2-codex/erweiterte-ordnerbearbeitung-ohne-löschen
         pages = int(request.form.get("pages", folder[2] or 0))
         edit_folder(folder_id, request.form["name"], pages)
+
+        rename_folder(folder_id, request.form["name"])
+main
         flash("Folder updated")
         return redirect(url_for("list_folders_view"))
     return render_template("folder_form.html", folder=folder)
