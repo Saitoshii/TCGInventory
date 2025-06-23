@@ -11,9 +11,11 @@
     <label class="form-label">Pages</label>
     <input type="number" class="form-control" name="pages" min="1" value="{{ folder[2] if folder else 1 }}" required>
   </div>
+codex/add-update_repo-function-and-cli-integration
 
-  {% endif %}
+
 main
+  {% endif %}
   <button type="submit" class="btn btn-primary">{{ 'Save' if folder else 'Add' }}</button>
 </form>
 {% endblock %}

@@ -361,7 +361,6 @@ def edit_folder_view(folder_id: int):
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         c.execute("SELECT id, name, pages FROM folders WHERE id=?", (folder_id,))
-
         c.execute("SELECT id, name FROM folders WHERE id=?", (folder_id,))
         folder = c.fetchone()
     if not folder:

@@ -68,9 +68,14 @@ def show_menu():
     print(Fore.YELLOW + "4. Karte löschen")
     print(Fore.YELLOW + "5. Ordner anlegen")
     print(Fore.YELLOW + "6. Ordner bearbeiten")
+codex/add-update_repo-function-and-cli-integration
     print(Fore.YELLOW + "6. Ordner umbenennen")
     print(Fore.YELLOW + "7. Karten exportieren")
     print(Fore.YELLOW + "8. System aktualisieren")
+
+    print(Fore.YELLOW + "7. Ordner umbenennen")
+    print(Fore.YELLOW + "8. Karten exportieren")
+main
     print(Fore.YELLOW + "0. Beenden")
 
 
@@ -161,25 +166,26 @@ def run():
                 edit_folder(folder_id, new_name, new_pages)
 
             elif choice == "7":
-                path = input("Dateiname für CSV-Export [inventory.csv]: ").strip() or "inventory.csv"
-                export_inventory_csv(path)
                 folder_id = _get_int("Ordner-ID zum Umbenennen: ")
                 new_name = input("Neuer Name: ")
                 rename_folder(folder_id, new_name)
 
-            elif choice == "7":
+            elif choice == "8":
                 folder = input("Ordnername für Export (leer = alle): ").strip() or None
                 path = (
                     input("Dateiname für CSV-Export [inventory.csv]: ").strip()
                     or "inventory.csv"
                 )
                 export_inventory_csv(path, folder)
+codex/add-update_repo-function-and-cli-integration
 
             elif choice == "8":
                 success, msg = update_repo()
                 color = Fore.GREEN if success else Fore.RED
                 print(color + msg)
 
+
+main
 
             elif choice == "0":
                 print(Fore.YELLOW + "👋 Programm beendet.")
