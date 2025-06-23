@@ -16,6 +16,9 @@ __all__ = [
     "delete_card",
     "get_next_free_slot",
     "add_folder",
+d7qlx2-codex/erweiterte-ordnerbearbeitung-ohne-löschen
+    "edit_folder",
+main
     "rename_folder",
     "list_folders",
     "export_inventory_csv",
@@ -268,15 +271,20 @@ def delete_card(card_id):
 # Folder helpers
 # ---------------------------------------------------------------------------
 
-def add_folder(name: str) -> int | None:
+def add_folder(name: str, pages: int = 0) -> int | None:
     """Create a folder entry if it does not exist and return its ID."""
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
-        cursor.execute("INSERT OR IGNORE INTO folders (name) VALUES (?)", (name,))
+        cursor.execute(
+            "INSERT OR IGNORE INTO folders (name, pages) VALUES (?, ?)",
+            (name, pages),
+        )
         conn.commit()
         cursor.execute("SELECT id FROM folders WHERE name = ?", (name,))
         row = cursor.fetchone()
         if row:
+            cursor.execute("UPDATE folders SET pages = ? WHERE id = ?", (pages, row[0]))
+            conn.commit()
             print(f"📁 Ordner '{name}' angelegt.")
             return row[0]
     return None
@@ -286,12 +294,36 @@ def list_folders():
     """Return a list of all folders."""
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, name FROM folders ORDER BY name")
+        cursor.execute("SELECT id, name, pages FROM folders ORDER BY name")
         return cursor.fetchall()
 
 
 def rename_folder(folder_id: int, new_name: str) -> bool:
     """Rename a folder without touching its cards."""
+d7qlx2-codex/erweiterte-ordnerbearbeitung-ohne-löschen
+    return edit_folder(folder_id, new_name)
+
+
+def edit_folder(folder_id: int, new_name: str, pages: int | None = None) -> bool:
+    """Update folder name and optionally adjust page count."""
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT pages FROM folders WHERE id = ?", (folder_id,))
+        row = cursor.fetchone()
+        if not row:
+            print(f"⚠️ Kein Ordner mit ID {folder_id} gefunden.")
+            return False
+        current_pages = row[0] or 0
+        new_pages = pages if pages is not None else current_pages
+        cursor.execute(
+            "UPDATE folders SET name = ?, pages = ? WHERE id = ?",
+            (new_name, new_pages, folder_id),
+        )
+        conn.commit()
+        if new_pages > current_pages:
+            create_binder(folder_id, new_pages - current_pages)
+        if cursor.rowcount:
+            print(f"📁 Ordner {folder_id} aktualisiert.")
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
         cursor.execute(
@@ -301,6 +333,7 @@ def rename_folder(folder_id: int, new_name: str) -> bool:
         conn.commit()
         if cursor.rowcount:
             print(f"📁 Ordner {folder_id} umbenannt in '{new_name}'.")
+ main
             return True
         print(f"⚠️ Kein Ordner mit ID {folder_id} gefunden.")
         return False
