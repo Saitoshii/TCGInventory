@@ -321,18 +321,6 @@ def edit_folder(folder_id: int, new_name: str, pages: int | None = None) -> bool
             create_binder(folder_id, new_pages - current_pages)
         if cursor.rowcount:
             print(f"📁 Ordner {folder_id} aktualisiert.")
-codex/add-update_repo-function-and-cli-integration
-    with sqlite3.connect(DB_FILE) as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE folders SET name = ? WHERE id = ?",
-            (new_name, folder_id),
-        )
-        conn.commit()
-        if cursor.rowcount:
-            print(f"📁 Ordner {folder_id} umbenannt in '{new_name}'.")
-
-main
             return True
         print(f"⚠️ Kein Ordner mit ID {folder_id} gefunden.")
         return False
