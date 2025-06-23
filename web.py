@@ -40,6 +40,7 @@ from TCGInventory.auth import (
     verify_user,
     login_required,
 )
+from TCGInventory.repo_updater import update_repo
 from datetime import timedelta
 
 app = Flask(__name__)
@@ -645,6 +646,15 @@ def upload_all_route():
         )
     flash("All queued cards added")
     return redirect(url_for("list_cards"))
+
+
+@app.route("/update")
+@login_required
+def update_view():
+    """Fetch updates from the git repository."""
+    success, message = update_repo()
+    flash(message, "error" if not success else None)
+    return redirect(url_for("index"))
 
 
 

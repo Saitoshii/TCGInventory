@@ -23,6 +23,7 @@ from TCGInventory.auth import (
     register_user,
     verify_user,
 )
+from TCGInventory.repo_updater import update_repo
 from getpass import getpass
 import time
 
@@ -67,8 +68,14 @@ def show_menu():
     print(Fore.YELLOW + "4. Karte löschen")
     print(Fore.YELLOW + "5. Ordner anlegen")
     print(Fore.YELLOW + "6. Ordner bearbeiten")
+codex/add-update_repo-function-and-cli-integration
+    print(Fore.YELLOW + "6. Ordner umbenennen")
+    print(Fore.YELLOW + "7. Karten exportieren")
+    print(Fore.YELLOW + "8. System aktualisieren")
+
     print(Fore.YELLOW + "7. Ordner umbenennen")
     print(Fore.YELLOW + "8. Karten exportieren")
+main
     print(Fore.YELLOW + "0. Beenden")
 
 
@@ -170,6 +177,15 @@ def run():
                     or "inventory.csv"
                 )
                 export_inventory_csv(path, folder)
+codex/add-update_repo-function-and-cli-integration
+
+            elif choice == "8":
+                success, msg = update_repo()
+                color = Fore.GREEN if success else Fore.RED
+                print(color + msg)
+
+
+main
 
             elif choice == "0":
                 print(Fore.YELLOW + "👋 Programm beendet.")
