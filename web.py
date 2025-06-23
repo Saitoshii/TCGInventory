@@ -21,9 +21,7 @@ from TCGInventory.lager_manager import (
     delete_card,
     add_storage_slot,
     add_folder,
-d7qlx2-codex/erweiterte-ordnerbearbeitung-ohne-löschen
     edit_folder,
-main
     rename_folder,
     create_binder,
     list_folders,
@@ -361,22 +359,16 @@ def add_folder_view():
 def edit_folder_view(folder_id: int):
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
-        d7qlx2-codex/erweiterte-ordnerbearbeitung-ohne-löschen
         c.execute("SELECT id, name, pages FROM folders WHERE id=?", (folder_id,))
-
         c.execute("SELECT id, name FROM folders WHERE id=?", (folder_id,))
-main
         folder = c.fetchone()
     if not folder:
         flash("Folder not found", "error")
         return redirect(url_for("list_folders_view"))
     if request.method == "POST":
-d7qlx2-codex/erweiterte-ordnerbearbeitung-ohne-löschen
         pages = int(request.form.get("pages", folder[2] or 0))
         edit_folder(folder_id, request.form["name"], pages)
-
         rename_folder(folder_id, request.form["name"])
-main
         flash("Folder updated")
         return redirect(url_for("list_folders_view"))
     return render_template("folder_form.html", folder=folder)
