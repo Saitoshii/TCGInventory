@@ -34,6 +34,9 @@ The CLI can manage optional storage slots for physical binders.  Use option
 ``Ordner anlegen`` to create slots for a set (one page equals nine slots).  When
 adding a card without a storage code, the next free slot will be used if
 available.  If no slot exists the card is still stored without a location.
+Existing folders can be edited via ``Ordner bearbeiten`` to change the name or
+page count without affecting the cards stored inside. Increasing the page count
+automatically creates additional storage slots.
 
 
 

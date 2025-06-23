@@ -38,10 +38,16 @@ def initialize_database() -> None:
             """
             CREATE TABLE IF NOT EXISTS folders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT UNIQUE
+                name TEXT UNIQUE,
+                pages INTEGER DEFAULT 0
             )
             """
         )
+
+        cursor.execute("PRAGMA table_info(folders)")
+        folder_columns = [row[1] for row in cursor.fetchall()]
+        if "pages" not in folder_columns:
+            cursor.execute("ALTER TABLE folders ADD COLUMN pages INTEGER DEFAULT 0")
 
         cursor.execute("PRAGMA table_info(cards)")
         columns = [row[1] for row in cursor.fetchall()]
