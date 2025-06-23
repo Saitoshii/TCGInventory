@@ -11,9 +11,7 @@ from TCGInventory.lager_manager import (
     delete_card,
     list_all_cards,
     add_folder,
-  d7qlx2-codex/erweiterte-ordnerbearbeitung-ohne-löschen
     edit_folder,
-  main
     rename_folder,
     export_inventory_csv,
 )
@@ -25,6 +23,7 @@ from TCGInventory.auth import (
     register_user,
     verify_user,
 )
+from TCGInventory.repo_updater import update_repo
 from getpass import getpass
 import time
 
@@ -68,12 +67,10 @@ def show_menu():
     print(Fore.YELLOW + "3. Karte bearbeiten")
     print(Fore.YELLOW + "4. Karte löschen")
     print(Fore.YELLOW + "5. Ordner anlegen")
-    d7qlx2-codex/erweiterte-ordnerbearbeitung-ohne-löschen
     print(Fore.YELLOW + "6. Ordner bearbeiten")
-    
     print(Fore.YELLOW + "6. Ordner umbenennen")
-    main
     print(Fore.YELLOW + "7. Karten exportieren")
+    print(Fore.YELLOW + "8. System aktualisieren")
     print(Fore.YELLOW + "0. Beenden")
 
 
@@ -158,7 +155,6 @@ def run():
                     create_binder(folder_id, pages)
 
             elif choice == "6":
-d7qlx2-codex/erweiterte-ordnerbearbeitung-ohne-löschen
                 folder_id = _get_int("Ordner-ID zum Bearbeiten: ")
                 new_name = input("Neuer Name: ")
                 new_pages = _get_int("Neue Seitenanzahl: ")
@@ -178,7 +174,12 @@ d7qlx2-codex/erweiterte-ordnerbearbeitung-ohne-löschen
                     or "inventory.csv"
                 )
                 export_inventory_csv(path, folder)
-main
+
+            elif choice == "8":
+                success, msg = update_repo()
+                color = Fore.GREEN if success else Fore.RED
+                print(color + msg)
+
 
             elif choice == "0":
                 print(Fore.YELLOW + "👋 Programm beendet.")

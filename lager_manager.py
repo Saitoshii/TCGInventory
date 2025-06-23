@@ -16,9 +16,7 @@ __all__ = [
     "delete_card",
     "get_next_free_slot",
     "add_folder",
-d7qlx2-codex/erweiterte-ordnerbearbeitung-ohne-löschen
     "edit_folder",
-main
     "rename_folder",
     "list_folders",
     "export_inventory_csv",
@@ -300,7 +298,6 @@ def list_folders():
 
 def rename_folder(folder_id: int, new_name: str) -> bool:
     """Rename a folder without touching its cards."""
-d7qlx2-codex/erweiterte-ordnerbearbeitung-ohne-löschen
     return edit_folder(folder_id, new_name)
 
 
@@ -333,7 +330,6 @@ def edit_folder(folder_id: int, new_name: str, pages: int | None = None) -> bool
         conn.commit()
         if cursor.rowcount:
             print(f"📁 Ordner {folder_id} umbenannt in '{new_name}'.")
- main
             return True
         print(f"⚠️ Kein Ordner mit ID {folder_id} gefunden.")
         return False
