@@ -18,6 +18,7 @@ __all__ = [
     "add_folder",
     "edit_folder",
     "rename_folder",
+    "delete_folder",
     "list_folders",
     "export_inventory_csv",
 ]
@@ -324,4 +325,23 @@ def edit_folder(folder_id: int, new_name: str, pages: int | None = None) -> bool
             return True
         print(f"⚠️ Kein Ordner mit ID {folder_id} gefunden.")
         return False
+
+
+def delete_folder(folder_id: int) -> bool:
+    """Delete a folder and clear related storage slots."""
+    prefix = f"O{int(folder_id):02d}-"
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE cards SET folder_id = NULL, storage_code = NULL WHERE folder_id = ?",
+            (folder_id,),
+        )
+        cursor.execute("DELETE FROM storage_slots WHERE code LIKE ?", (f"{prefix}%",))
+        cursor.execute("DELETE FROM folders WHERE id = ?", (folder_id,))
+        conn.commit()
+        if cursor.rowcount:
+            print(f"🗑️ Ordner {folder_id} gelöscht.")
+            return True
+    print(f"⚠️ Kein Ordner mit ID {folder_id} gefunden.")
+    return False
 

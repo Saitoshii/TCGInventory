@@ -22,7 +22,7 @@ from TCGInventory.lager_manager import (
     add_storage_slot,
     add_folder,
     edit_folder,
-    rename_folder,
+    delete_folder,
     create_binder,
     list_folders,
 )
@@ -304,6 +304,14 @@ def delete_card_route(card_id: int):
     return redirect(url_for("list_cards"))
 
 
+@app.route("/folders/delete/<int:folder_id>")
+@login_required
+def delete_folder_view(folder_id: int):
+    delete_folder(folder_id)
+    flash("Folder deleted")
+    return redirect(url_for("list_folders_view"))
+
+
 @app.route("/folders")
 @login_required
 def list_folders_view():
@@ -361,7 +369,6 @@ def edit_folder_view(folder_id: int):
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         c.execute("SELECT id, name, pages FROM folders WHERE id=?", (folder_id,))
-        c.execute("SELECT id, name FROM folders WHERE id=?", (folder_id,))
         folder = c.fetchone()
     if not folder:
         flash("Folder not found", "error")
@@ -369,7 +376,6 @@ def edit_folder_view(folder_id: int):
     if request.method == "POST":
         pages = int(request.form.get("pages", folder[2] or 0))
         edit_folder(folder_id, request.form["name"], pages)
-        rename_folder(folder_id, request.form["name"])
         flash("Folder updated")
         return redirect(url_for("list_folders_view"))
     return render_template("folder_form.html", folder=folder)
