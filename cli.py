@@ -1,4 +1,5 @@
 import os
+import sys
 
 from colorama import init, Fore, Style
 
@@ -177,6 +178,9 @@ def run():
                 success, msg = update_repo()
                 color = Fore.GREEN if success else Fore.RED
                 print(color + msg)
+                if success:
+                    print(Fore.YELLOW + "\n🔄 Starte Programm neu ...")
+                    os.execv(sys.executable, [sys.executable] + sys.argv)
 
             elif choice == "0":
                 print(Fore.YELLOW + "👋 Programm beendet.")
