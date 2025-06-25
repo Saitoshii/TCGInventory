@@ -66,7 +66,7 @@ def fetch_cards(search: str | None = None, folder_id: int | None = None):
             """
             SELECT cards.id, cards.name, cards.set_code, cards.language,
                    cards.condition, cards.price, cards.quantity, cards.storage_code,
-                   COALESCE(folders.name, ''), cards.status, cards.image_url
+                   COALESCE(folders.name, ''), cards.status, cards.image_url, cards.foil
             FROM cards
             LEFT JOIN folders ON cards.folder_id = folders.id
             """
@@ -93,7 +93,7 @@ def get_card(card_id: int):
             """
             SELECT id, name, set_code, language, condition, price, quantity, storage_code,
                    cardmarket_id, folder_id, collector_number, scryfall_id,
-                   image_url
+                   image_url, foil
             FROM cards WHERE id = ?
             """,
             (card_id,),
@@ -237,6 +237,7 @@ def add_card_view():
             request.form.get("collector_number", ""),
             request.form.get("scryfall_id", ""),
             request.form.get("image_url", ""),
+            bool(request.form.get("foil")),
         )
         if success:
             flash("Card added")
@@ -281,6 +282,7 @@ def edit_card_view(card_id: int):
             collector_number=request.form.get("collector_number", ""),
             scryfall_id=request.form.get("scryfall_id", ""),
             image_url=request.form.get("image_url", ""),
+            foil=bool(request.form.get("foil")),
         )
         flash("Card updated")
         return redirect(url_for("list_cards"))
@@ -430,6 +432,7 @@ def bulk_add_view():
                                 "collector_number": info.get("collector_number", ""),
                                 "scryfall_id": info.get("scryfall_id", ""),
                                 "image_url": info.get("image_url", ""),
+                                "foil": False,
                             }
                         )
                         added_any = True
@@ -475,6 +478,7 @@ def bulk_add_view():
                     card_no = normalized.get("card_number", "")
                     language = normalized.get("language", "")
                     condition = normalized.get("condition", "")
+                    foil_flag = normalized.get("foil", "").lower() in {"1", "true", "yes", "foil"}
                     info = fetch_card_info_by_name(name)
                     if info and set_row and info.get("set_code") != set_row:
                         variants = fetch_variants(name)
@@ -498,6 +502,7 @@ def bulk_add_view():
                             "collector_number": card_no or info.get("collector_number", ""),
                             "scryfall_id": info.get("scryfall_id", ""),
                             "image_url": info.get("image_url", ""),
+                            "foil": foil_flag,
                         }
                     )
                     added_any = True
@@ -522,6 +527,7 @@ def bulk_add_view():
                     "collector_number": info.get("collector_number", ""),
                     "scryfall_id": info.get("scryfall_id", ""),
                     "image_url": info.get("image_url", ""),
+                    "foil": False,
                 }
             )
             added_any = True
@@ -539,6 +545,15 @@ def bulk_add_view():
 def upload_queue_view():
     """Display queued cards from the bulk upload."""
     return render_template("upload_queue.html", queue=UPLOAD_QUEUE)
+
+
+@app.route("/cards/upload_queue/foil/<int:index>", methods=["POST"])
+@login_required
+def toggle_queued_foil(index: int):
+    """Toggle the foil flag for a queued card."""
+    if 0 <= index < len(UPLOAD_QUEUE):
+        UPLOAD_QUEUE[index]["foil"] = bool(request.form.get("foil"))
+    return ("", 204)
 
 
 @app.route("/cards/upload_queue/edit/<int:index>", methods=["GET", "POST"])
@@ -573,6 +588,7 @@ def edit_queued_card(index: int):
                 "collector_number": request.form.get("collector_number", ""),
                 "scryfall_id": request.form.get("scryfall_id", ""),
                 "image_url": request.form.get("image_url", ""),
+                "foil": bool(request.form.get("foil")),
             }
         )
         flash("Card updated")
@@ -592,6 +608,7 @@ def edit_queued_card(index: int):
         card.get("collector_number", ""),
         card.get("scryfall_id", ""),
         card.get("image_url", ""),
+        int(card.get("foil", 0)),
     )
     folder_part = ""
     if card.get("folder_id"):
@@ -625,6 +642,7 @@ def upload_card_route(index: int):
             card.get("collector_number", ""),
             card.get("scryfall_id", ""),
             card.get("image_url", ""),
+            card.get("foil", False),
         )
         flash("Card added" if success else "No slot for " + card["name"], "error" if not success else None)
     return redirect(url_for("upload_queue_view"))
@@ -649,6 +667,7 @@ def upload_all_route():
             card.get("collector_number", ""),
             card.get("scryfall_id", ""),
             card.get("image_url", ""),
+            card.get("foil", False),
         )
     flash("All queued cards added")
     return redirect(url_for("list_cards"))

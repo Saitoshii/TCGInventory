@@ -28,7 +28,8 @@ def initialize_database() -> None:
                 date_added TEXT,
                 collector_number TEXT,
                 scryfall_id TEXT,
-                image_url TEXT
+                image_url TEXT,
+                foil INTEGER DEFAULT 0
             )
             """
         )
@@ -61,6 +62,8 @@ def initialize_database() -> None:
             cursor.execute("ALTER TABLE cards ADD COLUMN image_url TEXT")
         if "quantity" not in columns:
             cursor.execute("ALTER TABLE cards ADD COLUMN quantity INTEGER DEFAULT 1")
+        if "foil" not in columns:
+            cursor.execute("ALTER TABLE cards ADD COLUMN foil INTEGER DEFAULT 0")
 
         # Tabelle 2: Lagerplätze
         cursor.execute(
