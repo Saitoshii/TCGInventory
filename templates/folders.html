@@ -24,7 +24,6 @@
     <a href="{{ url_for('export_cards', folder=f[0]) }}" class="btn btn-sm btn-outline-secondary me-2">Export CSV</a>
     {{ f[1] }} ({{ '%02d'|format(f[0]) }}) - {{ f[2] }} pages
     <a href="{{ url_for('edit_folder_view', folder_id=f[0]) }}" class="btn btn-sm btn-outline-primary ms-2">Edit</a>
-    <a href="{{ url_for('delete_folder_view', folder_id=f[0]) }}" class="btn btn-sm btn-outline-danger ms-2">Delete</a>
   </h4>
   <div id="folder-{{ f[0] }}">
   <table class="table table-sm table-striped">
