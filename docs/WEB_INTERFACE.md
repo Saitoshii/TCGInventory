@@ -55,6 +55,7 @@ To change an existing card, click **Edit** next to the card and modify the field
 Use the **Bulk Add** page to quickly insert many cards. Enter one card name per line or upload a JSON file containing a list of card names (or objects with a `name` field). Alternatively you can upload a CSV file with the columns `Card Name`, `Set Code`, `Card Number`, `Quantity` and `Language`. Additional columns are ignored. The application tries to fetch additional information automatically if possible. Files encoded as UTF‑8 or Latin‑1 are accepted and Excel's optional `sep=;` line is ignored.
 
 After submitting the form the cards appear in the **Upload Queue** where each entry can be reviewed and edited before adding it to the database.
+A small checkbox lets you mark whether a card is foil before uploading.
 
 ## Managing folders
 
