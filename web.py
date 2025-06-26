@@ -51,6 +51,18 @@ app.permanent_session_lifetime = timedelta(minutes=15)
 UPLOAD_QUEUE: list[dict] = []
 
 
+def make_storage_code(
+    folder_id: str | None, page: str | None, slot: str | None
+) -> str:
+    """Return a formatted storage code or an empty string."""
+    if folder_id and page and slot:
+        try:
+            return f"O{int(folder_id):02d}-S{int(page):02d}-P{int(slot)}"
+        except ValueError:
+            pass
+    return ""
+
+
 def init_db() -> None:
     if not os.path.exists(DB_FILE):
         initialize_database()
@@ -63,13 +75,10 @@ def fetch_cards(search: str | None = None, folder_id: int | None = None):
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         query = (
-            """
-            SELECT cards.id, cards.name, cards.set_code, cards.language,
-                   cards.condition, cards.price, cards.quantity, cards.storage_code,
-                   COALESCE(folders.name, ''), cards.status, cards.image_url, cards.foil
-            FROM cards
-            LEFT JOIN folders ON cards.folder_id = folders.id
-            """
+            "SELECT cards.id, cards.name, cards.set_code, cards.language, "
+            "cards.condition, cards.price, cards.quantity, cards.storage_code, "
+            "COALESCE(folders.name, ''), cards.status, cards.image_url, cards.foil "
+            "FROM cards LEFT JOIN folders ON cards.folder_id = folders.id"
         )
         conditions = []
         params: list[str | int] = []
@@ -90,12 +99,9 @@ def get_card(card_id: int):
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         c.execute(
-            """
-            SELECT id, name, set_code, language, condition, price, quantity, storage_code,
-                   cardmarket_id, folder_id, collector_number, scryfall_id,
-                   image_url, foil
-            FROM cards WHERE id = ?
-            """,
+            "SELECT id, name, set_code, language, condition, price, quantity, "
+            "storage_code, cardmarket_id, folder_id, collector_number, "
+            "scryfall_id, image_url, foil FROM cards WHERE id = ?",
             (card_id,),
         )
         return c.fetchone()
@@ -185,19 +191,21 @@ def export_cards():
     rows = fetch_cards(folder_id=fid)
     output = io.StringIO()
     writer = csv.writer(output, delimiter=";")
-    writer.writerow([
-        "ID",
-        "Name",
-        "Set",
-        "Sprache",
-        "Zustand",
-        "Preis (€)",
-        "Anzahl",
-        "Lagerplatz",
-        "Ordner",
-        "Status",
-        "Bild",
-    ])
+    writer.writerow(
+        [
+            "ID",
+            "Name",
+            "Set",
+            "Sprache",
+            "Zustand",
+            "Preis (€)",
+            "Anzahl",
+            "Lagerplatz",
+            "Ordner",
+            "Status",
+            "Bild",
+        ]
+    )
     writer.writerows(rows)
     resp = Response(output.getvalue(), mimetype="text/csv")
     filename = "inventory.csv" if fid is None else f"folder_{fid}.csv"
@@ -218,12 +226,7 @@ def add_card_view():
                 break
         page = request.form.get("page")
         slot = request.form.get("slot")
-        storage_code = ""
-        if page and slot and folder_id:
-            try:
-                storage_code = f"O{int(folder_id):02d}-S{int(page):02d}-P{int(slot)}"
-            except ValueError:
-                storage_code = ""
+        storage_code = make_storage_code(folder_id, page, slot)
         success = add_card(
             request.form["name"],
             set_code,
@@ -262,12 +265,7 @@ def edit_card_view(card_id: int):
                 break
         page = request.form.get("page")
         slot = request.form.get("slot")
-        storage_code = ""
-        if page and slot and folder_id:
-            try:
-                storage_code = f"O{int(folder_id):02d}-S{int(page):02d}-P{int(slot)}"
-            except ValueError:
-                storage_code = ""
+        storage_code = make_storage_code(folder_id, page, slot)
         update_card(
             card_id,
             name=request.form["name"],
@@ -294,7 +292,12 @@ def edit_card_view(card_id: int):
             page = m.group(2)
             slot = m.group(3)
     return render_template(
-        "card_form.html", card=card, folders=folders, folder_part=folder_part, page=page, slot=slot
+        "card_form.html",
+        card=card,
+        folders=folders,
+        folder_part=folder_part,
+        page=page,
+        slot=slot,
     )
 
 
@@ -413,6 +416,7 @@ def bulk_add_view():
         if json_file and json_file.filename:
             try:
                 import json
+
                 data = json.load(json_file)
                 if isinstance(data, list):
                     for entry in data:
@@ -471,7 +475,9 @@ def bulk_add_view():
                             continue
                         if isinstance(v, list):
                             v = v[0] if v else ""
-                        normalized[k.strip().lower().replace(" ", "_")] = (v or "").strip()
+                        normalized[k.strip().lower().replace(" ", "_")] = (
+                            v or ""
+                        ).strip()
                     name = normalized.get("card_name", "")
                     if not name:
                         continue
@@ -480,7 +486,12 @@ def bulk_add_view():
                     card_no = normalized.get("card_number", "")
                     language = normalized.get("language", "")
                     condition = normalized.get("condition", "")
-                    foil_flag = normalized.get("foil", "").lower() in {"1", "true", "yes", "foil"}
+                    foil_flag = normalized.get("foil", "").lower() in {
+                        "1",
+                        "true",
+                        "yes",
+                        "foil",
+                    }
                     info = fetch_card_info_by_name(name)
                     if info and set_row and info.get("set_code") != set_row:
                         variants = fetch_variants(name)
@@ -501,7 +512,8 @@ def bulk_add_view():
                             "quantity": qty,
                             "cardmarket_id": info.get("cardmarket_id", ""),
                             "folder_id": folder_id,
-                            "collector_number": card_no or info.get("collector_number", ""),
+                            "collector_number": card_no
+                            or info.get("collector_number", ""),
                             "scryfall_id": info.get("scryfall_id", ""),
                             "image_url": info.get("image_url", ""),
                             "foil": foil_flag,
@@ -646,7 +658,10 @@ def upload_card_route(index: int):
             card.get("image_url", ""),
             card.get("foil", False),
         )
-        flash("Card added" if success else "No slot for " + card["name"], "error" if not success else None)
+        flash(
+            "Card added" if success else "No slot for " + card["name"],
+            "error" if not success else None,
+        )
     return redirect(url_for("upload_queue_view"))
 
 
@@ -682,8 +697,6 @@ def update_view():
     success, message = update_repo()
     flash(message, "error" if not success else None)
     return redirect(url_for("index"))
-
-
 
 
 if __name__ == "__main__":
