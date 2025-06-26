@@ -31,7 +31,7 @@
     {% for c in folder_cards.get(f[0], []) %}
     <tr>
       <td>{{ c[0] }}</td>
-      <td>{{ c[1] }}</td>
+      <td>{{ c[1] }}{% if c[5] %} <span title="Foil">★</span>{% endif %}</td>
       <td>{{ c[2] }}</td>
       <td>{{ c[3] }}</td>
       <td>{{ c[4] }}</td>

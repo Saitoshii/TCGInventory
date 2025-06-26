@@ -14,7 +14,7 @@
 <tr>
 <td>{{ c[0] }}</td>
 <td>{% if c[10] %}<img src="{{ c[10] }}" style="max-height:80px;" class="img-thumbnail clickable-image" data-bs-toggle="modal" data-bs-target="#imgModal" data-img="{{ c[10] }}">{% endif %}</td>
-<td>{{ c[1] }}</td>
+<td>{{ c[1] }}{% if c[11] %} <span title="Foil">★</span>{% endif %}</td>
 <td>{{ c[2] }}</td>
 <td>{{ c[3] }}</td>
 <td>{{ c[4] }}</td>

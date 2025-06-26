@@ -50,6 +50,7 @@ multiple versions exist a second dropdown lets you choose the exact variant,
 including the collector number.
 
 To change an existing card, click **Edit** next to the card and modify the fields in the form.
+Use the *Foil* checkbox to mark shiny versions. Foil cards are shown with a **★** symbol next to their name in the card and folder overviews.
 
 ## Bulk adding cards
 
