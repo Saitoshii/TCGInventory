@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h2 class="mb-4">Bulk Add Cards</h2>
-<form method="post" enctype="multipart/form-data">
+<form id="bulk-add-form" method="post" enctype="multipart/form-data">
   <div class="mb-3">
     <label class="form-label">Folder</label>
     <select name="folder_id" class="form-select">
@@ -24,5 +24,42 @@
     <input type="file" name="csv_file" class="form-control">
   </div>
   <button type="submit" class="btn btn-primary">Add</button>
+  <div class="progress mt-3" style="display:none;" id="upload-progress">
+    <div class="progress-bar" role="progressbar" style="width:0%"></div>
+  </div>
+  <div class="mt-2 text-muted" id="upload-status" style="display:none;">Uploading...</div>
 </form>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const form = document.getElementById('bulk-add-form');
+  const progress = document.getElementById('upload-progress');
+  const bar = progress.querySelector('.progress-bar');
+  const status = document.getElementById('upload-status');
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', form.action);
+    xhr.responseType = 'document';
+
+    xhr.upload.addEventListener('progress', function (ev) {
+      if (ev.lengthComputable) {
+        const percent = (ev.loaded / ev.total) * 100;
+        bar.style.width = percent + '%';
+      }
+    });
+
+    xhr.addEventListener('load', function () {
+      window.location.href = xhr.responseURL;
+    });
+
+    progress.style.display = 'block';
+    status.style.display = 'block';
+    bar.style.width = '0%';
+
+    const formData = new FormData(form);
+    xhr.send(formData);
+  });
+});
+</script>
 {% endblock %}
