@@ -3,7 +3,6 @@ import sqlite3
 import hashlib
 import hmac
 import binascii
-from datetime import timedelta
 from functools import wraps
 
 from . import DB_FILE
@@ -37,7 +36,10 @@ def user_exists() -> bool:
 def get_password_hash(username: str) -> str | None:
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
-        c.execute("SELECT password_hash FROM users WHERE username=?", (username,))
+        c.execute(
+            "SELECT password_hash FROM users WHERE username=?",
+            (username,),
+        )
         row = c.fetchone()
         return row[0] if row else None
 
@@ -55,20 +57,28 @@ def register_user(username: str, password: str) -> None:
 
 def hash_password(password: str) -> str:
     salt = os.urandom(16)
-    hashed = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, HASH_ITERATIONS)
-    return binascii.hexlify(salt).decode() + '$' + binascii.hexlify(hashed).decode()
+    hashed = hashlib.pbkdf2_hmac(
+        "sha256", password.encode(), salt, HASH_ITERATIONS
+    )
+    return (
+        binascii.hexlify(salt).decode()
+        + "$"
+        + binascii.hexlify(hashed).decode()
+    )
 
 
 def verify_password(stored: str | None, provided: str) -> bool:
     if not stored:
         return False
     try:
-        salt_hex, hash_hex = stored.split('$')
+        salt_hex, hash_hex = stored.split("$")
     except ValueError:
         return False
     salt = binascii.unhexlify(salt_hex)
     expected = binascii.unhexlify(hash_hex)
-    hashed = hashlib.pbkdf2_hmac('sha256', provided.encode(), salt, HASH_ITERATIONS)
+    hashed = hashlib.pbkdf2_hmac(
+        "sha256", provided.encode(), salt, HASH_ITERATIONS
+    )
     return hmac.compare_digest(hashed, expected)
 
 
@@ -82,9 +92,8 @@ def login_required(f):
 
     @wraps(f)
     def wrapper(*args, **kwargs):
-        if not session.get('user'):
-            return redirect(url_for('login', next=request.path))
+        if not session.get("user"):
+            return redirect(url_for("login", next=request.path))
         return f(*args, **kwargs)
 
     return wrapper
-
