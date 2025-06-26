@@ -380,20 +380,28 @@ def edit_folder(
 
 
 def delete_folder(folder_id: int) -> bool:
-    """Delete a folder and clear related storage slots."""
+    """Delete a folder along with its cards and storage slots."""
     prefix = f"O{int(folder_id):02d}-"
+
+    # Collect card IDs inside the folder
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE cards SET folder_id = NULL, storage_code = NULL WHERE folder_id = ?",
-            (folder_id,),
-        )
+        cursor.execute("SELECT id FROM cards WHERE folder_id = ?", (folder_id,))
+        card_ids = [row[0] for row in cursor.fetchall()]
+
+    # Remove cards and free their slots
+    for card_id in card_ids:
+        delete_card(card_id)
+
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
         cursor.execute("DELETE FROM storage_slots WHERE code LIKE ?", (f"{prefix}%",))
         cursor.execute("DELETE FROM folders WHERE id = ?", (folder_id,))
         conn.commit()
         if cursor.rowcount:
             print(f"🗑️ Ordner {folder_id} gelöscht.")
             return True
+
     print(f"⚠️ Kein Ordner mit ID {folder_id} gefunden.")
     return False
 

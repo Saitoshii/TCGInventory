@@ -36,11 +36,17 @@ adding a card without a storage code, the next free slot will be used if
 available. If no slot exists the card is still stored without a location code.
 Existing folders can be edited via ``Ordner bearbeiten`` to change the name or
 page count without affecting the cards stored inside. Increasing the page count
+<<<<<<< codex/karten-beim-löschen-eines-ordners-entfernen
+automatically creates additional storage slots. Existing folders can also be
+renamed via ``Ordner umbenennen`` without affecting the cards stored inside.
+Deleting a folder will remove all cards stored inside and free their slots.
+=======
 automatically creates additional storage slots. The folder ID can also be
 changed there as long as the new number is not already used. Newly created
 folders always receive the lowest free ID so numbering stays compact. Existing
 folders can also be renamed via ``Ordner umbenennen`` without affecting the
 cards stored inside.
+>>>>>>> main
 
 
 
