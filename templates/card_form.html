@@ -146,7 +146,10 @@ document.addEventListener('DOMContentLoaded', function() {
           list.forEach(info => {
             const opt = document.createElement('option');
             opt.value = JSON.stringify(info);
-            opt.textContent = `${info.set_code} (${info.language})`;
+            let label = `${info.set_code}`;
+            if (info.collector_number) label += ` #${info.collector_number}`;
+            label += ` (${info.language})`;
+            opt.textContent = label;
             variantSelect.appendChild(opt);
           });
           variantSelect.classList.remove('d-none');
