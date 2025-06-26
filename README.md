@@ -38,6 +38,7 @@ Existing folders can be edited via ``Ordner bearbeiten`` to change the name or
 page count without affecting the cards stored inside. Increasing the page count
 automatically creates additional storage slots. Existing folders can also be
 renamed via ``Ordner umbenennen`` without affecting the cards stored inside.
+Deleting a folder will remove all cards stored inside and free their slots.
 
 
 
