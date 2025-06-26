@@ -377,7 +377,9 @@ def edit_folder_view(folder_id: int):
         return redirect(url_for("list_folders_view"))
     if request.method == "POST":
         pages = int(request.form.get("pages", folder[2] or 0))
-        edit_folder(folder_id, request.form["name"], pages)
+        new_id_val = request.form.get("id")
+        new_id = int(new_id_val) if new_id_val and new_id_val.isdigit() else None
+        edit_folder(folder_id, request.form["name"], pages, new_id)
         flash("Folder updated")
         return redirect(url_for("list_folders_view"))
     return render_template("folder_form.html", folder=folder)

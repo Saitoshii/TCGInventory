@@ -6,6 +6,12 @@
     <label class="form-label">Name</label>
     <input class="form-control" name="name" required value="{{ folder[1] if folder else '' }}">
   </div>
+  {% if folder %}
+  <div class="mb-3">
+    <label class="form-label">ID</label>
+    <input type="number" class="form-control" name="id" min="1" value="{{ folder[0] }}">
+  </div>
+  {% endif %}
   <div class="mb-3">
     <label class="form-label">Pages</label>
     <input type="number" class="form-control" name="pages" min="1" value="{{ folder[2] if folder else 1 }}" required>

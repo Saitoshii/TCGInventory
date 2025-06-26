@@ -159,7 +159,9 @@ def run():
                 folder_id = _get_int("Ordner-ID zum Bearbeiten: ")
                 new_name = input("Neuer Name: ")
                 new_pages = _get_int("Neue Seitenanzahl: ")
-                edit_folder(folder_id, new_name, new_pages)
+                new_id_input = input("Neue Ordner-ID (leer = unverändert): ").strip()
+                new_id = int(new_id_input) if new_id_input.isdigit() else None
+                edit_folder(folder_id, new_name, new_pages, new_id)
 
             elif choice == "7":
                 folder_id = _get_int("Ordner-ID zum Umbenennen: ")
