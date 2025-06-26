@@ -273,15 +273,23 @@ def delete_card(card_id):
 # Folder helpers
 # ---------------------------------------------------------------------------
 
+def _next_folder_id(cursor: sqlite3.Cursor) -> int:
+    """Return the lowest free folder id starting at 1."""
+    cursor.execute("SELECT id FROM folders ORDER BY id")
+    used_ids = [row[0] for row in cursor.fetchall()]
+    next_id = 1
+    for fid in used_ids:
+        if fid == next_id:
+            next_id += 1
+        elif fid > next_id:
+            break
+    return next_id
+
+
 def add_folder(name: str, pages: int = 0) -> int | None:
     """Create a folder entry if it does not exist and return its ID."""
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            "INSERT OR IGNORE INTO folders (name, pages) VALUES (?, ?)",
-            (name, pages),
-        )
-        conn.commit()
         cursor.execute("SELECT id FROM folders WHERE name = ?", (name,))
         row = cursor.fetchone()
         if row:
@@ -289,7 +297,15 @@ def add_folder(name: str, pages: int = 0) -> int | None:
             conn.commit()
             print(f"📁 Ordner '{name}' angelegt.")
             return row[0]
-    return None
+
+        folder_id = _next_folder_id(cursor)
+        cursor.execute(
+            "INSERT INTO folders (id, name, pages) VALUES (?, ?, ?)",
+            (folder_id, name, pages),
+        )
+        conn.commit()
+        print(f"📁 Ordner '{name}' angelegt.")
+        return folder_id
 
 
 def list_folders():
@@ -305,8 +321,10 @@ def rename_folder(folder_id: int, new_name: str) -> bool:
     return edit_folder(folder_id, new_name)
 
 
-def edit_folder(folder_id: int, new_name: str, pages: int | None = None) -> bool:
-    """Update folder name and optionally adjust page count."""
+def edit_folder(
+    folder_id: int, new_name: str, pages: int | None = None, new_id: int | None = None
+) -> bool:
+    """Update folder name, page count and optionally its id."""
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT pages FROM folders WHERE id = ?", (folder_id,))
@@ -314,18 +332,49 @@ def edit_folder(folder_id: int, new_name: str, pages: int | None = None) -> bool
         if not row:
             print(f"⚠️ Kein Ordner mit ID {folder_id} gefunden.")
             return False
+
         current_pages = row[0] or 0
         new_pages = pages if pages is not None else current_pages
-        cursor.execute(
-            "UPDATE folders SET name = ?, pages = ? WHERE id = ?",
-            (new_name, new_pages, folder_id),
-        )
+
+        target_id = new_id if new_id is not None else folder_id
+
+        if new_id is not None and new_id != folder_id:
+            cursor.execute("SELECT 1 FROM folders WHERE id = ?", (new_id,))
+            if cursor.fetchone():
+                print(f"⚠️ Ordner-ID {new_id} bereits vergeben.")
+                return False
+            old_prefix = f"O{int(folder_id):02d}-"
+            new_prefix = f"O{int(new_id):02d}-"
+            cursor.execute(
+                "UPDATE storage_slots SET code = REPLACE(code, ?, ?) WHERE code LIKE ?",
+                (old_prefix, new_prefix, f"{old_prefix}%"),
+            )
+            cursor.execute(
+                "UPDATE cards SET storage_code = REPLACE(storage_code, ?, ?) WHERE storage_code LIKE ?",
+                (old_prefix, new_prefix, f"{old_prefix}%"),
+            )
+            cursor.execute(
+                "UPDATE cards SET folder_id = ? WHERE folder_id = ?",
+                (new_id, folder_id),
+            )
+            cursor.execute(
+                "UPDATE folders SET id = ?, name = ?, pages = ? WHERE id = ?",
+                (new_id, new_name, new_pages, folder_id),
+            )
+        else:
+            cursor.execute(
+                "UPDATE folders SET name = ?, pages = ? WHERE id = ?",
+                (new_name, new_pages, folder_id),
+            )
         conn.commit()
+
         if new_pages > current_pages:
-            create_binder(folder_id, new_pages - current_pages)
+            create_binder(target_id, new_pages - current_pages)
+
         if cursor.rowcount:
-            print(f"📁 Ordner {folder_id} aktualisiert.")
+            print(f"📁 Ordner {target_id} aktualisiert.")
             return True
+
         print(f"⚠️ Kein Ordner mit ID {folder_id} gefunden.")
         return False
 
