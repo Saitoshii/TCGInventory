@@ -46,7 +46,8 @@ card lookups are then served from the local SQLite database without
 internet access.  If no local data is found the Scryfall API is used as
 fallback.
 Selecting a suggested entry automatically fills language and ID fields. If
-multiple versions exist a second dropdown lets you choose the exact variant.
+multiple versions exist a second dropdown lets you choose the exact variant,
+including the collector number.
 
 To change an existing card, click **Edit** next to the card and modify the fields in the form.
 
