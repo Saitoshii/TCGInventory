@@ -42,7 +42,8 @@
     {% endfor %}
   </tbody>
 </table>
-<a class="btn btn-primary" href="{{ url_for('upload_all_route') }}">Add All</a>
+<a class="btn btn-primary me-2" href="{{ url_for('upload_all_route') }}">Add All</a>
+<a class="btn btn-outline-danger" href="{{ url_for('clear_upload_queue') }}">Clear Queue</a>
 {% else %}
 <p>No cards in queue.</p>
 {% endif %}

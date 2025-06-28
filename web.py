@@ -694,6 +694,15 @@ def upload_all_route():
     return redirect(url_for("list_cards"))
 
 
+@app.route("/cards/upload_queue/clear")
+@login_required
+def clear_upload_queue():
+    """Remove all cards from the upload queue."""
+    UPLOAD_QUEUE.clear()
+    flash("Upload queue cleared")
+    return redirect(url_for("upload_queue_view"))
+
+
 @app.route("/update")
 @login_required
 def update_view():
