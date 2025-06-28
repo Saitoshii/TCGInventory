@@ -558,7 +558,11 @@ def bulk_add_view():
 @login_required
 def upload_queue_view():
     """Display queued cards from the bulk upload."""
-    return render_template("upload_queue.html", queue=UPLOAD_QUEUE)
+    search = request.args.get("q", "").strip()
+    queue = UPLOAD_QUEUE
+    if search:
+        queue = [c for c in UPLOAD_QUEUE if search.lower() in c.get("name", "").lower()]
+    return render_template("upload_queue.html", queue=queue, search=search)
 
 
 @app.route("/cards/upload_queue/foil/<int:index>", methods=["POST"])
