@@ -151,7 +151,7 @@ def list_all_cards():
 
         cursor.execute(
             """
-            SELECT cards.id, cards.name, cards.set_code, cards.language,
+            SELECT cards.collector_number, cards.name, cards.set_code, cards.language,
                    cards.condition, cards.price, cards.quantity, cards.storage_code,
                    COALESCE(folders.name, ''), cards.status
             FROM cards
@@ -163,7 +163,7 @@ def list_all_cards():
     print("\n📋 Aktuelle Karten im Lager:")
     if cards:
         headers = [
-            "ID",
+            "Collector Number",
             "Name",
             "Set",
             "Sprache",
@@ -185,7 +185,7 @@ def export_inventory_csv(path: str, folder: str | None = None) -> None:
         cursor = conn.cursor()
         query = (
             """
-            SELECT cards.id, cards.name, cards.set_code, cards.language,
+            SELECT cards.collector_number, cards.name, cards.set_code, cards.language,
                    cards.condition, cards.price, cards.quantity, cards.storage_code,
                    COALESCE(folders.name, ''), cards.status
             FROM cards
@@ -199,7 +199,7 @@ def export_inventory_csv(path: str, folder: str | None = None) -> None:
         cursor.execute(query, params)
         writer = csv.writer(f, delimiter=";")
         writer.writerow([
-            "ID",
+            "Collector Number",
             "Name",
             "Set",
             "Sprache",
@@ -210,7 +210,19 @@ def export_inventory_csv(path: str, folder: str | None = None) -> None:
             "Ordner",
             "Status",
         ])
-        writer.writerows(cursor.fetchall())
+        for row in cursor.fetchall():
+            writer.writerow([
+                row[0],
+                row[1],
+                row[2],
+                row[3],
+                row[4],
+                row[5],
+                row[6],
+                row[7],
+                row[8],
+                row[9],
+            ])
     print(f"📤 Kartenexport gespeichert unter '{path}'.")
 
 # ✏️ Funktion: Karte aktualisieren

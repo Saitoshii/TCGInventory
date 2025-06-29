@@ -78,15 +78,17 @@ def fetch_cards(search: str | None = None, folder_id: int | None = None):
         query = (
             "SELECT cards.id, cards.name, cards.set_code, cards.language, "
             "cards.condition, cards.price, cards.quantity, cards.storage_code, "
-            "COALESCE(folders.name, ''), cards.status, cards.image_url, cards.foil "
-            "FROM cards LEFT JOIN folders ON cards.folder_id = folders.id"
+            "COALESCE(folders.name, ''), cards.status, cards.image_url, cards.foil, "
+            "cards.collector_number FROM cards LEFT JOIN folders ON cards.folder_id = folders.id"
         )
         conditions = []
         params: list[str | int] = []
         if search:
             like = f"%{search}%"
-            conditions.append("(cards.name LIKE ? OR cards.set_code LIKE ?)")
-            params.extend([like, like])
+            conditions.append(
+                "(cards.name LIKE ? OR cards.set_code LIKE ? OR cards.collector_number LIKE ?)"
+            )
+            params.extend([like, like, like])
         if folder_id is not None:
             conditions.append("cards.folder_id = ?")
             params.append(folder_id)
@@ -194,7 +196,7 @@ def export_cards():
     writer = csv.writer(output, delimiter=";")
     writer.writerow(
         [
-            "ID",
+            "Collector Number",
             "Name",
             "Set",
             "Sprache",
@@ -207,7 +209,20 @@ def export_cards():
             "Bild",
         ]
     )
-    writer.writerows(rows)
+    for row in rows:
+        writer.writerow([
+            row[12],
+            row[1],
+            row[2],
+            row[3],
+            row[4],
+            row[5],
+            row[6],
+            row[7],
+            row[8],
+            row[9],
+            row[10],
+        ])
     resp = Response(output.getvalue(), mimetype="text/csv")
     filename = "inventory.csv" if fid is None else f"folder_{fid}.csv"
     resp.headers["Content-Disposition"] = f"attachment; filename={filename}"
@@ -324,7 +339,7 @@ def list_folders_view():
     sort = request.args.get("sort", "name")
     search = request.args.get("q", "").strip()
 
-    allowed = {"id": "id", "storage": "storage_code", "name": "name"}
+    allowed = {"id": "collector_number", "storage": "storage_code", "name": "name"}
     order_col = allowed.get(sort, "name")
 
     folders = list_folders()
@@ -333,13 +348,13 @@ def list_folders_view():
         c = conn.cursor()
         for fid, _, _ in folders:
             query = (
-                "SELECT id, name, set_code, quantity, storage_code, foil FROM cards "
+                "SELECT id, name, set_code, quantity, storage_code, collector_number, foil FROM cards "
                 "WHERE folder_id=?"
             )
             params = [fid]
             if search:
                 query += (
-                    " AND (CAST(id AS TEXT) LIKE ? OR storage_code LIKE ? OR name LIKE ?)"
+                    " AND (collector_number LIKE ? OR storage_code LIKE ? OR name LIKE ?)"
                 )
                 like = f"%{search}%"
                 params.extend([like, like, like])
