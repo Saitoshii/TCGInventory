@@ -247,3 +247,17 @@ def fetch_variants(name: str) -> List[CardInfo]:
             }
         )
     return results
+
+
+def find_variant(name: str, set_code: str, collector_number: str | None = None) -> Optional[CardInfo]:
+    """Return card data for a specific name and set.
+
+    If ``collector_number`` is given it must also match.
+    ``None`` is returned if no matching card is found in the local data.
+    """
+    for variant in fetch_variants(name):
+        if variant.get("set_code") == set_code and (
+            collector_number is None or variant.get("collector_number") == collector_number
+        ):
+            return variant
+    return None
