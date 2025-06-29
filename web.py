@@ -30,6 +30,7 @@ from TCGInventory.card_scanner import (
     fetch_card_info_by_name,
     autocomplete_names,
     fetch_variants,
+    find_variant,
 )
 from TCGInventory.setup_db import initialize_database
 from TCGInventory import DB_FILE
@@ -493,14 +494,18 @@ def bulk_add_view():
                         "foil",
                     }
                     info = fetch_card_info_by_name(name)
-                    if info and set_row and info.get("set_code") != set_row:
-                        variants = fetch_variants(name)
-                        for v in variants:
-                            if v.get("set_code") == set_row and (
-                                not card_no or v.get("collector_number") == card_no
-                            ):
-                                info = v
-                                break
+                    variant = None
+                    if set_row:
+                        variant = find_variant(name, set_row, card_no or None)
+                    if not variant and info and card_no and info.get("collector_number") != card_no:
+                        variant = find_variant(name, set_row or info.get("set_code", ""), card_no)
+                    if variant:
+                        info = variant
+                        card_no = variant.get("collector_number", card_no)
+                        set_row = variant.get("set_code", set_row)
+                    elif info and card_no and card_no != info.get("collector_number", ""):
+                        # override with official number from local data
+                        card_no = info.get("collector_number", card_no)
                     if not info:
                         info = {}
                     UPLOAD_QUEUE.append(
