@@ -4,12 +4,12 @@
 <form method="get" class="mb-3">
   <div class="row g-2">
     <div class="col">
-      <input class="form-control" type="text" name="q" placeholder="Filter by name, ID or storage" value="{{ search }}">
+      <input class="form-control" type="text" name="q" placeholder="Filter by name, number or storage" value="{{ search }}">
     </div>
     <div class="col-auto">
       <select class="form-select" name="sort">
         <option value="name" {% if sort == 'name' %}selected{% endif %}>Name</option>
-        <option value="id" {% if sort == 'id' %}selected{% endif %}>ID</option>
+        <option value="id" {% if sort == 'id' %}selected{% endif %}>Number</option>
         <option value="storage" {% if sort == 'storage' %}selected{% endif %}>Storage</option>
       </select>
     </div>
@@ -27,11 +27,11 @@
   </h4>
   <div id="folder-{{ f[0] }}">
   <table class="table table-sm table-striped">
-    <tr><th>ID</th><th>Name</th><th>Set</th><th>Qty</th><th>Storage</th></tr>
+    <tr><th>Number</th><th>Name</th><th>Set</th><th>Qty</th><th>Storage</th></tr>
     {% for c in folder_cards.get(f[0], []) %}
     <tr>
-      <td>{{ c[0] }}</td>
-      <td>{{ c[1] }}{% if c[5] %} <span title="Foil">★</span>{% endif %}</td>
+      <td>{{ c[5] }}</td>
+      <td>{{ c[1] }}{% if c[6] %} <span title="Foil">★</span>{% endif %}</td>
       <td>{{ c[2] }}</td>
       <td>{{ c[3] }}</td>
       <td>{{ c[4] }}</td>

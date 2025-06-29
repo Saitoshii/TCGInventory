@@ -9,10 +9,10 @@
   <div id="search-suggestions" class="dropdown-menu w-100"></div>
 </form>
 <table class="table table-striped">
-<tr><th>ID</th><th>Image</th><th>Name</th><th>Set</th><th>Lang</th><th>Condition</th><th>Price</th><th>Qty</th><th>Storage</th><th>Folder</th><th>Status</th><th>Actions</th></tr>
+<tr><th>Number</th><th>Image</th><th>Name</th><th>Set</th><th>Lang</th><th>Condition</th><th>Price</th><th>Qty</th><th>Storage</th><th>Folder</th><th>Status</th><th>Actions</th></tr>
 {% for c in cards %}
 <tr>
-<td>{{ c[0] }}</td>
+<td>{{ c[12] }}</td>
 <td>{% if c[10] %}<img src="{{ c[10] }}" style="max-height:80px;" class="img-thumbnail clickable-image" data-bs-toggle="modal" data-bs-target="#imgModal" data-img="{{ c[10] }}">{% endif %}</td>
 <td>{{ c[1] }}{% if c[11] %} <span title="Foil">★</span>{% endif %}</td>
 <td>{{ c[2] }}</td>
