@@ -36,3 +36,32 @@ def test_bulk_upload_preserves_collector_number(monkeypatch):
     assert len(UPLOAD_QUEUE) == 1
     assert UPLOAD_QUEUE[0]["collector_number"] == "123"
     UPLOAD_QUEUE.clear()
+
+
+def test_bulk_upload_keeps_number_if_variant_found(monkeypatch):
+    """Provided collector numbers should not be overwritten by variant data."""
+    monkeypatch.setattr(web, "fetch_card_info_by_name", lambda name: {
+        "name": name,
+        "set_code": "ABC",
+        "collector_number": "0123",
+    })
+
+    monkeypatch.setattr(
+        web,
+        "find_variant",
+        lambda *a, **k: {
+            "name": "Sample Card",
+            "set_code": "ABC",
+            "collector_number": "0123",
+        },
+    )
+    monkeypatch.setattr(web, "list_folders", lambda: [])
+
+    UPLOAD_QUEUE.clear()
+    form_data = {"cards": "", "folder_id": None}
+    csv_content = "Card Name,Set Code,Card Number\nSample Card,ABC,123\n"
+    _process_bulk_upload(form_data, None, csv_content.encode())
+
+    assert len(UPLOAD_QUEUE) == 1
+    assert UPLOAD_QUEUE[0]["collector_number"] == "123"
+    UPLOAD_QUEUE.clear()
