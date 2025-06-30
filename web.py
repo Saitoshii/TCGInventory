@@ -587,6 +587,77 @@ def bulk_add_view():
 
         form_data = request.form.to_dict()
         json_file = request.files.get("json_file")
+
+
+        if json_file and json_file.filename:
+            try:
+                import json
+
+                data = json.load(json_file)
+                if isinstance(data, list):
+                    for entry in data:
+                        if isinstance(entry, dict):
+                            name = entry.get("name")
+                            set_row = entry.get("set_code", "")
+                            card_no = entry.get("collector_number", "")
+                            language = entry.get("language", "")
+                            condition = entry.get("condition", "")
+                            qty = int(entry.get("quantity", 1) or 1)
+                            foil_flag = str(entry.get("foil", "")).lower() in {
+                                "1",
+                                "true",
+                                "yes",
+                                "foil",
+                            }
+                        else:
+                            name = str(entry)
+                            set_row = ""
+                            card_no = ""
+                            language = ""
+                            condition = ""
+                            qty = 1
+                            foil_flag = False
+                        if not name:
+                            continue
+                        info = fetch_card_info_by_name(name)
+                        variant = None
+                        if set_row:
+                            variant = find_variant(name, set_row, card_no or None)
+                        if not variant and info and card_no and info.get("collector_number") != card_no:
+                            variant = find_variant(
+                                name,
+                                set_row or info.get("set_code", ""),
+                                card_no,
+                            )
+                        if variant:
+                            info = variant
+                            card_no = variant.get("collector_number", card_no)
+                            set_row = variant.get("set_code", set_row)
+                        elif info and card_no and card_no != info.get("collector_number", ""):
+                            card_no = info.get("collector_number", card_no)
+                        if not info:
+                            info = {}
+                        UPLOAD_QUEUE.append(
+                            {
+                                "name": info.get("name", name),
+                                "set_code": set_row or set_code or info.get("set_code", ""),
+                                "language": language or info.get("language", ""),
+                                "condition": condition,
+                                "quantity": qty,
+                                "cardmarket_id": info.get("cardmarket_id", ""),
+                                "folder_id": folder_id,
+                                "collector_number": card_no or info.get("collector_number", ""),
+                                "scryfall_id": info.get("scryfall_id", ""),
+                                "image_url": info.get("image_url", ""),
+                                "foil": foil_flag,
+                            }
+                        )
+                        added_any = True
+            except Exception:
+                flash("Invalid JSON file")
+
+        # handle uploaded CSV file
+
         csv_file = request.files.get("csv_file")
         json_bytes = json_file.read() if json_file and json_file.filename else None
         csv_bytes = csv_file.read() if csv_file and csv_file.filename else None
