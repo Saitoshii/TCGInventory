@@ -51,6 +51,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
         bar.textContent = Math.round(percent) + '%';
 
+
+        bar.textContent = Math.round(percent) + '%';
+
         const elapsed = (Date.now() - startTime) / 1000;
         if (elapsed > 0 && ev.loaded > 0) {
           const speed = ev.loaded / elapsed;
@@ -59,6 +62,7 @@ document.addEventListener('DOMContentLoaded', function () {
             status.textContent = 'Uploading... ' + Math.round(remaining) + 's left';
           }
         }
+
 
       }
     });
