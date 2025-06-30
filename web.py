@@ -338,8 +338,8 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
                     info = variant
                     card_no = variant.get("collector_number", card_no)
                     set_row = variant.get("set_code", set_row)
-                elif info and card_no and card_no != info.get("collector_number", ""):
-                    card_no = info.get("collector_number", card_no)
+                elif info and not card_no:
+                    card_no = info.get("collector_number", "")
                 if not info:
                     info = {}
                 UPLOAD_QUEUE.append(
@@ -633,8 +633,8 @@ def bulk_add_view():
                             info = variant
                             card_no = variant.get("collector_number", card_no)
                             set_row = variant.get("set_code", set_row)
-                        elif info and card_no and card_no != info.get("collector_number", ""):
-                            card_no = info.get("collector_number", card_no)
+                        elif info and not card_no:
+                            card_no = info.get("collector_number", "")
                         if not info:
                             info = {}
                         UPLOAD_QUEUE.append(

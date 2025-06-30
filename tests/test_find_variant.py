@@ -11,7 +11,7 @@ pyzbar.pyzbar = types.SimpleNamespace(decode=lambda *a, **k: [])
 sys.modules.setdefault('pyzbar', pyzbar)
 sys.modules.setdefault('pyzbar.pyzbar', pyzbar.pyzbar)
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 import TCGInventory.card_scanner as cs  # noqa: E402
 
