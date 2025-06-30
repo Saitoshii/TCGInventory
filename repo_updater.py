@@ -1,14 +1,10 @@
 import subprocess
 from typing import Tuple
 
-
 def update_repo() -> Tuple[bool, str]:
-    """Fetch updates from the git repository and pull if needed.
-
-    Local modifications are stashed before pulling and restored afterwards so
-    the update succeeds even when the working tree is dirty.
-
-    Returns a tuple ``(success, message)`` describing the outcome.
+    """
+    Ruft Updates aus dem Git-Repository ab und führt bei Bedarf ein Pull aus.
+    Danach wird der Dienst tcginventory.service neu gestartet.
     """
     fetch = subprocess.run(["git", "fetch"], capture_output=True, text=True)
     if fetch.returncode != 0:
@@ -30,6 +26,7 @@ def update_repo() -> Tuple[bool, str]:
         return False, (status.stderr or status.stdout).strip()
 
     need_stash = bool(status.stdout.strip())
+
     if need_stash:
         stash = subprocess.run(["git", "stash", "--include-untracked"], capture_output=True, text=True)
         if stash.returncode != 0:
@@ -46,4 +43,14 @@ def update_repo() -> Tuple[bool, str]:
         if pop.returncode != 0:
             return False, (pop.stderr or pop.stdout).strip()
 
-    return True, pull.stdout.strip()
+    restart = subprocess.run(["sudo", "systemctl", "restart", "tcginventory.service"], capture_output=True, text=True)
+    if restart.returncode != 0:
+        return False, f"Update succeeded, but service restart failed:\n{restart.stderr or restart.stdout}"
+
+    return True, pull.stdout.strip() + "\nService restarted successfully."
+
+if __name__ == "__main__":
+    success, message = update_repo()
+    print(message)
+    if not success:
+        exit(1)
