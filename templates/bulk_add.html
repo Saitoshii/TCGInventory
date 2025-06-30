@@ -41,12 +41,15 @@ document.addEventListener('DOMContentLoaded', function () {
     e.preventDefault();
     const xhr = new XMLHttpRequest();
     xhr.open('POST', form.action);
-    xhr.responseType = 'document';
+    xhr.responseType = 'text';
 
     xhr.upload.addEventListener('progress', function (ev) {
       if (ev.lengthComputable) {
         const percent = (ev.loaded / ev.total) * 100;
         bar.style.width = percent + '%';
+
+
+        bar.textContent = Math.round(percent) + '%';
 
 
         bar.textContent = Math.round(percent) + '%';
@@ -64,11 +67,14 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
 
+
       }
     });
 
     xhr.addEventListener('load', function () {
-      window.location.href = xhr.responseURL;
+      document.open();
+      document.write(xhr.responseText);
+      document.close();
     });
 
     progress.style.display = 'block';

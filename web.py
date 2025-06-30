@@ -338,8 +338,13 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
                     info = variant
                     card_no = variant.get("collector_number", card_no)
                     set_row = variant.get("set_code", set_row)
+
+                elif info and card_no and card_no != info.get("collector_number", ""):
+                    card_no = info.get("collector_number", card_no)
+
                 elif info and not card_no:
                     card_no = info.get("collector_number", "")
+
                 if not info:
                     info = {}
                 UPLOAD_QUEUE.append(
@@ -589,6 +594,8 @@ def bulk_add_view():
         json_file = request.files.get("json_file")
 
 
+
+
         if json_file and json_file.filename:
             try:
                 import json
@@ -657,6 +664,7 @@ def bulk_add_view():
                 flash("Invalid JSON file")
 
         # handle uploaded CSV file
+
 
         csv_file = request.files.get("csv_file")
         json_bytes = json_file.read() if json_file and json_file.filename else None
