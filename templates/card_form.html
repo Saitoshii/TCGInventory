@@ -53,7 +53,8 @@
   </div>
   <div class="mb-3">
     <label class="form-label">Collector Number</label>
-    <input class="form-control" name="collector_number" value="{{ card[10] if card else '' }}">
+    <input class="form-control" name="collector_number" id="collector-number-input" list="collector-number-list" value="{{ card[10] if card else '' }}">
+    <datalist id="collector-number-list"></datalist>
   </div>
   <div class="mb-3">
     <label class="form-label">Scryfall ID</label>
@@ -85,6 +86,8 @@ document.addEventListener('DOMContentLoaded', function() {
   const previewImg = document.getElementById('preview-image');
   const folderSel = document.querySelector('select[name=folder_id]');
   const folderPart = document.querySelector('input[name=folder_part]');
+  const numberInput = document.getElementById('collector-number-input');
+  const numberList = document.getElementById('collector-number-list');
   let timeout = null;
 
   nameInput.addEventListener('input', function() {
@@ -126,6 +129,17 @@ document.addEventListener('DOMContentLoaded', function() {
   updateFolderPart();
   if (folderSel) folderSel.addEventListener('change', updateFolderPart);
 
+  function populateNumbers(list) {
+    if (!numberList) return;
+    const nums = [...new Set(list.map(v => v.collector_number).filter(n => n))];
+    numberList.innerHTML = '';
+    nums.forEach(n => {
+      const opt = document.createElement('option');
+      opt.value = n;
+      numberList.appendChild(opt);
+    });
+  }
+
   nameInput.addEventListener('change', lookupCard);
   variantSelect.addEventListener('change', function() {
     if (this.value) fillFields(JSON.parse(this.value));
@@ -138,6 +152,7 @@ document.addEventListener('DOMContentLoaded', function() {
       .then(resp => resp.json())
       .then(list => {
         if (!Array.isArray(list) || !list.length) return;
+        populateNumbers(list);
         if (list.length === 1) {
           variantSelect.classList.add('d-none');
           fillFields(list[0]);
@@ -176,6 +191,10 @@ document.addEventListener('DOMContentLoaded', function() {
         if (opt.text === info.set_code) { opt.selected = true; break; }
       }
     }
+  }
+
+  if (nameInput.value.trim()) {
+    lookupCard();
   }
 
   document.addEventListener('click', (e) => {
