@@ -35,6 +35,7 @@ document.addEventListener('DOMContentLoaded', function () {
   const progress = document.getElementById('upload-progress');
   const bar = progress.querySelector('.progress-bar');
   const status = document.getElementById('upload-status');
+  let startTime = 0;
 
   form.addEventListener('submit', function (e) {
     e.preventDefault();
@@ -47,7 +48,18 @@ document.addEventListener('DOMContentLoaded', function () {
         const percent = (ev.loaded / ev.total) * 100;
         bar.style.width = percent + '%';
 
+
         bar.textContent = Math.round(percent) + '%';
+
+        const elapsed = (Date.now() - startTime) / 1000;
+        if (elapsed > 0 && ev.loaded > 0) {
+          const speed = ev.loaded / elapsed;
+          const remaining = (ev.total - ev.loaded) / speed;
+          if (isFinite(remaining)) {
+            status.textContent = 'Uploading... ' + Math.round(remaining) + 's left';
+          }
+        }
+
       }
     });
 
@@ -59,6 +71,7 @@ document.addEventListener('DOMContentLoaded', function () {
     status.style.display = 'block';
     status.textContent = 'Uploading...';
     bar.style.width = '0%';
+    startTime = Date.now();
 
     const formData = new FormData(form);
     xhr.send(formData);
