@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<h2 class="mb-4">Processing Upload</h2>
+<div class="progress mt-3">
+  <div class="progress-bar progress-bar-striped progress-bar-animated bg-info" role="progressbar" style="width:0%">0%</div>
+</div>
+<div class="mt-2 text-muted" id="upload-status">Processing...</div>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const bar = document.querySelector('.progress-bar');
+  function poll() {
+    fetch('{{ url_for('bulk_add_progress') }}')
+      .then(r => r.json())
+      .then(data => {
+        bar.style.width = data.percent + '%';
+        bar.textContent = data.percent + '%';
+        if (data.done) {
+          window.location.href = '{{ url_for('upload_queue_view') }}';
+        } else {
+          setTimeout(poll, 1000);
+        }
+      });
+  }
+  poll();
+});
+</script>
+{% endblock %}

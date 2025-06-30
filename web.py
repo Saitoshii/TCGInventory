@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import re
+import threading
 from flask import (
     Flask,
     render_template,
@@ -50,6 +51,11 @@ app.permanent_session_lifetime = timedelta(minutes=15)
 
 # Queue for cards uploaded via the bulk add feature
 UPLOAD_QUEUE: list[dict] = []
+
+# Progress tracking for bulk uploads
+BULK_PROGRESS = 0
+BULK_DONE = False
+BULK_MESSAGE: str | None = None
 
 
 def make_storage_code(
@@ -227,6 +233,161 @@ def export_cards():
     filename = "inventory.csv" if fid is None else f"folder_{fid}.csv"
     resp.headers["Content-Disposition"] = f"attachment; filename={filename}"
     return resp
+
+
+def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: bytes | None) -> None:
+    """Background task to process bulk upload files."""
+    global BULK_PROGRESS, BULK_DONE, BULK_MESSAGE
+    try:
+        folders = list_folders()
+        folder_id = form_data.get("folder_id")
+        set_code = ""
+        for f in folders:
+            if str(f[0]) == str(folder_id):
+                set_code = f[1]
+                break
+
+        entries: list[tuple[str, object]] = []
+
+        if json_bytes:
+            import json
+
+            data = json.loads(json_bytes.decode("utf-8-sig"))
+            if isinstance(data, list):
+                for item in data:
+                    entries.append(("json", item))
+
+        if csv_bytes:
+            try:
+                content = csv_bytes.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                content = csv_bytes.decode("latin-1")
+            lines = content.splitlines()
+            delimiter = None
+            if lines and lines[0].lower().startswith("sep="):
+                delimiter = lines[0][4:].strip()
+                content = "\n".join(lines[1:])
+            try:
+                dialect = csv.Sniffer().sniff(content, delimiters=delimiter or ",;")
+            except csv.Error:
+                dialect = csv.excel
+                if delimiter:
+                    dialect.delimiter = delimiter
+            reader = list(csv.DictReader(io.StringIO(content), dialect=dialect))
+            for row in reader:
+                entries.append(("csv", row))
+
+        for name in form_data.get("cards", "").splitlines():
+            name = name.strip()
+            if name:
+                entries.append(("text", name))
+
+        total = len(entries) if entries else 1
+        added_any = False
+
+        for idx, (kind, item) in enumerate(entries):
+            if kind == "json":
+                entry = item
+                name = entry.get("name") if isinstance(entry, dict) else entry if isinstance(entry, str) else None
+                if not name:
+                    BULK_PROGRESS = int((idx + 1) / total * 100)
+                    continue
+                info = fetch_card_info_by_name(name) or {}
+                UPLOAD_QUEUE.append(
+                    {
+                        "name": info.get("name", name),
+                        "set_code": set_code or info.get("set_code", ""),
+                        "language": info.get("language", ""),
+                        "condition": "",
+                        "quantity": 1,
+                        "cardmarket_id": info.get("cardmarket_id", ""),
+                        "folder_id": folder_id,
+                        "collector_number": info.get("collector_number", ""),
+                        "scryfall_id": info.get("scryfall_id", ""),
+                        "image_url": info.get("image_url", ""),
+                        "foil": False,
+                    }
+                )
+                added_any = True
+            elif kind == "csv":
+                row = item
+                normalized = {}
+                for k, v in row.items():
+                    if not k:
+                        continue
+                    if isinstance(v, list):
+                        v = v[0] if v else ""
+                    normalized[k.strip().lower().replace(" ", "_")] = (v or "").strip()
+                name = normalized.get("card_name", "")
+                if not name:
+                    BULK_PROGRESS = int((idx + 1) / total * 100)
+                    continue
+                qty = int(normalized.get("quantity", "1") or 1)
+                set_row = normalized.get("set_code", "")
+                card_no = normalized.get("card_number", "")
+                language = normalized.get("language", "")
+                condition = normalized.get("condition", "")
+                foil_flag = normalized.get("foil", "").lower() in {"1", "true", "yes", "foil"}
+                info = fetch_card_info_by_name(name)
+                variant = None
+                if set_row:
+                    variant = find_variant(name, set_row, card_no or None)
+                if not variant and info and card_no and info.get("collector_number") != card_no:
+                    variant = find_variant(name, set_row or info.get("set_code", ""), card_no)
+                if variant:
+                    info = variant
+                    card_no = variant.get("collector_number", card_no)
+                    set_row = variant.get("set_code", set_row)
+                elif info and card_no and card_no != info.get("collector_number", ""):
+                    card_no = info.get("collector_number", card_no)
+                if not info:
+                    info = {}
+                UPLOAD_QUEUE.append(
+                    {
+                        "name": info.get("name", name),
+                        "set_code": set_row or set_code or info.get("set_code", ""),
+                        "language": language or info.get("language", ""),
+                        "condition": condition,
+                        "quantity": qty,
+                        "cardmarket_id": info.get("cardmarket_id", ""),
+                        "folder_id": folder_id,
+                        "collector_number": card_no or info.get("collector_number", ""),
+                        "scryfall_id": info.get("scryfall_id", ""),
+                        "image_url": info.get("image_url", ""),
+                        "foil": foil_flag,
+                    }
+                )
+                added_any = True
+            else:
+                name = item
+                info = fetch_card_info_by_name(name) or {}
+                UPLOAD_QUEUE.append(
+                    {
+                        "name": info.get("name", name),
+                        "set_code": set_code or info.get("set_code", ""),
+                        "language": info.get("language", ""),
+                        "condition": "",
+                        "quantity": 1,
+                        "cardmarket_id": info.get("cardmarket_id", ""),
+                        "folder_id": folder_id,
+                        "collector_number": info.get("collector_number", ""),
+                        "scryfall_id": info.get("scryfall_id", ""),
+                        "image_url": info.get("image_url", ""),
+                        "foil": False,
+                    }
+                )
+                added_any = True
+
+            BULK_PROGRESS = int((idx + 1) / total * 100)
+
+        BULK_PROGRESS = 100
+        BULK_DONE = True
+        BULK_MESSAGE = "Cards queued for review" if added_any else "No cards added"
+    except Exception as exc:
+        BULK_DONE = True
+        BULK_PROGRESS = 100
+        BULK_MESSAGE = f"Error processing upload: {exc}"
+
 
 
 @app.route("/cards/add", methods=["GET", "POST"])
@@ -419,159 +580,35 @@ def add_storage_view():
 def bulk_add_view():
     folders = list_folders()
     if request.method == "POST":
-        folder_id = request.form.get("folder_id")
-        set_code = ""
-        for f in folders:
-            if str(f[0]) == str(folder_id):
-                set_code = f[1]
-                break
+        global BULK_PROGRESS, BULK_DONE, BULK_MESSAGE
+        BULK_PROGRESS = 0
+        BULK_DONE = False
+        BULK_MESSAGE = None
 
-        added_any = False
-        # handle uploaded JSON file
+        form_data = request.form.to_dict()
         json_file = request.files.get("json_file")
-        if json_file and json_file.filename:
-            try:
-                import json
-
-                data = json.load(json_file)
-                if isinstance(data, list):
-                    for entry in data:
-                        name = entry.get("name") if isinstance(entry, dict) else None
-                        if not name and isinstance(entry, str):
-                            name = entry
-                        if not name:
-                            continue
-                        info = fetch_card_info_by_name(name) or {}
-                        UPLOAD_QUEUE.append(
-                            {
-                                "name": info.get("name", name),
-                                "set_code": set_code or info.get("set_code", ""),
-                                "language": info.get("language", ""),
-                                "condition": "",
-                                "quantity": 1,
-                                "cardmarket_id": info.get("cardmarket_id", ""),
-                                "folder_id": folder_id,
-                                "collector_number": info.get("collector_number", ""),
-                                "scryfall_id": info.get("scryfall_id", ""),
-                                "image_url": info.get("image_url", ""),
-                                "foil": False,
-                            }
-                        )
-                        added_any = True
-            except Exception:
-                flash("Invalid JSON file")
-
-        # handle uploaded CSV file
         csv_file = request.files.get("csv_file")
-        if csv_file and csv_file.filename:
-            try:
-                raw = csv_file.read()
-                try:
-                    content = raw.decode("utf-8-sig")
-                except UnicodeDecodeError:
-                    content = raw.decode("latin-1")
-                lines = content.splitlines()
-                delimiter = None
-                if lines and lines[0].lower().startswith("sep="):
-                    delimiter = lines[0][4:].strip()
-                    content = "\n".join(lines[1:])
-                try:
-                    dialect = csv.Sniffer().sniff(content, delimiters=delimiter or ",;")
-                except csv.Error:
-                    dialect = csv.excel
-                    if delimiter:
-                        dialect.delimiter = delimiter
-                reader = csv.DictReader(io.StringIO(content), dialect=dialect)
-                for row in reader:
-                    normalized = {}
-                    for k, v in row.items():
-                        if not k:
-                            # extra columns end up under the key ``None``
-                            # and may contain a list of values
-                            continue
-                        if isinstance(v, list):
-                            v = v[0] if v else ""
-                        normalized[k.strip().lower().replace(" ", "_")] = (
-                            v or ""
-                        ).strip()
-                    name = normalized.get("card_name", "")
-                    if not name:
-                        continue
-                    qty = int(normalized.get("quantity", "1") or 1)
-                    set_row = normalized.get("set_code", "")
-                    card_no = normalized.get("card_number", "")
-                    language = normalized.get("language", "")
-                    condition = normalized.get("condition", "")
-                    foil_flag = normalized.get("foil", "").lower() in {
-                        "1",
-                        "true",
-                        "yes",
-                        "foil",
-                    }
-                    info = fetch_card_info_by_name(name)
-                    variant = None
-                    if set_row:
-                        variant = find_variant(name, set_row, card_no or None)
-                    if not variant and info and card_no and info.get("collector_number") != card_no:
-                        variant = find_variant(name, set_row or info.get("set_code", ""), card_no)
-                    if variant:
-                        info = variant
-                        card_no = variant.get("collector_number", card_no)
-                        set_row = variant.get("set_code", set_row)
-                    elif info and card_no and card_no != info.get("collector_number", ""):
-                        # override with official number from local data
-                        card_no = info.get("collector_number", card_no)
-                    if not info:
-                        info = {}
-                    UPLOAD_QUEUE.append(
-                        {
-                            "name": info.get("name", name),
-                            "set_code": set_row or set_code or info.get("set_code", ""),
-                            "language": language or info.get("language", ""),
-                            "condition": condition,
-                            "quantity": qty,
-                            "cardmarket_id": info.get("cardmarket_id", ""),
-                            "folder_id": folder_id,
-                            "collector_number": card_no
-                            or info.get("collector_number", ""),
-                            "scryfall_id": info.get("scryfall_id", ""),
-                            "image_url": info.get("image_url", ""),
-                            "foil": foil_flag,
-                        }
-                    )
-                    added_any = True
-            except Exception as exc:
-                flash(f"Invalid CSV file: {exc}")
+        json_bytes = json_file.read() if json_file and json_file.filename else None
+        csv_bytes = csv_file.read() if csv_file and csv_file.filename else None
 
-        # names from textarea
-        for line in request.form.get("cards", "").splitlines():
-            name = line.strip()
-            if not name:
-                continue
-            info = fetch_card_info_by_name(name) or {}
-            UPLOAD_QUEUE.append(
-                {
-                    "name": info.get("name", name),
-                    "set_code": set_code or info.get("set_code", ""),
-                    "language": info.get("language", ""),
-                    "condition": "",
-                    "quantity": 1,
-                    "cardmarket_id": info.get("cardmarket_id", ""),
-                    "folder_id": folder_id,
-                    "collector_number": info.get("collector_number", ""),
-                    "scryfall_id": info.get("scryfall_id", ""),
-                    "image_url": info.get("image_url", ""),
-                    "foil": False,
-                }
-            )
-            added_any = True
+        threading.Thread(
+            target=_process_bulk_upload,
+            args=(form_data, json_bytes, csv_bytes),
+            daemon=True,
+        ).start()
 
-        if added_any:
-            flash("Cards queued for review")
-            return redirect(url_for("upload_queue_view"))
-        flash("No cards added", "error")
-        return redirect(url_for("bulk_add_view"))
+        return render_template("bulk_add_progress.html")
     return render_template("bulk_add.html", folders=folders)
+
+@app.route("/cards/bulk_add/progress")
+@login_required
+def bulk_add_progress():
+    global BULK_PROGRESS, BULK_DONE, BULK_MESSAGE
+    if BULK_DONE and BULK_MESSAGE:
+        flash(BULK_MESSAGE)
+        BULK_MESSAGE = None
+    return jsonify({"percent": int(BULK_PROGRESS), "done": BULK_DONE})
+
 
 
 @app.route("/cards/upload_queue")
