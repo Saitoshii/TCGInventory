@@ -193,7 +193,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  if (nameInput.value.trim()) {
+  if (nameInput.value.trim() && !numberInput.value) {
     lookupCard();
   }
 
