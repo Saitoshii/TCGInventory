@@ -47,7 +47,8 @@ internet access.  If no local data is found the Scryfall API is used as
 fallback.
 Selecting a suggested entry automatically fills language and ID fields. If
 multiple versions exist a second dropdown lets you choose the exact variant,
-including the collector number.
+including the collector number. Available collector numbers are also listed in a
+dropdown next to the input field so you can quickly pick the desired one.
 
 To change an existing card, click **Edit** next to the card and modify the fields in the form.
 Use the *Foil* checkbox to mark shiny versions. Foil cards are shown with a **★** symbol next to their name in the card and folder overviews.

@@ -55,6 +55,7 @@
     <label class="form-label">Collector Number</label>
     <input class="form-control" name="collector_number" id="collector-number-input" list="collector-number-list" value="{{ card[10] if card else '' }}">
     <datalist id="collector-number-list"></datalist>
+    <select id="collector-number-select" class="form-select mt-1 d-none"></select>
   </div>
   <div class="mb-3">
     <label class="form-label">Scryfall ID</label>
@@ -88,6 +89,7 @@ document.addEventListener('DOMContentLoaded', function() {
   const folderPart = document.querySelector('input[name=folder_part]');
   const numberInput = document.getElementById('collector-number-input');
   const numberList = document.getElementById('collector-number-list');
+  const numberSelect = document.getElementById('collector-number-select');
   let timeout = null;
 
   nameInput.addEventListener('input', function() {
@@ -133,14 +135,32 @@ document.addEventListener('DOMContentLoaded', function() {
     if (!numberList) return;
     const nums = [...new Set(list.map(v => v.collector_number).filter(n => n))];
     numberList.innerHTML = '';
+    if (numberSelect) {
+      numberSelect.innerHTML = '';
+    }
     nums.forEach(n => {
       const opt = document.createElement('option');
       opt.value = n;
       numberList.appendChild(opt);
+      if (numberSelect) {
+        const opt2 = document.createElement('option');
+        opt2.value = n;
+        opt2.textContent = n;
+        numberSelect.appendChild(opt2);
+      }
     });
+    if (numberSelect) {
+      if (nums.length > 1) numberSelect.classList.remove('d-none');
+      else numberSelect.classList.add('d-none');
+    }
   }
 
   nameInput.addEventListener('change', lookupCard);
+  if (numberSelect) {
+    numberSelect.addEventListener('change', function() {
+      numberInput.value = this.value;
+    });
+  }
   variantSelect.addEventListener('change', function() {
     if (this.value) fillFields(JSON.parse(this.value));
   });
@@ -177,6 +197,11 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelector('input[name=language]').value = info.language || '';
     document.querySelector('input[name=cardmarket_id]').value = info.cardmarket_id || '';
     document.querySelector('input[name=collector_number]').value = info.collector_number || '';
+    if (numberSelect) {
+      for (const opt of numberSelect.options) {
+        if (opt.value === info.collector_number) { opt.selected = true; break; }
+      }
+    }
     document.querySelector('input[name=scryfall_id]').value = info.scryfall_id || '';
     document.querySelector('input[name=image_url]').value = info.image_url || '';
     if (info.image_url) {
