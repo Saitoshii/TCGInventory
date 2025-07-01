@@ -58,9 +58,12 @@ def test_bulk_upload_keeps_number_if_variant_found(monkeypatch):
     monkeypatch.setattr(web, "list_folders", lambda: [])
 
     UPLOAD_QUEUE.clear()
+
     web.BULK_PROGRESS = 0
     web.BULK_DONE = False
     web.BULK_MESSAGE = None
+
+
     form_data = {"cards": "", "folder_id": None}
     csv_content = "Card Name,Set Code,Card Number\nSample Card,ABC,123\n"
     _process_bulk_upload(form_data, None, csv_content.encode())
