@@ -489,6 +489,22 @@ def delete_card_route(card_id: int):
     return redirect(url_for("list_cards"))
 
 
+@app.route("/cards/<int:card_id>/sell", methods=["POST"])
+@login_required
+def sell_card_route(card_id: int):
+    """Decrease card quantity by one or delete if none remain."""
+    card = get_card(card_id)
+    if not card:
+        return jsonify({"error": "not found"}), 404
+    qty = card[6] or 0
+    if qty > 1:
+        update_card(card_id, quantity=qty - 1)
+        return jsonify({"quantity": qty - 1, "removed": False})
+    delete_card(card_id)
+    flash("Card sold")
+    return jsonify({"quantity": 0, "removed": True})
+
+
 @app.route("/folders/delete/<int:folder_id>")
 @login_required
 def delete_folder_view(folder_id: int):
