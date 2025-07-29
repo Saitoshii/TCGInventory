@@ -43,6 +43,9 @@ folders can also be renamed via ``Ordner umbenennen`` without affecting the
 cards stored inside. Deleting a folder will remove all cards stored inside and
 free their slots.
 
+The CLI also provides an option ``Karte verkaufen`` to quickly decrease the
+quantity of a card. Once no copies remain the card is removed automatically.
+
 
 
 Example functions can also be called programmatically, e.g.:

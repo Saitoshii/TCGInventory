@@ -11,6 +11,7 @@ from TCGInventory.lager_manager import (
     update_card,
     delete_card,
     list_all_cards,
+    sell_card,
     add_folder,
     edit_folder,
     rename_folder,
@@ -67,11 +68,12 @@ def show_menu():
     print(Fore.YELLOW + "2. Alle Karten anzeigen")
     print(Fore.YELLOW + "3. Karte bearbeiten")
     print(Fore.YELLOW + "4. Karte löschen")
-    print(Fore.YELLOW + "5. Ordner anlegen")
-    print(Fore.YELLOW + "6. Ordner bearbeiten")
-    print(Fore.YELLOW + "7. Ordner umbenennen")
-    print(Fore.YELLOW + "8. Karten exportieren")
-    print(Fore.YELLOW + "9. System aktualisieren")
+    print(Fore.YELLOW + "5. Karte verkaufen")
+    print(Fore.YELLOW + "6. Ordner anlegen")
+    print(Fore.YELLOW + "7. Ordner bearbeiten")
+    print(Fore.YELLOW + "8. Ordner umbenennen")
+    print(Fore.YELLOW + "9. Karten exportieren")
+    print(Fore.YELLOW + "10. System aktualisieren")
     print(Fore.YELLOW + "0. Beenden")
 
 
@@ -149,13 +151,17 @@ def run():
                     print(Fore.YELLOW + "Löschen abgebrochen.")
 
             elif choice == "5":
+                card_id = _get_int("Karten-ID verkaufen: ")
+                sell_card(card_id)
+
+            elif choice == "6":
                 name = input("Set-Code für den Ordner: ")
                 pages = _get_int("Anzahl Seiten: ")
                 folder_id = add_folder(name, pages)
                 if folder_id is not None:
                     create_binder(folder_id, pages)
 
-            elif choice == "6":
+            elif choice == "7":
                 folder_id = _get_int("Ordner-ID zum Bearbeiten: ")
                 new_name = input("Neuer Name: ")
                 new_pages = _get_int("Neue Seitenanzahl: ")
@@ -163,12 +169,12 @@ def run():
                 new_id = int(new_id_input) if new_id_input.isdigit() else None
                 edit_folder(folder_id, new_name, new_pages, new_id)
 
-            elif choice == "7":
+            elif choice == "8":
                 folder_id = _get_int("Ordner-ID zum Umbenennen: ")
                 new_name = input("Neuer Name: ")
                 rename_folder(folder_id, new_name)
 
-            elif choice == "8":
+            elif choice == "9":
                 folder = input("Ordnername für Export (leer = alle): ").strip() or None
                 path = (
                     input("Dateiname für CSV-Export [inventory.csv]: ").strip()
@@ -176,7 +182,7 @@ def run():
                 )
                 export_inventory_csv(path, folder)
 
-            elif choice == "9":
+            elif choice == "10":
                 success, msg = update_repo()
                 color = Fore.GREEN if success else Fore.RED
                 print(color + msg)
