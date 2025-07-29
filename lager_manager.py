@@ -14,6 +14,7 @@ __all__ = [
     "list_all_cards",
     "update_card",
     "delete_card",
+    "sell_card",
     "get_next_free_slot",
     "add_folder",
     "edit_folder",
@@ -279,6 +280,29 @@ def delete_card(card_id):
                 print(f"🗑️ Karte mit ID {card_id} wurde gelöscht.")
         else:
             print(f"⚠️ Keine Karte mit ID {card_id} gefunden.")
+
+
+def sell_card(card_id: int) -> bool:
+    """Decrease quantity of a card or delete it when none remain."""
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT quantity FROM cards WHERE id = ?", (card_id,))
+        row = cursor.fetchone()
+        if not row:
+            print(f"⚠️ Keine Karte mit ID {card_id} gefunden.")
+            return False
+        qty = row[0] or 0
+        if qty > 1:
+            cursor.execute(
+                "UPDATE cards SET quantity = ? WHERE id = ?",
+                (qty - 1, card_id),
+            )
+            conn.commit()
+            print(f"🛒 Karte verkauft. {qty - 1} verbleibend.")
+            return True
+
+    delete_card(card_id)
+    return True
 
 
 # ---------------------------------------------------------------------------
