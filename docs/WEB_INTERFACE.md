@@ -23,7 +23,10 @@ The navigation bar at the top links to the most important pages:
 - **Cards** – List all cards with a search field.
 - **Add Card** – Open a form to add a single card manually.
 - **Bulk Add** – Add many cards at once by entering a list of names or uploading a JSON or CSV file.
+- **Upload Queue** – Review and edit cards before adding them to the database.
 - **Folders** – Manage folders (sets) and see which cards belong to each folder.
+- **Upload DB** – Upload or replace the default-cards.db file for autocomplete functionality.
+- **Update** – Pull updates from the git repository.
 - **Export** – Download a CSV file containing all cards.
 
 ## Working with cards
@@ -66,4 +69,17 @@ Folders correspond to sets or binders. The **Folders** page lists all folders an
 The folder ID can also be changed in the edit view if needed. Newly created folders automatically receive the lowest free ID so the numbering stays compact.
 
 The overview also offers a small form to filter the listed cards by name, number or storage code and to sort them by name, number or storage.
+
+## Database upload
+
+The **Upload DB** page allows you to upload a pre-built `default-cards.db` file to enable autocomplete functionality without having to build the database from the Scryfall JSON file. This is especially useful when running on a Raspberry Pi or other systems where building the database might be time-consuming.
+
+To upload a database file:
+
+1. Click **Upload DB** in the navigation menu.
+2. Select the `default-cards.db` file from your computer.
+3. Check the confirmation checkbox.
+4. Click **Upload Database**.
+
+The uploaded file will be validated to ensure it's a valid SQLite database with the required `cards` table. The maximum file size is 500 MB. If a database file already exists, it will be replaced by the new file.
 

@@ -95,6 +95,11 @@ Scryfall ``default-cards`` JSON manually and place it in ``TCGInventory/data`` a
 convert the JSON file into ``default-cards.db`` which enables fast offline
 search. If no database is available the Scryfall API is used as fallback.
 
+Alternatively, you can upload a pre-built ``default-cards.db`` file directly 
+through the web interface using the **Upload DB** button in the navigation menu. 
+This is especially useful when running on a Raspberry Pi or other systems where 
+building the database from JSON might be time-consuming.
+
 ## Export
 
 Use the CLI option **Karten exportieren** or the *Export* link in the web interface to download the inventory as a CSV file. You can optionally export a single folder by specifying its name (CLI) or by using the folder-specific link in the web interface. The CSV uses a semicolon as separator for better compatibility with spreadsheet applications.
