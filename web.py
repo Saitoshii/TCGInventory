@@ -914,35 +914,36 @@ def upload_database():
             flash("File must be named 'default-cards.db'", "error")
             return redirect(request.url)
         
-        # Check file extension
-        if not filename.endswith(".db"):
-            flash("Invalid file type. Only .db files are allowed", "error")
-            return redirect(request.url)
-        
         try:
             # Ensure data directory exists
             data_dir.mkdir(exist_ok=True)
             
-            # Save the file
-            file.save(str(db_path))
+            # Save to temporary file first for validation
+            temp_path = db_path.with_suffix('.db.tmp')
+            file.save(str(temp_path))
             
             # Verify it's a valid SQLite database
             try:
-                with sqlite3.connect(str(db_path)) as conn:
+                with sqlite3.connect(str(temp_path)) as conn:
                     cursor = conn.cursor()
                     # Check if it has a cards table
                     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cards'")
                     if not cursor.fetchone():
                         # Remove invalid file
-                        db_path.unlink()
+                        temp_path.unlink()
                         flash("Invalid database file: missing 'cards' table", "error")
                         return redirect(request.url)
             except sqlite3.Error as e:
                 # Remove invalid file
-                if db_path.exists():
-                    db_path.unlink()
+                if temp_path.exists():
+                    temp_path.unlink()
                 flash(f"Invalid SQLite database file: {e}", "error")
                 return redirect(request.url)
+            
+            # Validation passed, replace the actual database file
+            if db_path.exists():
+                db_path.unlink()
+            temp_path.rename(db_path)
             
             flash("Database file uploaded successfully!", "success")
             return redirect(url_for("upload_database"))

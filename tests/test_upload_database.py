@@ -4,7 +4,7 @@ import tempfile
 import sqlite3
 from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 
 def test_upload_database_validation():
