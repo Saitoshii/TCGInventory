@@ -44,10 +44,14 @@ from TCGInventory.auth import (
 )
 from TCGInventory.repo_updater import update_repo
 from datetime import timedelta
+from pathlib import Path
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "tcg-secret")
 app.permanent_session_lifetime = timedelta(minutes=15)
+# Maximum file size for database uploads: 500 MB
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
 
 # Queue for cards uploaded via the bulk add feature
 UPLOAD_QUEUE: list[dict] = []
@@ -865,6 +869,94 @@ def update_view():
     success, message = update_repo()
     flash(message, "error" if not success else None)
     return redirect(url_for("index"))
+
+
+@app.route("/upload_database", methods=["GET", "POST"])
+@login_required
+def upload_database():
+    """Upload and replace the default-cards.db file."""
+    data_dir = Path(__file__).resolve().parent / "data"
+    db_path = data_dir / "default-cards.db"
+    
+    # Check if current file exists and get its size
+    current_file_exists = db_path.exists()
+    current_file_size = ""
+    if current_file_exists:
+        size_bytes = db_path.stat().st_size
+        if size_bytes < 1024:
+            current_file_size = f"{size_bytes} bytes"
+        elif size_bytes < 1024 * 1024:
+            current_file_size = f"{size_bytes / 1024:.2f} KB"
+        else:
+            current_file_size = f"{size_bytes / (1024 * 1024):.2f} MB"
+    
+    if request.method == "POST":
+        # Check if file was uploaded
+        if "db_file" not in request.files:
+            flash("No file selected", "error")
+            return redirect(request.url)
+        
+        file = request.files["db_file"]
+        
+        # Check if filename is empty
+        if file.filename == "":
+            flash("No file selected", "error")
+            return redirect(request.url)
+        
+        # Check if confirmation checkbox is checked
+        if not request.form.get("confirm"):
+            flash("Please confirm that you want to replace the database", "error")
+            return redirect(request.url)
+        
+        # Validate filename
+        filename = secure_filename(file.filename)
+        if filename != "default-cards.db":
+            flash("File must be named 'default-cards.db'", "error")
+            return redirect(request.url)
+        
+        try:
+            # Ensure data directory exists
+            data_dir.mkdir(exist_ok=True)
+            
+            # Save to temporary file first for validation
+            temp_path = db_path.with_suffix('.db.tmp')
+            file.save(str(temp_path))
+            
+            # Verify it's a valid SQLite database
+            try:
+                with sqlite3.connect(str(temp_path)) as conn:
+                    cursor = conn.cursor()
+                    # Check if it has a cards table
+                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cards'")
+                    if not cursor.fetchone():
+                        # Remove invalid file
+                        temp_path.unlink()
+                        flash("Invalid database file: missing 'cards' table", "error")
+                        return redirect(request.url)
+            except sqlite3.Error as e:
+                # Remove invalid file
+                if temp_path.exists():
+                    temp_path.unlink()
+                flash(f"Invalid SQLite database file: {e}", "error")
+                return redirect(request.url)
+            
+            # Validation passed, replace the actual database file
+            if db_path.exists():
+                db_path.unlink()
+            temp_path.rename(db_path)
+            
+            flash("Database file uploaded successfully!", "success")
+            return redirect(url_for("upload_database"))
+            
+        except Exception as e:
+            flash(f"Error uploading file: {e}", "error")
+            return redirect(request.url)
+    
+    return render_template(
+        "upload_db.html",
+        current_file_exists=current_file_exists,
+        current_file_size=current_file_size
+    )
 
 
 if __name__ == "__main__":

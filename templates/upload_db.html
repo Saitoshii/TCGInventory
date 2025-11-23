@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h2>Upload Default Cards Database</h2>
+  </div>
+  <div class="card-body">
+    <div class="alert alert-info">
+      <h5>Instructions</h5>
+      <p>Upload a new <code>default-cards.db</code> file to replace the existing database.</p>
+      <ul>
+        <li>The file must be named <code>default-cards.db</code></li>
+        <li>Maximum file size: 500 MB</li>
+        <li>The file will be placed in the <code>data/</code> directory</li>
+        <li>This database is used for card autocomplete and lookup features</li>
+      </ul>
+      <p class="mb-0"><strong>Warning:</strong> Uploading a new file will replace the existing database.</p>
+    </div>
+
+    {% if current_file_exists %}
+    <div class="alert alert-success">
+      <strong>Current file status:</strong> A database file exists in the data directory.<br>
+      <strong>File size:</strong> {{ current_file_size }}
+    </div>
+    {% else %}
+    <div class="alert alert-warning">
+      <strong>Current file status:</strong> No database file found in the data directory.
+    </div>
+    {% endif %}
+
+    <form method="POST" enctype="multipart/form-data">
+      <div class="mb-3">
+        <label for="db_file" class="form-label">Select Database File</label>
+        <input type="file" class="form-control" id="db_file" name="db_file" accept=".db" required>
+        <div class="form-text">Select the default-cards.db file to upload</div>
+      </div>
+      
+      <div class="mb-3 form-check">
+        <input type="checkbox" class="form-check-input" id="confirm" name="confirm" required>
+        <label class="form-check-label" for="confirm">
+          I understand this will replace the existing database file
+        </label>
+      </div>
+
+      <button type="submit" class="btn btn-primary">Upload Database</button>
+      <a href="{{ url_for('index') }}" class="btn btn-secondary">Cancel</a>
+    </form>
+  </div>
+</div>
+{% endblock %}
