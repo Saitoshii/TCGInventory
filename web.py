@@ -276,16 +276,17 @@ def _parse_csv_bytes(csv_bytes: bytes) -> list[dict]:
     # Check for a leading separator directive, which may be quoted.
     # Common variants:
     #   sep=,      (unquoted)
-    #   "sep=,"    (quoted with delimiter inside)
-    #   'sep=,'    (single-quoted variant)
+    #   "sep=,"    (quoted with delimiter inside, matching quotes)
+    #   'sep=,'    (single-quoted variant, matching quotes)
     first_line = lines[0].strip()
+    # Use alternation to enforce matching quotes: unquoted, double-quoted, or single-quoted
     sep_pattern = re.compile(
-        r'^["\']?sep=(.)["\']?$', re.IGNORECASE
+        r'^(?:sep=(.)$|"sep=(.)"$|\'sep=(.)\')$', re.IGNORECASE
     )
     match = sep_pattern.match(first_line)
     if match:
-        # Found a separator directive; extract delimiter and remove the line
-        delimiter = match.group(1)
+        # Found a separator directive; extract delimiter (from whichever group matched)
+        delimiter = match.group(1) or match.group(2) or match.group(3)
         content = "\n".join(lines[1:])
 
     # Attempt to detect the CSV dialect using Sniffer
@@ -293,7 +294,10 @@ def _parse_csv_bytes(csv_bytes: bytes) -> list[dict]:
         dialect = csv.Sniffer().sniff(content, delimiters=delimiter or ",;")
     except csv.Error:
         # Fall back to Excel dialect if sniffing fails
-        dialect = csv.excel
+        # Create a mutable dialect subclass since csv.excel is immutable
+        class FallbackDialect(csv.excel):
+            pass
+        dialect = FallbackDialect
         if delimiter:
             dialect.delimiter = delimiter
 

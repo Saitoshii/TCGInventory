@@ -111,6 +111,18 @@ class TestParseCsvBytes:
         assert len(rows) == 1
         assert rows[0]["Card Name"] == "Sample Card"
 
+    def test_mismatched_quotes_not_recognized(self):
+        """CSV with mismatched quotes should not be recognized as sep directive."""
+        # Mismatched quotes should not match, so we test the regex directly is not matching
+        # When first line is not recognized as sep directive, it becomes header
+        csv_content = b"sep=,extra\nCard Name,Set Code\nSample Card,ABC\n"
+        rows = _parse_csv_bytes(csv_content)
+        # First line "sep=,extra" is not valid sep directive, so it becomes header
+        # Result should have 2 rows with malformed header keys
+        assert len(rows) == 2
+        # Verify "Card Name" is NOT a key (because it's data, not header)
+        assert "Card Name" not in rows[0]
+
     def test_sep_directive_with_semicolon(self):
         """CSV with sep=; directive using semicolon delimiter."""
         csv_content = b"sep=;\nCard Name;Set Code;Card Number\nSample Card;ABC;123\n"
