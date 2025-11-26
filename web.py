@@ -239,6 +239,75 @@ def export_cards():
     return resp
 
 
+def _parse_csv_bytes(csv_bytes: bytes) -> list[dict]:
+    """
+    Decode CSV bytes and return a list of dictionaries.
+
+    Handles CSV files with a leading separator directive line (e.g., sep=, or "sep=,")
+    which is commonly inserted by Excel and other tools. The directive may be quoted
+    and may appear after a UTF-8 BOM.
+
+    Args:
+        csv_bytes: Raw CSV file content as bytes.
+
+    Returns:
+        A list of dicts where keys are the normalized header column names.
+
+    Raises:
+        ValueError: If the CSV cannot be parsed due to encoding or format issues.
+    """
+    # Decode using utf-8-sig (handles BOM) with latin-1 fallback
+    try:
+        content = csv_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        try:
+            content = csv_bytes.decode("latin-1")
+        except UnicodeDecodeError as e:
+            raise ValueError(
+                f"Unable to decode CSV file. Please ensure it uses UTF-8 or Latin-1 encoding: {e}"
+            )
+
+    lines = content.splitlines()
+    if not lines:
+        return []
+
+    delimiter = None
+
+    # Check for a leading separator directive, which may be quoted.
+    # Common variants:
+    #   sep=,      (unquoted)
+    #   "sep=,"    (quoted with delimiter inside)
+    #   'sep=,'    (single-quoted variant)
+    first_line = lines[0].strip()
+    sep_pattern = re.compile(
+        r'^["\']?sep=(.)["\']?$', re.IGNORECASE
+    )
+    match = sep_pattern.match(first_line)
+    if match:
+        # Found a separator directive; extract delimiter and remove the line
+        delimiter = match.group(1)
+        content = "\n".join(lines[1:])
+
+    # Attempt to detect the CSV dialect using Sniffer
+    try:
+        dialect = csv.Sniffer().sniff(content, delimiters=delimiter or ",;")
+    except csv.Error:
+        # Fall back to Excel dialect if sniffing fails
+        dialect = csv.excel
+        if delimiter:
+            dialect.delimiter = delimiter
+
+    try:
+        reader = csv.DictReader(io.StringIO(content), dialect=dialect)
+        rows = list(reader)
+    except csv.Error as e:
+        raise ValueError(
+            f"CSV parsing failed. Please check that the file is valid CSV with a proper header row: {e}"
+        )
+
+    return rows
+
+
 def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: bytes | None) -> None:
     """Background task to process bulk upload files."""
     global BULK_PROGRESS, BULK_DONE, BULK_MESSAGE
@@ -263,23 +332,12 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
 
         if csv_bytes:
             try:
-                content = csv_bytes.decode("utf-8-sig")
-            except UnicodeDecodeError:
-                content = csv_bytes.decode("latin-1")
-            lines = content.splitlines()
-            delimiter = None
-            if lines and lines[0].lower().startswith("sep="):
-                delimiter = lines[0][4:].strip()
-                content = "\n".join(lines[1:])
-            try:
-                dialect = csv.Sniffer().sniff(content, delimiters=delimiter or ",;")
-            except csv.Error:
-                dialect = csv.excel
-                if delimiter:
-                    dialect.delimiter = delimiter
-            reader = list(csv.DictReader(io.StringIO(content), dialect=dialect))
-            for row in reader:
-                entries.append(("csv", row))
+                csv_rows = _parse_csv_bytes(csv_bytes)
+                for row in csv_rows:
+                    entries.append(("csv", row))
+            except ValueError as e:
+                # Record error but continue processing other inputs
+                BULK_MESSAGE = str(e)
 
         for name in form_data.get("cards", "").splitlines():
             name = name.strip()
