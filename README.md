@@ -87,6 +87,22 @@ Optionally change the port with ``FLASK_RUN_PORT``.
 
 For a detailed walkthrough of the available pages and forms, see [docs/WEB_INTERFACE.md](docs/WEB_INTERFACE.md).
 
+## Gmail Order Ingestion
+
+The application can automatically import Cardmarket orders from Gmail. This feature:
+- Polls Gmail for "Bitte versenden" emails from Cardmarket
+- Extracts buyer information and card lists
+- Displays orders in the "Offene Bestellungen" tab with images and storage locations
+- Operates during 11:00-22:00 with configurable polling
+
+**Setup required:** Gmail OAuth credentials must be configured. See [docs/GMAIL_SETUP.md](docs/GMAIL_SETUP.md) for detailed setup instructions.
+
+Environment variables needed:
+```bash
+export GMAIL_CLIENT_ID="your-client-id.apps.googleusercontent.com"
+export GMAIL_CLIENT_SECRET="your-client-secret"
+```
+
 ## Autocomplete
 
 The application can provide name suggestions when adding a card.  Download the

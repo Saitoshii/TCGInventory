@@ -11,3 +11,9 @@ pillow
 requests_oauthlib
 fpdf2
 flask
+
+# Gmail OAuth and email processing
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+google-api-python-client

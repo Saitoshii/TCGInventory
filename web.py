@@ -2,6 +2,7 @@ import os
 import sqlite3
 import re
 import threading
+from datetime import datetime, timedelta
 from flask import (
     Flask,
     render_template,
@@ -43,7 +44,7 @@ from TCGInventory.auth import (
     login_required,
 )
 from TCGInventory.repo_updater import update_repo
-from datetime import timedelta
+from TCGInventory.order_service import get_order_service
 from pathlib import Path
 from werkzeug.utils import secure_filename
 
@@ -1021,8 +1022,114 @@ def upload_database():
     )
 
 
+@app.route("/orders")
+@login_required
+def list_orders():
+    """Display open orders from Cardmarket emails."""
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute(
+            """
+            SELECT o.id, o.buyer_name, o.date_received, o.status 
+            FROM orders o 
+            WHERE o.status = 'open'
+            ORDER BY o.date_received DESC
+            """
+        )
+        orders = c.fetchall()
+        
+        # Get items for each order
+        order_details = []
+        for order in orders:
+            order_id = order[0]
+            c.execute(
+                """
+                SELECT id, card_name, quantity, image_url, storage_code
+                FROM order_items
+                WHERE order_id = ?
+                ORDER BY card_name
+                """,
+                (order_id,)
+            )
+            items = c.fetchall()
+            order_details.append({
+                'id': order[0],
+                'buyer_name': order[1],
+                'date_received': order[2],
+                'status': order[3],
+                'items': items
+            })
+    
+    # Get service status
+    service = get_order_service()
+    polling_enabled = service.is_enabled()
+    
+    return render_template(
+        "orders.html",
+        orders=order_details,
+        polling_enabled=polling_enabled
+    )
+
+
+@app.route("/orders/<int:order_id>/mark_sold", methods=["POST"])
+@login_required
+def mark_order_sold(order_id: int):
+    """Mark an order as sold/completed."""
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute(
+            """
+            UPDATE orders 
+            SET status = 'sold', date_completed = ?
+            WHERE id = ?
+            """,
+            (datetime.now().isoformat(), order_id)
+        )
+        conn.commit()
+    
+    flash("Order marked as sold")
+    return redirect(url_for("list_orders"))
+
+
+@app.route("/orders/sync", methods=["POST"])
+@login_required
+def sync_orders():
+    """Manually trigger order synchronization."""
+    service = get_order_service()
+    success, message, count = service.sync_orders()
+    
+    if success:
+        flash(message)
+    else:
+        flash(message, "error")
+    
+    return redirect(url_for("list_orders"))
+
+
+@app.route("/orders/toggle_polling", methods=["POST"])
+@login_required
+def toggle_order_polling():
+    """Enable or disable automatic order polling."""
+    service = get_order_service()
+    
+    action = request.form.get("action")
+    if action == "enable":
+        service.enable()
+        flash("Order polling enabled")
+    elif action == "disable":
+        service.disable()
+        flash("Order polling disabled")
+    
+    return redirect(url_for("list_orders"))
+
+
 if __name__ == "__main__":
     init_db()
+    
+    # Start the order ingestion service
+    order_service = get_order_service()
+    order_service.start()
+    
     host = os.environ.get("FLASK_RUN_HOST", "0.0.0.0")
     port = int(os.environ.get("FLASK_RUN_PORT", 5000))
     app.run(host=host, port=port, debug=True)

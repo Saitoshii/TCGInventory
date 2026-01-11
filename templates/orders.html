@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block content %}
+<h2 class="mb-4">Offene Bestellungen</h2>
+
+<div class="mb-3">
+  <form method="post" action="{{ url_for('sync_orders') }}" style="display: inline-block;">
+    <button type="submit" class="btn btn-primary">Jetzt synchronisieren</button>
+  </form>
+  
+  {% if polling_enabled %}
+  <form method="post" action="{{ url_for('toggle_order_polling') }}" style="display: inline-block;">
+    <input type="hidden" name="action" value="disable">
+    <button type="submit" class="btn btn-warning">Automatische Abfrage deaktivieren</button>
+  </form>
+  <span class="text-muted ms-2">🟢 Automatische Abfrage aktiv (11:00-22:00)</span>
+  {% else %}
+  <form method="post" action="{{ url_for('toggle_order_polling') }}" style="display: inline-block;">
+    <input type="hidden" name="action" value="enable">
+    <button type="submit" class="btn btn-success">Automatische Abfrage aktivieren</button>
+  </form>
+  <span class="text-muted ms-2">🔴 Automatische Abfrage deaktiviert</span>
+  {% endif %}
+</div>
+
+{% if orders %}
+  {% for order in orders %}
+  <div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <h5 class="mb-0">Bestellung von {{ order['buyer_name'] }}</h5>
+      <small class="text-muted">{{ order['date_received'][:19] }}</small>
+    </div>
+    <div class="card-body">
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th>Anzahl</th>
+            <th>Bild</th>
+            <th>Kartenname</th>
+            <th>Lagerort</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in order['items'] %}
+          <tr>
+            <td>{{ item[2] }}x</td>
+            <td>
+              {% if item[3] %}
+              <img src="{{ item[3] }}" style="max-height:60px;" class="img-thumbnail clickable-image" 
+                   data-bs-toggle="modal" data-bs-target="#imgModal" data-img="{{ item[3] }}">
+              {% else %}
+              <span class="text-muted">-</span>
+              {% endif %}
+            </td>
+            <td>{{ item[1] }}</td>
+            <td>
+              {% if item[4] %}
+              <code>{{ item[4] }}</code>
+              {% else %}
+              <span class="text-muted">Nicht im Lager</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <form method="post" action="{{ url_for('mark_order_sold', order_id=order['id']) }}" class="mt-2">
+        <button type="submit" class="btn btn-success" 
+                onclick="return confirm('Bestellung als verkauft markieren?')">
+          Verkauft
+        </button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+  <div class="alert alert-info">
+    Keine offenen Bestellungen gefunden. Klicken Sie auf "Jetzt synchronisieren", um neue Bestellungen abzurufen.
+  </div>
+{% endif %}
+
+<div class="modal fade" id="imgModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content bg-dark">
+      <div class="modal-body p-0">
+        <img id="modal-img" src="" class="img-fluid" alt="Card image">
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const modalImg = document.getElementById('modal-img');
+  const imgModalEl = document.getElementById('imgModal');
+  
+  // Check if Bootstrap is loaded and create modal with error handling
+  let modal = null;
+  if (typeof bootstrap !== 'undefined' && imgModalEl) {
+    try {
+      modal = new bootstrap.Modal(imgModalEl);
+    } catch (e) {
+      console.error('Failed to initialize Bootstrap modal:', e);
+    }
+  }
+
+  document.addEventListener('click', (e) => {
+    if (e.target.classList.contains('clickable-image')) {
+      const src = e.target.getAttribute('data-img');
+      if (src && modalImg) {
+        modalImg.src = src;
+        if (modal) {
+          try {
+            modal.show();
+          } catch (e) {
+            console.error('Failed to show modal:', e);
+          }
+        }
+      }
+    }
+  });
+});
+</script>
+{% endblock %}
