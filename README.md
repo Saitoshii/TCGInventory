@@ -103,6 +103,21 @@ export GMAIL_CLIENT_ID="your-client-id.apps.googleusercontent.com"
 export GMAIL_CLIENT_SECRET="your-client-secret"
 ```
 
+**Database Schema:** The order ingestion feature requires the `orders` and `order_items` tables. These tables are automatically created when you start the web application or CLI for the first time, and will also be added to existing databases automatically (the migration is safe and preserves all existing data).
+
+If you're upgrading from an older version without these tables, simply start the web application or run the CLI - the schema will be updated automatically:
+
+```bash
+# Web interface - tables are created on startup
+python web.py
+
+# Or via CLI - tables are created on startup
+python -m TCGInventory.cli
+
+# Or manually trigger database initialization
+python -m TCGInventory.setup_db
+```
+
 ## Autocomplete
 
 The application can provide name suggestions when adding a card.  Download the
