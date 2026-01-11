@@ -15,7 +15,7 @@ import TCGInventory.auth as auth  # noqa: E402
 def test_initialize_database_creates_orders_tables():
     """Test that initialize_database creates orders and order_items tables."""
     # Use a temporary database file
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.db') as tmp:
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.db') as tmp:
         tmp_db = tmp.name
     
     try:
@@ -69,7 +69,7 @@ def test_initialize_database_creates_orders_tables():
 def test_initialize_database_is_idempotent():
     """Test that initialize_database can be called multiple times safely."""
     # Use a temporary database file
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.db') as tmp:
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.db') as tmp:
         tmp_db = tmp.name
     
     try:
@@ -110,7 +110,7 @@ def test_initialize_database_is_idempotent():
 def test_migration_preserves_existing_data():
     """Test that running initialize_database on existing DB preserves data."""
     # Use a temporary database file
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.db') as tmp:
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.db') as tmp:
         tmp_db = tmp.name
     
     try:
