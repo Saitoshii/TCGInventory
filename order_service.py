@@ -15,6 +15,9 @@ from TCGInventory.gmail_auth import (
 )
 from TCGInventory.email_parser import parse_cardmarket_email
 
+# Constants
+SECONDS_PER_MINUTE = 60
+
 
 class OrderIngestionService:
     """Background service to poll Gmail for new Cardmarket orders."""
@@ -26,7 +29,7 @@ class OrderIngestionService:
         Args:
             poll_interval_minutes: How often to check for new emails (default: 10)
         """
-        self.poll_interval = poll_interval_minutes * 60  # Convert to seconds
+        self.poll_interval = poll_interval_minutes * SECONDS_PER_MINUTE
         self.running = False
         self.thread = None
         self.processed_message_ids: Set[str] = set()
@@ -85,7 +88,7 @@ class OrderIngestionService:
                 
             except Exception as e:
                 print(f"Error in order ingestion loop: {e}")
-                time.sleep(60)  # Wait a minute before retrying on error
+                time.sleep(SECONDS_PER_MINUTE)  # Wait a minute before retrying on error
     
     def sync_orders(self):
         """

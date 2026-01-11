@@ -91,14 +91,22 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
   const modalImg = document.getElementById('modal-img');
-  const modal = new bootstrap.Modal(document.getElementById('imgModal'));
+  const imgModalEl = document.getElementById('imgModal');
+  
+  // Check if Bootstrap is loaded before creating modal
+  let modal = null;
+  if (typeof bootstrap !== 'undefined' && imgModalEl) {
+    modal = new bootstrap.Modal(imgModalEl);
+  }
 
   document.addEventListener('click', (e) => {
     if (e.target.classList.contains('clickable-image')) {
       const src = e.target.getAttribute('data-img');
-      if (src) {
+      if (src && modalImg) {
         modalImg.src = src;
-        modal.show();
+        if (modal) {
+          modal.show();
+        }
       }
     }
   });

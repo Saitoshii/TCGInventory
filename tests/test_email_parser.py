@@ -1,10 +1,13 @@
 """Tests for the Cardmarket email parser."""
 
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-
-from TCGInventory.email_parser import parse_cardmarket_email, _clean_card_name
+try:
+    from TCGInventory.email_parser import parse_cardmarket_email, _clean_card_name
+except ImportError:
+    # Fallback for running tests directly
+    import sys
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+    from TCGInventory.email_parser import parse_cardmarket_email, _clean_card_name
 
 
 def test_parse_basic_order():

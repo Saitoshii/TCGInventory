@@ -2,6 +2,7 @@ import os
 import sqlite3
 import re
 import threading
+from datetime import datetime, timedelta
 from flask import (
     Flask,
     render_template,
@@ -44,7 +45,6 @@ from TCGInventory.auth import (
 )
 from TCGInventory.repo_updater import update_repo
 from TCGInventory.order_service import get_order_service
-from datetime import timedelta
 from pathlib import Path
 from werkzeug.utils import secure_filename
 
@@ -1075,8 +1075,6 @@ def list_orders():
 @login_required
 def mark_order_sold(order_id: int):
     """Mark an order as sold/completed."""
-    from datetime import datetime
-    
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         c.execute(
