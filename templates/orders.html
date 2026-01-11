@@ -93,10 +93,14 @@ document.addEventListener('DOMContentLoaded', function() {
   const modalImg = document.getElementById('modal-img');
   const imgModalEl = document.getElementById('imgModal');
   
-  // Check if Bootstrap is loaded before creating modal
+  // Check if Bootstrap is loaded and create modal with error handling
   let modal = null;
   if (typeof bootstrap !== 'undefined' && imgModalEl) {
-    modal = new bootstrap.Modal(imgModalEl);
+    try {
+      modal = new bootstrap.Modal(imgModalEl);
+    } catch (e) {
+      console.error('Failed to initialize Bootstrap modal:', e);
+    }
   }
 
   document.addEventListener('click', (e) => {
@@ -105,7 +109,11 @@ document.addEventListener('DOMContentLoaded', function() {
       if (src && modalImg) {
         modalImg.src = src;
         if (modal) {
-          modal.show();
+          try {
+            modal.show();
+          } catch (e) {
+            console.error('Failed to show modal:', e);
+          }
         }
       }
     }
