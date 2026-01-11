@@ -76,7 +76,7 @@ def make_storage_code(
 
 
 def init_db() -> None:
-    """Initialize database and ensure all tables exist (idempotent migration)."""
+    """Initialize or migrate database to ensure all required tables exist."""
     initialize_database()
 
 

@@ -32,7 +32,7 @@ import time
 
 
 def initialize_if_needed() -> None:
-    """Create the database and ensure all tables exist (idempotent migration)."""
+    """Initialize or migrate database to ensure all required tables exist."""
     initialize_database()
 
 
