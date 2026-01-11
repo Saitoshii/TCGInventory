@@ -2,5 +2,6 @@ venv/
 __pycache__/
 *.pyc
 mtg_lager.db
+test_old_db.db
 data/*
 !data/default-card.db
