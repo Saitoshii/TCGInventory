@@ -90,6 +90,35 @@ def initialize_database() -> None:
             """
         )
 
+        # Tabelle 4: Orders from Cardmarket emails
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                buyer_name TEXT NOT NULL,
+                email_message_id TEXT UNIQUE NOT NULL,
+                date_received TEXT NOT NULL,
+                status TEXT DEFAULT 'open',
+                date_completed TEXT
+            )
+            """
+        )
+
+        # Tabelle 5: Order items (cards in orders)
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS order_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER NOT NULL,
+                card_name TEXT NOT NULL,
+                quantity INTEGER NOT NULL,
+                image_url TEXT,
+                storage_code TEXT,
+                FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE
+            )
+            """
+        )
+
 
 if __name__ == "__main__":
     initialize_database()
