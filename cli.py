@@ -32,10 +32,8 @@ import time
 
 
 def initialize_if_needed() -> None:
-    """Create the database if it does not yet exist."""
-    if not os.path.exists(DB_FILE):
-        initialize_database()
-        print(Fore.GREEN + "ℹ️  Datenbank initialisiert.")
+    """Initialize or migrate database to ensure all required tables exist."""
+    initialize_database()
 
 
 def authenticate() -> bool:

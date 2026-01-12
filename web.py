@@ -76,10 +76,8 @@ def make_storage_code(
 
 
 def init_db() -> None:
-    if not os.path.exists(DB_FILE):
-        initialize_database()
-    else:
-        init_user_db()
+    """Initialize or migrate database to ensure all required tables exist."""
+    initialize_database()
 
 
 def fetch_cards(search: str | None = None, folder_id: int | None = None):
