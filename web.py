@@ -1028,10 +1028,10 @@ def list_orders():
         c = conn.cursor()
         c.execute(
             """
-            SELECT o.id, o.buyer_name, o.date_received, o.status 
+            SELECT o.id, o.buyer_name, COALESCE(o.email_date, o.date_received) as display_date, o.status 
             FROM orders o 
             WHERE o.status = 'open'
-            ORDER BY o.date_received DESC
+            ORDER BY COALESCE(o.email_date, o.date_received) DESC
             """
         )
         orders = c.fetchall()

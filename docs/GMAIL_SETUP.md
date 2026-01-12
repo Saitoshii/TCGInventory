@@ -100,12 +100,15 @@ Use the toggle button in the "Offene Bestellungen" tab to:
 
 1. **Email Fetching:** The service queries Gmail for unprocessed emails matching the Cardmarket filter
 2. **Parsing:** Email content is parsed to extract:
-   - Buyer name
-   - Card items (quantity + name) in formats like "1x Lightning Bolt"
+   - **Buyer name:** Extracted from the email subject line (e.g., "Bestellung 1250416803 für KohlkopfKlaus: Bitte versenden") or from the email body (e.g., "KohlkopfKlaus hat Bestellung ... bezahlt")
+   - **Email date:** The actual date/time the email was sent (from email headers), used for display instead of the ingestion time
+   - **Card items:** Quantity + name in formats like "1x Lightning Bolt" or "1x Airbending Lesson (Magic: The Gathering | Avatar: The Last Airbe... 0,02 EUR)"
+   - Card names are automatically cleaned to remove price suffixes (e.g., "0,02 EUR") and set information (e.g., "(Magic: The Gathering | ...)")
 3. **Card Matching:** For each card, the system searches the inventory database to find:
    - Card image URL (from Scryfall)
    - Storage location code
-4. **Database Storage:** Orders are saved with status "open"
+   - Matching is done with the cleaned card name for better accuracy
+4. **Database Storage:** Orders are saved with status "open" and the email date for accurate timestamp display
 5. **Email Marking:** Processed emails are labeled "processed-tcg" to avoid re-import
 
 ## Troubleshooting
@@ -140,6 +143,11 @@ Use the toggle button in the "Offene Bestellungen" tab to:
 The parser supports various email formats:
 - **Quantity formats:** `1x`, `2 x`, `3×`, `1 Stück`
 - **Language variations:** English and German
-- **Buyer name patterns:** "Käufer:", "Buyer:", "Bestellung von:", "Order from:"
+- **Buyer name extraction:**
+  - From subject: "Bestellung 1250416803 für KohlkopfKlaus: Bitte versenden" → extracts "KohlkopfKlaus"
+  - From body: "KohlkopfKlaus hat Bestellung ... bezahlt" → extracts "KohlkopfKlaus"
+  - Fallback patterns: "Käufer:", "Buyer:", "Bestellung von:", "Order from:"
+- **Card name cleaning:** Automatically removes price suffixes (e.g., "0,02 EUR", "1,50 EUR") and set information (e.g., "(Magic: The Gathering | Avatar: The Last Airbe...")
+- **Date handling:** Uses the email's actual sent date rather than the import time for accurate order timestamps
 
 If your Cardmarket emails have a different format, please open an issue with an example (anonymized).

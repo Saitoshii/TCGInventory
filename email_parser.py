@@ -4,41 +4,60 @@ import re
 from typing import Dict, List, Tuple
 
 
-def parse_cardmarket_email(email_body: str, message_id: str) -> Dict:
+def parse_cardmarket_email(email_body: str, message_id: str, subject: str = '', email_date: str = None) -> Dict:
     """
     Parse a Cardmarket shipping notification email.
     
     The email format typically contains:
-    - Buyer name
+    - Buyer name (in subject or body)
     - List of cards in format like "1x Airbending Lesson" or "2x Card Name"
+    - Email date
     
     Args:
         email_body: The email body text
         message_id: Gmail message ID
+        subject: Email subject line (optional)
+        email_date: Email date timestamp (optional)
         
     Returns:
-        Dictionary with buyer_name, items (list of {qty, card_name}), and message_id
+        Dictionary with buyer_name, items (list of {qty, card_name}), message_id, and email_date
     """
     result = {
         'buyer_name': '',
         'items': [],
-        'message_id': message_id
+        'message_id': message_id,
+        'email_date': email_date
     }
     
-    # Extract buyer name - look for common patterns
-    # Cardmarket emails often have "Käufer:" or similar
-    buyer_patterns = [
-        r'[Kk]äufer:\s*([^\n]+)',
-        r'[Bb]uyer:\s*([^\n]+)',
-        r'[Bb]estellung\s+von:\s*([^\n]+)',
-        r'[Oo]rder\s+from:\s*([^\n]+)',
-    ]
+    # Extract buyer name - try subject line first (e.g., "Bestellung 1250416803 für KohlkopfKlaus: Bitte versenden")
+    if subject:
+        subject_patterns = [
+            r'für\s+([^:\n]+):\s*Bitte versenden',  # "für KohlkopfKlaus: Bitte versenden"
+            r'for\s+([^:\n]+):\s*Please ship',  # English variant
+        ]
+        
+        for pattern in subject_patterns:
+            match = re.search(pattern, subject, re.IGNORECASE)
+            if match:
+                result['buyer_name'] = match.group(1).strip()
+                break
     
-    for pattern in buyer_patterns:
-        match = re.search(pattern, email_body)
-        if match:
-            result['buyer_name'] = match.group(1).strip()
-            break
+    # If not in subject, try body patterns
+    if not result['buyer_name']:
+        # Look for patterns like "KohlkopfKlaus hat Bestellung"
+        body_patterns = [
+            r'([A-Za-z0-9äöüÄÖÜß_\-]+)\s+hat\s+Bestellung',  # "KohlkopfKlaus hat Bestellung"
+            r'[Kk]äufer:\s*([^\n]+)',
+            r'[Bb]uyer:\s*([^\n]+)',
+            r'[Bb]estellung\s+von:\s*([^\n]+)',
+            r'[Oo]rder\s+from:\s*([^\n]+)',
+        ]
+        
+        for pattern in body_patterns:
+            match = re.search(pattern, email_body, re.MULTILINE)
+            if match:
+                result['buyer_name'] = match.group(1).strip()
+                break
     
     # If no buyer name found, try to extract from email header or use a default
     if not result['buyer_name']:
@@ -107,6 +126,10 @@ def _clean_card_name(name: str) -> str:
     """
     Clean up a card name by removing extra whitespace and common artifacts.
     
+    Handles formats like:
+    - "Airbending Lesson (Magic: The Gathering | Avatar: The Last Airbe... 0,02 EUR)"
+    - "Card Name (Set Name | ... 1,50 EUR)"
+    
     Args:
         name: Raw card name
         
@@ -121,6 +144,18 @@ def _clean_card_name(name: str) -> str:
     
     # Remove multiple spaces
     name = re.sub(r'\s{2,}', ' ', name)
+    
+    # Remove price suffixes with EUR/€ (e.g., "0,02 EUR", "1.50 EUR")
+    # Handle both comma and dot decimals
+    name = re.sub(r'\s*[\d]+[.,][\d]+\s*(EUR|€)\s*\)?$', '', name, flags=re.IGNORECASE)
+    name = re.sub(r'\s*[\d]+\s*(EUR|€)\s*\)?$', '', name, flags=re.IGNORECASE)
+    
+    # Remove set/expansion info in parentheses that contains a pipe (|)
+    # This handles formats like "(Magic: The Gathering | Avatar: The Last Airbe..." 
+    name = re.sub(r'\s*\([^)]*\|.*$', '', name)
+    
+    # Remove remaining set/expansion info in parentheses that might include ellipsis
+    name = re.sub(r'\s*\([^)]*\.{3,}[^)]*\)?', '', name)
     
     # Remove trailing punctuation that might be from email formatting
     name = re.sub(r'[,;:\.\-]+$', '', name)

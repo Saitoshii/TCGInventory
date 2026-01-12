@@ -11,7 +11,9 @@ from TCGInventory.gmail_auth import (
     get_gmail_service,
     fetch_cardmarket_emails,
     mark_message_processed,
-    get_email_body
+    get_email_body,
+    get_email_subject,
+    get_email_date
 )
 from TCGInventory.email_parser import parse_cardmarket_email
 
@@ -115,15 +117,17 @@ class OrderIngestionService:
             for message in messages:
                 message_id = message['id']
                 
-                # Extract email body
+                # Extract email body, subject, and date
                 email_body = get_email_body(message)
+                email_subject = get_email_subject(message)
+                email_date = get_email_date(message)
                 
                 if not email_body:
                     print(f"Could not extract body from message {message_id}")
                     continue
                 
-                # Parse the email
-                parsed = parse_cardmarket_email(email_body, message_id)
+                # Parse the email with subject and date
+                parsed = parse_cardmarket_email(email_body, message_id, subject=email_subject, email_date=email_date)
                 
                 if not parsed['items']:
                     print(f"No items found in message {message_id}")
@@ -174,16 +178,18 @@ class OrderIngestionService:
                     print(f"Order {parsed_order['message_id']} already exists")
                     return False
                 
-                # Insert order
+                # Insert order with email_date
+                email_date = parsed_order.get('email_date') or datetime.now().isoformat()
                 cursor.execute(
                     """
-                    INSERT INTO orders (buyer_name, email_message_id, date_received, status)
-                    VALUES (?, ?, ?, 'open')
+                    INSERT INTO orders (buyer_name, email_message_id, date_received, email_date, status)
+                    VALUES (?, ?, ?, ?, 'open')
                     """,
                     (
                         parsed_order['buyer_name'],
                         parsed_order['message_id'],
-                        datetime.now().isoformat()
+                        datetime.now().isoformat(),
+                        email_date
                     )
                 )
                 

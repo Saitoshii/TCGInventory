@@ -104,6 +104,12 @@ def initialize_database() -> None:
             """
         )
 
+        # Add email_date column to orders if missing (for email date vs. insertion date)
+        cursor.execute("PRAGMA table_info(orders)")
+        order_columns = [row[1] for row in cursor.fetchall()]
+        if "email_date" not in order_columns:
+            cursor.execute("ALTER TABLE orders ADD COLUMN email_date TEXT")
+
         # Tabelle 5: Order items (cards in orders)
         cursor.execute(
             """
