@@ -3,6 +3,8 @@
 import os
 import base64
 import pickle
+from datetime import datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -281,7 +283,6 @@ def get_email_date(message):
         # Try to get internalDate (Unix timestamp in milliseconds)
         if 'internalDate' in message:
             timestamp_ms = int(message['internalDate'])
-            from datetime import datetime
             dt = datetime.fromtimestamp(timestamp_ms / 1000.0)
             return dt.isoformat()
         
@@ -290,7 +291,6 @@ def get_email_date(message):
         for header in headers:
             if header['name'].lower() == 'date':
                 # Parse the date string (RFC 2822 format)
-                from email.utils import parsedate_to_datetime
                 date_str = header['value']
                 dt = parsedate_to_datetime(date_str)
                 return dt.isoformat()

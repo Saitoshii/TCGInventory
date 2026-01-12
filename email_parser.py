@@ -145,17 +145,16 @@ def _clean_card_name(name: str) -> str:
     # Remove multiple spaces
     name = re.sub(r'\s{2,}', ' ', name)
     
-    # Remove price suffixes with EUR/€ (e.g., "0,02 EUR", "1.50 EUR")
-    # Handle both comma and dot decimals
-    name = re.sub(r'\s*[\d]+[.,][\d]+\s*(EUR|€)\s*\)?$', '', name, flags=re.IGNORECASE)
-    name = re.sub(r'\s*[\d]+\s*(EUR|€)\s*\)?$', '', name, flags=re.IGNORECASE)
+    # Remove price suffixes with EUR/€ (e.g., "0,02 EUR", "1.50 EUR", "5 EUR")
+    # Handle both comma and dot decimals, and optional decimals
+    name = re.sub(r'\s*[\d]+(?:[.,][\d]+)?\s*(EUR|€)\s*\)?$', '', name, flags=re.IGNORECASE)
     
     # Remove set/expansion info in parentheses that contains a pipe (|)
     # This handles formats like "(Magic: The Gathering | Avatar: The Last Airbe..." 
     name = re.sub(r'\s*\([^)]*\|.*$', '', name)
     
     # Remove remaining set/expansion info in parentheses that might include ellipsis
-    name = re.sub(r'\s*\([^)]*\.{3,}[^)]*\)?', '', name)
+    name = re.sub(r'\s*\([^)]*\.{3,}[^)]*$', '', name)
     
     # Remove trailing punctuation that might be from email formatting
     name = re.sub(r'[,;:\.\-]+$', '', name)
