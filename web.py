@@ -1094,6 +1094,8 @@ def mark_order_sold(order_id: int):
 def delete_order(order_id: int):
     """Delete an order and its items from the database."""
     with sqlite3.connect(DB_FILE) as conn:
+        # Enable foreign key constraints to ensure CASCADE works
+        conn.execute("PRAGMA foreign_keys = ON")
         c = conn.cursor()
         # Delete the order (CASCADE will handle order_items)
         c.execute("DELETE FROM orders WHERE id = ?", (order_id,))

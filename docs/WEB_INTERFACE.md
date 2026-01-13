@@ -83,3 +83,43 @@ To upload a database file:
 
 The uploaded file will be validated to ensure it's a valid SQLite database with the required `cards` table. The maximum file size is 500 MB. If a database file already exists, it will be replaced by the new file.
 
+## Offene Bestellungen (Open Orders)
+
+The **Offene Bestellungen** (Open Orders) page displays orders imported from Cardmarket "Bitte versenden" emails via Gmail integration. This feature requires Gmail OAuth credentials to be configured (see [GMAIL_SETUP.md](GMAIL_SETUP.md)).
+
+### Order Display
+
+Each order shows:
+- **Buyer name** – Extracted from the email subject or body (e.g., "KohlkopfKlaus")
+- **Order date** – The email's send date (not the import time)
+- **Card items** – List of cards with quantity, image (when available), and storage location
+- **Images** – Card images are fetched from your inventory or the default-cards.db database
+- **Storage codes** – Shows where each card is stored in your binders (e.g., "O01-S01-P1")
+
+### Order Actions
+
+- **Jetzt synchronisieren** – Manually check Gmail for new orders
+- **Verkauft** – Mark an order as sold/completed (hides it from the open orders list)
+- **Delete (×)** – Permanently delete an order and all its items
+  - A confirmation dialog appears before deletion
+  - This action cannot be undone
+  - The order and all associated items are removed from the database
+
+### Automatic Polling
+
+The application can automatically poll Gmail for new orders during operating hours (11:00-22:00):
+- **Automatische Abfrage aktivieren** – Enable automatic polling (checks every 10 minutes)
+- **Automatische Abfrage deaktivieren** – Disable automatic polling
+
+When polling is active, a green indicator (🟢) is shown. When disabled, a red indicator (🔴) appears.
+
+### Card Matching
+
+When importing orders, the system attempts to match card names to your inventory:
+1. First checks your inventory for exact or partial matches
+2. If found, displays the card's image and storage location
+3. If not in inventory, tries to fetch the image from default-cards.db
+4. Card names are automatically cleaned (removes prices, set info, and condition markers)
+
+This ensures card images are displayed even for cards not yet in your inventory, as long as they exist in the default-cards.db database.
+
