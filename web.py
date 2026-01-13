@@ -1089,6 +1089,20 @@ def mark_order_sold(order_id: int):
     return redirect(url_for("list_orders"))
 
 
+@app.route("/orders/<int:order_id>/delete", methods=["POST"])
+@login_required
+def delete_order(order_id: int):
+    """Delete an order and its items from the database."""
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        # Delete the order (CASCADE will handle order_items)
+        c.execute("DELETE FROM orders WHERE id = ?", (order_id,))
+        conn.commit()
+    
+    flash("Order deleted")
+    return redirect(url_for("list_orders"))
+
+
 @app.route("/orders/sync", methods=["POST"])
 @login_required
 def sync_orders():

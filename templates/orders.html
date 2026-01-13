@@ -27,7 +27,14 @@
   <div class="card mb-3">
     <div class="card-header d-flex justify-content-between align-items-center">
       <h5 class="mb-0">Bestellung von {{ order['buyer_name'] }}</h5>
-      <small class="text-muted">{{ order['date_received'][:19] }}</small>
+      <div class="d-flex align-items-center">
+        <small class="text-muted me-3">{{ order['date_received'][:19] }}</small>
+        <form method="post" action="{{ url_for('delete_order', order_id=order['id']) }}" style="display: inline-block;" onsubmit="return confirm('Diese Bestellung wirklich löschen? Dies kann nicht rückgängig gemacht werden.');">
+          <button type="submit" class="btn btn-sm btn-danger" title="Bestellung löschen">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </form>
+      </div>
     </div>
     <div class="card-body">
       <table class="table table-sm">

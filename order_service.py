@@ -227,14 +227,17 @@ class OrderIngestionService:
         """
         Find image URL and storage location for a card.
         
+        First checks the user's inventory for both image and storage location.
+        If no image is found, falls back to default-cards.db for image_url.
+        
         Args:
-            cursor: Database cursor
+            cursor: Database cursor (for user's inventory)
             card_name: Name of the card to search for
             
         Returns:
             Tuple of (image_url, storage_code)
         """
-        # Search for exact match first
+        # Search for exact match in user's inventory first
         cursor.execute(
             "SELECT image_url, storage_code FROM cards WHERE LOWER(name) = LOWER(?) LIMIT 1",
             (card_name,)
@@ -242,9 +245,15 @@ class OrderIngestionService:
         result = cursor.fetchone()
         
         if result:
-            return result[0], result[1]
+            image_url, storage_code = result[0], result[1]
+            # If we have an image from inventory, use it
+            if image_url:
+                return image_url, storage_code
+            # Otherwise, try to get image from default-cards.db but keep storage_code
+            fallback_image = self._get_image_from_default_db(card_name)
+            return fallback_image, storage_code
         
-        # Try partial match
+        # Try partial match in inventory
         cursor.execute(
             "SELECT image_url, storage_code FROM cards WHERE LOWER(name) LIKE LOWER(?) LIMIT 1",
             (f"%{card_name}%",)
@@ -252,10 +261,58 @@ class OrderIngestionService:
         result = cursor.fetchone()
         
         if result:
-            return result[0], result[1]
+            image_url, storage_code = result[0], result[1]
+            if image_url:
+                return image_url, storage_code
+            fallback_image = self._get_image_from_default_db(card_name)
+            return fallback_image, storage_code
         
-        # No match found
-        return None, None
+        # Not in inventory - try to get image from default-cards.db
+        image_url = self._get_image_from_default_db(card_name)
+        return image_url, None
+    
+    def _get_image_from_default_db(self, card_name):
+        """
+        Look up image_url from default-cards.db.
+        
+        Args:
+            card_name: Name of the card to search for
+            
+        Returns:
+            image_url or None
+        """
+        from pathlib import Path
+        default_db_path = Path(__file__).resolve().parent / "data" / "default-cards.db"
+        
+        if not default_db_path.exists():
+            return None
+        
+        try:
+            with sqlite3.connect(default_db_path) as conn:
+                c = conn.cursor()
+                
+                # Try exact match first
+                c.execute(
+                    "SELECT image_url FROM cards WHERE LOWER(name) = LOWER(?) AND image_url IS NOT NULL LIMIT 1",
+                    (card_name,)
+                )
+                result = c.fetchone()
+                if result and result[0]:
+                    return result[0]
+                
+                # Try partial match
+                c.execute(
+                    "SELECT image_url FROM cards WHERE LOWER(name) LIKE LOWER(?) AND image_url IS NOT NULL LIMIT 1",
+                    (f"%{card_name}%",)
+                )
+                result = c.fetchone()
+                if result and result[0]:
+                    return result[0]
+                
+        except sqlite3.Error as e:
+            print(f"Error querying default-cards.db: {e}")
+        
+        return None
 
 
 # Global service instance
