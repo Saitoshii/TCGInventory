@@ -1053,7 +1053,7 @@ def list_orders():
             order_details.append({
                 'id': order[0],
                 'buyer_name': order[1],
-                'date_received': order[2],
+                'display_date': order[2],  # This is COALESCE(email_date, date_received)
                 'status': order[3],
                 'items': items
             })

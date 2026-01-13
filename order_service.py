@@ -4,6 +4,7 @@ import sqlite3
 import threading
 import time
 from datetime import datetime, time as dt_time
+from pathlib import Path
 from typing import Set
 
 from TCGInventory import DB_FILE
@@ -281,7 +282,6 @@ class OrderIngestionService:
         Returns:
             image_url or None
         """
-        from pathlib import Path
         default_db_path = Path(__file__).resolve().parent / "data" / "default-cards.db"
         
         if not default_db_path.exists():

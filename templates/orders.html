@@ -28,8 +28,8 @@
     <div class="card-header d-flex justify-content-between align-items-center">
       <h5 class="mb-0">Bestellung von {{ order['buyer_name'] }}</h5>
       <div class="d-flex align-items-center">
-        <small class="text-muted me-3">{{ order['date_received'][:19] }}</small>
-        <form method="post" action="{{ url_for('delete_order', order_id=order['id']) }}" style="display: inline-block;" onsubmit="return confirm('Diese Bestellung wirklich löschen? Dies kann nicht rückgängig gemacht werden.');">
+        <small class="text-muted me-3">{{ order['display_date'][:19] }}</small>
+        <form method="post" action="{{ url_for('delete_order', order_id=order['id']) }}" class="delete-order-form">
           <button type="submit" class="btn btn-sm btn-danger" title="Bestellung löschen">
             <span aria-hidden="true">&times;</span>
           </button>
@@ -121,6 +121,21 @@ document.addEventListener('DOMContentLoaded', function() {
           } catch (e) {
             console.error('Failed to show modal:', e);
           }
+        }
+      }
+    }
+  });
+  
+  // Handle delete order confirmation
+  const deleteOrderForms = document.querySelectorAll('.delete-order-form');
+  deleteOrderForms.forEach(form => {
+    form.addEventListener('submit', function(e) {
+      if (!confirm('Diese Bestellung wirklich löschen? Dies kann nicht rückgängig gemacht werden.')) {
+        e.preventDefault();
+      }
+    });
+  });
+});
         }
       }
     }

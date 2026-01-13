@@ -3,5 +3,6 @@ __pycache__/
 *.pyc
 mtg_lager.db
 test_old_db.db
+test_mtg_lager.db
 data/*
 !data/default-card.db
