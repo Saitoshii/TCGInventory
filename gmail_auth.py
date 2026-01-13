@@ -3,6 +3,8 @@
 import os
 import base64
 import pickle
+from datetime import datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -244,3 +246,55 @@ def get_email_body(message):
         print(f"Error extracting email body: {e}")
     
     return ""
+
+
+def get_email_subject(message):
+    """
+    Extract the subject line from a Gmail message.
+    
+    Args:
+        message: Gmail message object
+        
+    Returns:
+        Email subject as string
+    """
+    try:
+        headers = message['payload'].get('headers', [])
+        for header in headers:
+            if header['name'].lower() == 'subject':
+                return header['value']
+    except Exception as e:
+        print(f"Error extracting email subject: {e}")
+    
+    return ""
+
+
+def get_email_date(message):
+    """
+    Extract the date from a Gmail message.
+    
+    Args:
+        message: Gmail message object
+        
+    Returns:
+        Email date as ISO 8601 string, or None if not found
+    """
+    try:
+        # Try to get internalDate (Unix timestamp in milliseconds)
+        if 'internalDate' in message:
+            timestamp_ms = int(message['internalDate'])
+            dt = datetime.fromtimestamp(timestamp_ms / 1000.0)
+            return dt.isoformat()
+        
+        # Fallback to Date header
+        headers = message['payload'].get('headers', [])
+        for header in headers:
+            if header['name'].lower() == 'date':
+                # Parse the date string (RFC 2822 format)
+                date_str = header['value']
+                dt = parsedate_to_datetime(date_str)
+                return dt.isoformat()
+    except Exception as e:
+        print(f"Error extracting email date: {e}")
+    
+    return None
