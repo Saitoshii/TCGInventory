@@ -1053,7 +1053,9 @@ def list_orders():
             order_details.append({
                 'id': order[0],
                 'buyer_name': order[1],
-                'display_date': order[2],  # This is COALESCE(email_date, date_received)
+                # display_date is from COALESCE(email_date, date_received) in the query above
+                # This ensures we show the actual email date when available, falling back to insertion time
+                'display_date': order[2],
                 'status': order[3],
                 'items': items
             })
