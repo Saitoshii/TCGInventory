@@ -3,6 +3,21 @@
 import re
 from typing import Dict, List, Tuple
 
+# Blacklist of common email signatures and greetings that should not be used as buyer names
+BUYER_NAME_BLACKLIST = frozenset([
+    'das cardmarket-team',
+    'cardmarket-team',
+    'cardmarket',
+    'vielen dank',
+    'thank you',
+    'best regards',
+    'mit freundlichen grüßen',
+    'grüße',
+    'hallo',
+    'hello',
+    'hi',
+])
+
 
 def parse_cardmarket_email(email_body: str, message_id: str, subject: str = '', email_date: str = None) -> Dict:
     """
@@ -61,21 +76,6 @@ def parse_cardmarket_email(email_body: str, message_id: str, subject: str = '', 
     
     # If no buyer name found, try to extract from email header or use a default
     if not result['buyer_name']:
-        # Blacklist of common signatures and system messages to ignore
-        blacklist = [
-            'das cardmarket-team',
-            'cardmarket-team',
-            'cardmarket',
-            'vielen dank',
-            'thank you',
-            'best regards',
-            'mit freundlichen grüßen',
-            'grüße',
-            'hallo',
-            'hello',
-            'hi',
-        ]
-        
         # Look for a name in the first few lines
         lines = email_body.split('\n')[:10]
         for line in lines:
@@ -85,7 +85,7 @@ def parse_cardmarket_email(email_body: str, message_id: str, subject: str = '', 
                 # Check if it looks like a name (contains letters and possibly spaces)
                 if re.match(r'^[A-Za-zÄÖÜäöüß\s\-]+$', line) and 3 <= len(line) <= 50:
                     # Check against blacklist (case-insensitive)
-                    if line.lower() not in blacklist:
+                    if line.lower() not in BUYER_NAME_BLACKLIST:
                         result['buyer_name'] = line
                         break
     
