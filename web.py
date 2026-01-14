@@ -62,6 +62,9 @@ BULK_PROGRESS = 0
 BULK_DONE = False
 BULK_MESSAGE: str | None = None
 
+# Order display settings
+ORDER_CUTOFF_DAYS = 30  # Only show orders from the last N days
+
 
 def make_storage_code(
     folder_id: str | None, page: str | None, slot: str | None
@@ -1024,8 +1027,8 @@ def upload_database():
 @login_required
 def list_orders():
     """Display open orders from Cardmarket emails."""
-    # Calculate cutoff date (30 days ago)
-    cutoff_date = (datetime.now() - timedelta(days=30)).isoformat()
+    # Calculate cutoff date using configured setting
+    cutoff_date = (datetime.now() - timedelta(days=ORDER_CUTOFF_DAYS)).isoformat()
     
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()

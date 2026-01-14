@@ -4,6 +4,7 @@ import re
 from typing import Dict, List, Tuple
 
 # Blacklist of common email signatures and greetings that should not be used as buyer names
+# All comparisons are case-insensitive (lowercase)
 BUYER_NAME_BLACKLIST = frozenset([
     'das cardmarket-team',
     'cardmarket-team',
