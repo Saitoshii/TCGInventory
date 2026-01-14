@@ -3,6 +3,26 @@
 import re
 from typing import Dict, List, Tuple
 
+# Blacklist of common email signatures and greetings that should not be used as buyer names
+# All comparisons are case-insensitive (lowercase)
+# Note: Short greetings like 'hallo', 'hello', 'hi' are safe to blacklist because:
+# - They appear in the first 10 lines of emails (greeting section)
+# - Real buyer names are extracted from subject line or body patterns (e.g., "X hat Bestellung")
+# - These would never be valid buyer usernames on Cardmarket
+BUYER_NAME_BLACKLIST = frozenset([
+    'das cardmarket-team',
+    'cardmarket-team',
+    'cardmarket',
+    'vielen dank',
+    'thank you',
+    'best regards',
+    'mit freundlichen grüßen',
+    'grüße',
+    'hallo',
+    'hello',
+    'hi',
+])
+
 
 def parse_cardmarket_email(email_body: str, message_id: str, subject: str = '', email_date: str = None) -> Dict:
     """
@@ -69,8 +89,10 @@ def parse_cardmarket_email(email_body: str, message_id: str, subject: str = '', 
             if line and not line.startswith(('From:', 'To:', 'Subject:', 'Date:')):
                 # Check if it looks like a name (contains letters and possibly spaces)
                 if re.match(r'^[A-Za-zÄÖÜäöüß\s\-]+$', line) and 3 <= len(line) <= 50:
-                    result['buyer_name'] = line
-                    break
+                    # Check against blacklist (case-insensitive)
+                    if line.lower() not in BUYER_NAME_BLACKLIST:
+                        result['buyer_name'] = line
+                        break
     
     # Default buyer name if still not found
     if not result['buyer_name']:
