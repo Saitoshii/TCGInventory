@@ -182,6 +182,48 @@ def test_skip_duplicates():
     assert result['items'][0]['card_name'] == 'Lightning Bolt'
 
 
+def test_blacklist_cardmarket_team():
+    """Test that 'Das Cardmarket-Team' signature is not used as buyer name."""
+    email_body = """
+    Hallo Flemming,
+    
+    Ihre Bestellung ist bezahlt.
+    
+    1x Lightning Bolt
+    2x Counterspell
+    
+    Vielen Dank!
+    Das Cardmarket-Team
+    """
+    
+    result = parse_cardmarket_email(email_body, "msg222", subject="")
+    
+    # Should fall back to 'Unknown Buyer' instead of picking up signature
+    assert result['buyer_name'] == 'Unknown Buyer'
+    assert len(result['items']) == 2
+
+
+def test_extract_buyer_with_signature_present():
+    """Test that buyer is correctly extracted even when signature is present."""
+    email_body = """
+    Hallo Flemming,
+    
+    KohlkopfKlaus hat Bestellung 1250416803 bezahlt.
+    
+    1x Lightning Bolt
+    2x Counterspell
+    
+    Vielen Dank!
+    Das Cardmarket-Team
+    """
+    
+    result = parse_cardmarket_email(email_body, "msg333", subject="")
+    
+    # Should extract KohlkopfKlaus, not Das Cardmarket-Team
+    assert result['buyer_name'] == 'KohlkopfKlaus'
+    assert len(result['items']) == 2
+
+
 if __name__ == "__main__":
     test_parse_buyer_from_subject()
     test_parse_buyer_from_body_pattern()
@@ -193,4 +235,6 @@ if __name__ == "__main__":
     test_parse_no_items()
     test_parse_fallback_buyer_name()
     test_skip_duplicates()
+    test_blacklist_cardmarket_team()
+    test_extract_buyer_with_signature_present()
     print("All tests passed!")

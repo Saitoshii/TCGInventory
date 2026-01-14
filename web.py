@@ -1024,6 +1024,9 @@ def upload_database():
 @login_required
 def list_orders():
     """Display open orders from Cardmarket emails."""
+    # Calculate cutoff date (30 days ago)
+    cutoff_date = (datetime.now() - timedelta(days=30)).isoformat()
+    
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         c.execute(
@@ -1031,8 +1034,10 @@ def list_orders():
             SELECT o.id, o.buyer_name, COALESCE(o.email_date, o.date_received) as display_date, o.status 
             FROM orders o 
             WHERE o.status = 'open'
+              AND COALESCE(o.email_date, o.date_received) >= ?
             ORDER BY COALESCE(o.email_date, o.date_received) DESC
-            """
+            """,
+            (cutoff_date,)
         )
         orders = c.fetchall()
         
