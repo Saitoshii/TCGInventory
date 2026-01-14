@@ -5,6 +5,10 @@ from typing import Dict, List, Tuple
 
 # Blacklist of common email signatures and greetings that should not be used as buyer names
 # All comparisons are case-insensitive (lowercase)
+# Note: Short greetings like 'hallo', 'hello', 'hi' are safe to blacklist because:
+# - They appear in the first 10 lines of emails (greeting section)
+# - Real buyer names are extracted from subject line or body patterns (e.g., "X hat Bestellung")
+# - These would never be valid buyer usernames on Cardmarket
 BUYER_NAME_BLACKLIST = frozenset([
     'das cardmarket-team',
     'cardmarket-team',

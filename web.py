@@ -1028,6 +1028,8 @@ def upload_database():
 def list_orders():
     """Display open orders from Cardmarket emails."""
     # Calculate cutoff date using configured setting
+    # Note: Using datetime.now() for consistency with existing date_received values in the database
+    # which were stored using local time. Consider migrating to UTC in the future.
     cutoff_date = (datetime.now() - timedelta(days=ORDER_CUTOFF_DAYS)).isoformat()
     
     with sqlite3.connect(DB_FILE) as conn:
