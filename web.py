@@ -1053,7 +1053,9 @@ def list_orders():
             order_details.append({
                 'id': order[0],
                 'buyer_name': order[1],
-                'date_received': order[2],
+                # display_date is from COALESCE(email_date, date_received) in the query above
+                # This ensures we show the actual email date when available, falling back to insertion time
+                'display_date': order[2],
                 'status': order[3],
                 'items': items
             })
@@ -1086,6 +1088,22 @@ def mark_order_sold(order_id: int):
         conn.commit()
     
     flash("Order marked as sold")
+    return redirect(url_for("list_orders"))
+
+
+@app.route("/orders/<int:order_id>/delete", methods=["POST"])
+@login_required
+def delete_order(order_id: int):
+    """Delete an order and its items from the database."""
+    with sqlite3.connect(DB_FILE) as conn:
+        # Enable foreign key constraints to ensure CASCADE works
+        conn.execute("PRAGMA foreign_keys = ON")
+        c = conn.cursor()
+        # Delete the order (CASCADE will handle order_items)
+        c.execute("DELETE FROM orders WHERE id = ?", (order_id,))
+        conn.commit()
+    
+    flash("Order deleted")
     return redirect(url_for("list_orders"))
 
 
