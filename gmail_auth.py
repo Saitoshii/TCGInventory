@@ -95,8 +95,8 @@ def fetch_cardmarket_emails(service, processed_message_ids=None):
         processed_message_ids = set()
     
     try:
-        # Query for Cardmarket shipping emails
-        query = 'from:noreply@cardmarket.com subject:"Bitte versenden" -label:processed-tcg'
+        # Query for Cardmarket shipping emails (German and English variants)
+        query = 'from:noreply@cardmarket.com (subject:"Bitte versenden" OR subject:"Please ship") -label:processed-tcg'
         
         results = service.users().messages().list(
             userId='me',
