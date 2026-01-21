@@ -104,7 +104,7 @@ def parse_cardmarket_email(email_body: str, message_id: str, subject: str = '', 
     item_patterns = [
         r'(\d+)\s*[xX×]\s*([^\n]+)',  # Standard format: 1x Card Name
         r'(\d+)\s+[Ss]tück\s+([^\n]+)',  # German format: 1 Stück Card Name
-        r'^([A-Za-z][^\n]*?)\s*[xX×]\s*(\d+)\s*$',  # Reverse: Card Name x1 (must start line with letter, end line)
+        r'^([^\n]*?[A-Za-z][^\n]*?)\s*[xX×]\s*(\d+)\s*$',  # Reverse: Card Name x1 (must contain letter)
     ]
     
     found_items = []
@@ -112,7 +112,7 @@ def parse_cardmarket_email(email_body: str, message_id: str, subject: str = '', 
     for pattern in item_patterns:
         matches = re.finditer(pattern, email_body, re.MULTILINE)
         for match in matches:
-            if pattern == r'^([A-Za-z][^\n]*?)\s*[xX×]\s*(\d+)\s*$':
+            if pattern == r'^([^\n]*?[A-Za-z][^\n]*?)\s*[xX×]\s*(\d+)\s*$':
                 # Reversed pattern
                 card_name = match.group(1).strip()
                 qty = match.group(2).strip()
@@ -191,6 +191,8 @@ def _clean_card_name(name: str) -> str:
     
     # Remove parenthesized set names that are repeated (e.g., "Lorwyn Eclipsed Play Booster Box (Lorwyn Eclipsed)")
     # Match parentheses that contain words already in the card name
+    # Only filter out very short words (2 chars or less) like 'of', 'in' from matching
+    MIN_WORD_LENGTH_FOR_MATCHING = 3
     words = name.lower().split()
     if '(' in name:
         # Extract parenthetical content
@@ -199,7 +201,7 @@ def _clean_card_name(name: str) -> str:
             paren_content = paren_match.group(1).lower()
             # Check if all words in parentheses are already in the card name
             paren_words = paren_content.split()
-            if all(word in words for word in paren_words if len(word) > 2):
+            if all(word in words for word in paren_words if len(word) > MIN_WORD_LENGTH_FOR_MATCHING):
                 # Remove the redundant parenthetical
                 name = re.sub(r'\s*\([^)]+\)\s*$', '', name)
     
