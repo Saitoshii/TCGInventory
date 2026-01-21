@@ -73,7 +73,7 @@ The first time the application tries to access Gmail, it will open a browser win
 The application automatically polls Gmail for new orders:
 - **Operating Hours:** 11:00 AM - 10:00 PM (server time)
 - **Poll Interval:** Every 10-15 minutes
-- **Email Filter:** `from:noreply@cardmarket.com subject:"Bitte versenden"`
+- **Email Filter:** `from:noreply@cardmarket.com (subject:"Bitte versenden" OR subject:"Please ship")`
 
 Orders are automatically marked as processed (via a Gmail label or read status) to prevent duplicates.
 
@@ -100,10 +100,10 @@ Use the toggle button in the "Offene Bestellungen" tab to:
 
 1. **Email Fetching:** The service queries Gmail for unprocessed emails matching the Cardmarket filter
 2. **Parsing:** Email content is parsed to extract:
-   - **Buyer name:** Extracted from the email subject line (e.g., "Bestellung 1250416803 für KohlkopfKlaus: Bitte versenden") or from the email body (e.g., "KohlkopfKlaus hat Bestellung ... bezahlt")
+   - **Buyer name:** Extracted from the email subject line (e.g., "Bestellung 1250416803 für KohlkopfKlaus: Bitte versenden" or "Shipment 1252132280 for Obi83: Please ship") or from the email body (e.g., "KohlkopfKlaus hat Bestellung ... bezahlt" or "Obi83 has paid for shipment ...")
    - **Email date:** The actual date/time the email was sent (from email headers), used for display instead of the ingestion time
-   - **Card items:** Quantity + name in formats like "1x Lightning Bolt" or "1x Airbending Lesson (Magic: The Gathering | Avatar: The Last Airbe... 0,02 EUR)"
-   - Card names are automatically cleaned to remove price suffixes (e.g., "0,02 EUR") and set information (e.g., "(Magic: The Gathering | ...)")
+   - **Card items:** Quantity + name in formats like "1x Lightning Bolt" or "1x Airbending Lesson (Magic: The Gathering | Avatar: The Last Airbe... 0,02 EUR)" or "1x Sothera, the Supervoid (Edge of Eternities) - M - English - NM 3,98 EUR"
+   - Card names are automatically cleaned to remove price suffixes (e.g., "0,02 EUR"), set information (e.g., "(Magic: The Gathering | ...)"), and condition markers (e.g., "- M - English - NM")
 3. **Card Matching:** For each card, the system searches the inventory database to find:
    - Card image URL (from Scryfall)
    - Storage location code
@@ -119,7 +119,7 @@ Use the toggle button in the "Offene Bestellungen" tab to:
 
 ### No orders appear after sync
 - Check that your Gmail account actually has Cardmarket emails
-- Verify the emails have subject "Bitte versenden"
+- Verify the emails have subject "Bitte versenden" (German) or "Please ship" (English)
 - Check that emails are not already labeled "processed-tcg"
 
 ### Orders missing card images/locations
@@ -141,13 +141,22 @@ Use the toggle button in the "Offene Bestellungen" tab to:
 ## Email Format Support
 
 The parser supports various email formats:
+- **Subject variants:** 
+  - German: "Bestellung 1250416803 für KohlkopfKlaus: Bitte versenden"
+  - English: "Shipment 1252132280 for Obi83: Please ship"
 - **Quantity formats:** `1x`, `2 x`, `3×`, `1 Stück`
 - **Language variations:** English and German
 - **Buyer name extraction:**
-  - From subject: "Bestellung 1250416803 für KohlkopfKlaus: Bitte versenden" → extracts "KohlkopfKlaus"
-  - From body: "KohlkopfKlaus hat Bestellung ... bezahlt" → extracts "KohlkopfKlaus"
+  - From German subject: "Bestellung 1250416803 für KohlkopfKlaus: Bitte versenden" → extracts "KohlkopfKlaus"
+  - From English subject: "Shipment 1252132280 for Obi83: Please ship" → extracts "Obi83"
+  - From German body: "KohlkopfKlaus hat Bestellung ... bezahlt" → extracts "KohlkopfKlaus"
+  - From English body: "Obi83 has paid for shipment ..." → extracts "Obi83"
   - Fallback patterns: "Käufer:", "Buyer:", "Bestellung von:", "Order from:"
-- **Card name cleaning:** Automatically removes price suffixes (e.g., "0,02 EUR", "1,50 EUR") and set information (e.g., "(Magic: The Gathering | Avatar: The Last Airbe...")
+- **Card name cleaning:** Automatically removes:
+  - Price suffixes: "0,02 EUR", "1,50 EUR", "140,00 EUR"
+  - Set information: "(Magic: The Gathering | Avatar: The Last Airbe..."
+  - English condition markers: "- M - English - NM", "- R - German - EX"
+  - Redundant set names: "(Lorwyn Eclipsed)" when "Lorwyn Eclipsed" is already in the name
 - **Date handling:** Uses the email's actual sent date rather than the import time for accurate order timestamps
 
 If your Cardmarket emails have a different format, please open an issue with an example (anonymized).

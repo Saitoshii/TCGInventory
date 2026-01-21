@@ -224,6 +224,59 @@ def test_extract_buyer_with_signature_present():
     assert len(result['items']) == 2
 
 
+def test_english_email_subject_format():
+    """Test parsing English email with buyer in subject line."""
+    email_body = """
+    Hello Flemming,
+    
+    Obi83 has paid for shipment 1252132280.
+    
+    1x Sothera, the Supervoid (Edge of Eternities) - M - English - NM 3,98 EUR
+    1x Lorwyn Eclipsed Play Booster Box (Lorwyn Eclipsed) - English 140,00 EUR
+    """
+    subject = "Shipment 1252132280 for Obi83: Please ship"
+    
+    result = parse_cardmarket_email(email_body, "msg444", subject=subject)
+    
+    # Should extract Obi83 from subject
+    assert result['buyer_name'] == 'Obi83'
+    assert len(result['items']) == 2
+    # Check that card names are properly cleaned
+    assert result['items'][0]['card_name'] == 'Sothera, the Supervoid'
+    assert result['items'][1]['card_name'] == 'Lorwyn Eclipsed Play Booster Box'
+
+
+def test_english_email_body_pattern():
+    """Test parsing English email with buyer extracted from body."""
+    email_body = """
+    Hello Flemming,
+    
+    TestUser83 has paid for shipment 1234567890.
+    
+    Your order:
+    1x Lightning Bolt - R - English - NM 5,00 EUR
+    2x Counterspell - C - English - EX 2,50 EUR
+    """
+    
+    result = parse_cardmarket_email(email_body, "msg555", subject="")
+    
+    # Should extract TestUser83 from body pattern
+    assert result['buyer_name'] == 'TestUser83'
+    assert len(result['items']) == 2
+    assert result['items'][0]['card_name'] == 'Lightning Bolt'
+    assert result['items'][1]['card_name'] == 'Counterspell'
+
+
+def test_clean_card_name_english_format():
+    """Test card name cleaning for English email format with conditions."""
+    # Test English format with rarity, language, and condition
+    assert _clean_card_name("Sothera, the Supervoid (Edge of Eternities) - M - English - NM 3,98 EUR") == "Sothera, the Supervoid"
+    assert _clean_card_name("Lightning Bolt - R - English - NM 5,00 EUR") == "Lightning Bolt"
+    assert _clean_card_name("Lorwyn Eclipsed Play Booster Box (Lorwyn Eclipsed) - English 140,00 EUR") == "Lorwyn Eclipsed Play Booster Box"
+    assert _clean_card_name("Card Name - M - German - EX 1,00 EUR") == "Card Name"
+    assert _clean_card_name("Test Card - C - French - GD 0,50 EUR") == "Test Card"
+
+
 if __name__ == "__main__":
     test_parse_buyer_from_subject()
     test_parse_buyer_from_body_pattern()
@@ -237,4 +290,7 @@ if __name__ == "__main__":
     test_skip_duplicates()
     test_blacklist_cardmarket_team()
     test_extract_buyer_with_signature_present()
+    test_english_email_subject_format()
+    test_english_email_body_pattern()
+    test_clean_card_name_english_format()
     print("All tests passed!")

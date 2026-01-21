@@ -90,8 +90,8 @@ For a detailed walkthrough of the available pages and forms, see [docs/WEB_INTER
 ## Gmail Order Ingestion
 
 The application can automatically import Cardmarket orders from Gmail. This feature:
-- Polls Gmail for "Bitte versenden" emails from Cardmarket
-- Extracts buyer information and card lists
+- Polls Gmail for "Bitte versenden" (German) or "Please ship" (English) emails from Cardmarket
+- Extracts buyer information and card lists from both German and English email formats
 - Displays orders in the "Offene Bestellungen" tab with images and storage locations
 - Operates during 11:00-22:00 with configurable polling
 

@@ -64,9 +64,10 @@ def parse_cardmarket_email(email_body: str, message_id: str, subject: str = '', 
     
     # If not in subject, try body patterns
     if not result['buyer_name']:
-        # Look for patterns like "KohlkopfKlaus hat Bestellung"
+        # Look for patterns like "KohlkopfKlaus hat Bestellung" or "Obi83 has paid for shipment"
         body_patterns = [
             r'([A-Za-z0-9äöüÄÖÜß_\-]+)\s+hat\s+Bestellung',  # "KohlkopfKlaus hat Bestellung"
+            r'([A-Za-z0-9äöüÄÖÜß_\-]+)\s+has\s+paid\s+for\s+shipment',  # "Obi83 has paid for shipment"
             r'[Kk]äufer:\s*([^\n]+)',
             r'[Bb]uyer:\s*([^\n]+)',
             r'[Bb]estellung\s+von:\s*([^\n]+)',
@@ -103,7 +104,7 @@ def parse_cardmarket_email(email_body: str, message_id: str, subject: str = '', 
     item_patterns = [
         r'(\d+)\s*[xX×]\s*([^\n]+)',  # Standard format: 1x Card Name
         r'(\d+)\s+[Ss]tück\s+([^\n]+)',  # German format: 1 Stück Card Name
-        r'([^\n]+)\s*[xX×]\s*(\d+)',  # Reverse: Card Name x1
+        r'^([^\n]*?[A-Za-z][^\n]*?)\s*[xX×]\s*(\d+)\s*$',  # Reverse: Card Name x1 (must contain letter)
     ]
     
     found_items = []
@@ -111,7 +112,7 @@ def parse_cardmarket_email(email_body: str, message_id: str, subject: str = '', 
     for pattern in item_patterns:
         matches = re.finditer(pattern, email_body, re.MULTILINE)
         for match in matches:
-            if pattern == r'([^\n]+)\s*[xX×]\s*(\d+)':
+            if pattern == r'^([^\n]*?[A-Za-z][^\n]*?)\s*[xX×]\s*(\d+)\s*$':
                 # Reversed pattern
                 card_name = match.group(1).strip()
                 qty = match.group(2).strip()
@@ -151,6 +152,8 @@ def _clean_card_name(name: str) -> str:
     Handles formats like:
     - "Airbending Lesson (Magic: The Gathering | Avatar: The Last Airbe... 0,02 EUR)"
     - "Card Name (Set Name | ... 1,50 EUR)"
+    - "Sothera, the Supervoid (Edge of Eternities) - M - English - NM 3,98 EUR"
+    - "Lorwyn Eclipsed Play Booster Box (Lorwyn Eclipsed) - English 140,00 EUR"
     
     Args:
         name: Raw card name
@@ -171,12 +174,36 @@ def _clean_card_name(name: str) -> str:
     # Handle both comma and dot decimals, and optional decimals
     name = re.sub(r'\s*[\d]+(?:[.,][\d]+)?\s*(EUR|€)\s*\)?$', '', name, flags=re.IGNORECASE)
     
+    # Remove English format suffixes: "- <rarity> - <language> - <condition> <price>"
+    # Example: "- M - English - NM 3,98 EUR" or "- R - German - EX 1,00 EUR"
+    name = re.sub(r'\s*-\s*[A-Z]+\s*-\s*(English|German|French|Italian|Spanish|Portuguese|Japanese|Chinese|Korean)\s*-\s*(NM|EX|GD|LP|PL|HP|DMG|M|Near Mint|Excellent|Good|Light Played|Played|Heavily Played|Damaged).*$', '', name, flags=re.IGNORECASE)
+    
+    # Remove language-only suffixes: "- <language>"
+    # Example: "- English" or "- German"
+    name = re.sub(r'\s*-\s*(English|German|French|Italian|Spanish|Portuguese|Japanese|Chinese|Korean)\s*$', '', name, flags=re.IGNORECASE)
+    
     # Remove set/expansion info in parentheses that contains a pipe (|)
     # This handles formats like "(Magic: The Gathering | Avatar: The Last Airbe..." 
     name = re.sub(r'\s*\([^)]*\|.*$', '', name)
     
     # Remove remaining set/expansion info in parentheses that might include ellipsis
     name = re.sub(r'\s*\([^)]*\.{3,}[^)]*$', '', name)
+    
+    # Remove parenthesized set names that are repeated (e.g., "Lorwyn Eclipsed Play Booster Box (Lorwyn Eclipsed)")
+    # Match parentheses that contain words already in the card name
+    # Only filter out very short words (2 chars or less) like 'of', 'in' from matching
+    MIN_WORD_LENGTH_FOR_MATCHING = 3
+    words = name.lower().split()
+    if '(' in name:
+        # Extract parenthetical content
+        paren_match = re.search(r'\s*\(([^)]+)\)\s*$', name)
+        if paren_match:
+            paren_content = paren_match.group(1).lower()
+            # Check if all words in parentheses are already in the card name
+            paren_words = paren_content.split()
+            if all(word in words for word in paren_words if len(word) > MIN_WORD_LENGTH_FOR_MATCHING):
+                # Remove the redundant parenthetical
+                name = re.sub(r'\s*\([^)]+\)\s*$', '', name)
     
     # Remove trailing punctuation that might be from email formatting
     name = re.sub(r'[,;:\.\-]+$', '', name)
