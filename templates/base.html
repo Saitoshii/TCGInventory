@@ -25,11 +25,19 @@
     <nav class="mb-4">
       {% if session.get('user') %}
       <div class="d-flex flex-wrap align-items-start">
+        <!-- Dashboard -->
+        <div class="nav-group">
+          <div class="nav-group-title">Dashboard</div>
+          <div>
+            <a class="btn btn-primary me-2 mb-2" href="{{ url_for('dashboard') }}">Dashboard</a>
+          </div>
+        </div>
+        
         <!-- Inventory Group -->
         <div class="nav-group">
           <div class="nav-group-title">Inventory</div>
           <div>
-            <a class="btn btn-primary me-2 mb-2" href="{{ url_for('list_cards') }}">Cards</a>
+            <a class="btn btn-secondary me-2 mb-2" href="{{ url_for('list_cards') }}">Cards</a>
             <a class="btn btn-secondary me-2 mb-2" href="{{ url_for('list_folders_view') }}">Folders</a>
           </div>
         </div>
@@ -52,10 +60,11 @@
           </div>
         </div>
         
-        <!-- System Group -->
+        <!-- Reports & System Group -->
         <div class="nav-group">
-          <div class="nav-group-title">System</div>
+          <div class="nav-group-title">Reports & System</div>
           <div>
+            <a class="btn btn-secondary me-2 mb-2" href="{{ url_for('audit_log_view') }}">Audit Log</a>
             <a class="btn btn-secondary me-2 mb-2" href="{{ url_for('export_cards') }}">Export</a>
             <a class="btn btn-secondary me-2 mb-2" href="{{ url_for('upload_database') }}">Upload DB</a>
             <a class="btn btn-secondary me-2 mb-2" href="{{ url_for('update_view') }}">Update</a>

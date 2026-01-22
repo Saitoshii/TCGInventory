@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block content %}
+<h2 class="mb-4">Audit Log</h2>
+
+<!-- Filters -->
+<form method="get" class="mb-4">
+  <div class="card">
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-3">
+          <label class="form-label">User</label>
+          <select class="form-select" name="user">
+            <option value="">All Users</option>
+            {% for u in users %}
+            <option value="{{ u }}" {% if user_filter==u %}selected{% endif %}>{{ u }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Action</label>
+          <select class="form-select" name="action">
+            <option value="">All Actions</option>
+            {% for a in actions %}
+            <option value="{{ a }}" {% if action_filter==a %}selected{% endif %}>{{ a }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Items per page</label>
+          <select class="form-select" name="per_page">
+            <option value="25" {% if per_page==25 %}selected{% endif %}>25</option>
+            <option value="50" {% if per_page==50 %}selected{% endif %}>50</option>
+            <option value="100" {% if per_page==100 %}selected{% endif %}>100</option>
+          </select>
+        </div>
+        <div class="col-md-4 d-flex align-items-end">
+          <button type="submit" class="btn btn-primary me-2">Filter</button>
+          <a href="{{ url_for('audit_log_view') }}" class="btn btn-outline-secondary">Clear</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</form>
+
+<!-- Pagination Info -->
+<div class="mb-3">
+  Showing {{ ((page - 1) * per_page + 1) if logs else 0 }} - {{ min(page * per_page, total_logs) }} of {{ total_logs }} entries
+</div>
+
+<!-- Audit Log Table -->
+<div class="table-responsive">
+  <table class="table table-striped table-hover">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Timestamp</th>
+        <th>User</th>
+        <th>Action</th>
+        <th>Card</th>
+        <th>Field</th>
+        <th>Old Value</th>
+        <th>New Value</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for log in logs %}
+      <tr>
+        <td>{{ log[0] }}</td>
+        <td>{{ log[1][:19] }}</td>
+        <td>{{ log[2] }}</td>
+        <td>
+          {% if log[3] == 'sell' %}
+            <span class="badge bg-info">{{ log[3] }}</span>
+          {% elif log[3] == 'update' %}
+            <span class="badge bg-primary">{{ log[3] }}</span>
+          {% elif log[3] == 'auto-archive' %}
+            <span class="badge bg-secondary">{{ log[3] }}</span>
+          {% else %}
+            <span class="badge bg-light text-dark">{{ log[3] }}</span>
+          {% endif %}
+        </td>
+        <td>{{ log[4] if log[4] else '—' }}</td>
+        <td>{{ log[5] if log[5] else '—' }}</td>
+        <td>{{ log[6] if log[6] else '—' }}</td>
+        <td>{{ log[7] if log[7] else '—' }}</td>
+        <td>
+          {% if log[8] %}
+          <a href="{{ url_for('edit_card_view', card_id=log[8]) }}" class="btn btn-sm btn-outline-primary">View Card</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Pagination -->
+<nav aria-label="Page navigation">
+  <ul class="pagination justify-content-center">
+    {% if page > 1 %}
+    <li class="page-item">
+      <a class="page-link" href="?{{ request.query_string.decode()|replace('page=' + page|string, 'page=' + (page - 1)|string) if 'page=' in request.query_string.decode() else request.query_string.decode() + '&page=' + (page - 1)|string }}">
+        Previous
+      </a>
+    </li>
+    {% else %}
+    <li class="page-item disabled"><span class="page-link">Previous</span></li>
+    {% endif %}
+    
+    {% for p in range(1, total_pages + 1) %}
+      {% if p == page %}
+      <li class="page-item active"><span class="page-link">{{ p }}</span></li>
+      {% elif p <= 3 or p > total_pages - 3 or (p >= page - 2 and p <= page + 2) %}
+      <li class="page-item">
+        <a class="page-link" href="?{{ request.query_string.decode()|replace('page=' + page|string, 'page=' + p|string) if 'page=' in request.query_string.decode() else request.query_string.decode() + '&page=' + p|string }}">
+          {{ p }}
+        </a>
+      </li>
+      {% elif p == 4 or p == total_pages - 3 %}
+      <li class="page-item disabled"><span class="page-link">...</span></li>
+      {% endif %}
+    {% endfor %}
+    
+    {% if page < total_pages %}
+    <li class="page-item">
+      <a class="page-link" href="?{{ request.query_string.decode()|replace('page=' + page|string, 'page=' + (page + 1)|string) if 'page=' in request.query_string.decode() else request.query_string.decode() + '&page=' + (page + 1)|string }}">
+        Next
+      </a>
+    </li>
+    {% else %}
+    <li class="page-item disabled"><span class="page-link">Next</span></li>
+    {% endif %}
+  </ul>
+</nav>
+
+{% endblock %}

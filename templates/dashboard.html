@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+{% block content %}
+<h2 class="mb-4">Dashboard</h2>
+
+<!-- Summary Cards -->
+<div class="row mb-4">
+  <div class="col-md-3">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title">Total Items</h5>
+        <h2 class="mb-0">{{ total_items }}</h2>
+        <small class="text-muted">Unique cards</small>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title">Total Quantity</h5>
+        <h2 class="mb-0">{{ total_qty }}</h2>
+        <small class="text-muted">All copies</small>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title">Total Value</h5>
+        <h2 class="mb-0">€{{ "%.2f"|format(total_value) }}</h2>
+        <small class="text-muted">Estimated worth</small>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title">Missing Images</h5>
+        <h2 class="mb-0">{{ missing_images }}</h2>
+        <small class="text-muted">Cards without images</small>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Charts Row -->
+<div class="row mb-4">
+  <!-- Inventory by Folder -->
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header">
+        <h5 class="mb-0">Top Folders by Item Count</h5>
+      </div>
+      <div class="card-body">
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              <th>Folder</th>
+              <th>Items</th>
+              <th>Qty</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in by_folder %}
+            <tr>
+              <td>{{ row[0] }}</td>
+              <td>{{ row[1] }}</td>
+              <td>{{ row[2] }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Inventory by Set -->
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header">
+        <h5 class="mb-0">Top Sets by Item Count</h5>
+      </div>
+      <div class="card-body">
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              <th>Set</th>
+              <th>Items</th>
+              <th>Qty</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in by_set %}
+            <tr>
+              <td>{{ row[0] }}</td>
+              <td>{{ row[1] }}</td>
+              <td>{{ row[2] }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row mb-4">
+  <!-- Inventory by Type -->
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header">
+        <h5 class="mb-0">Inventory by Type</h5>
+      </div>
+      <div class="card-body">
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Items</th>
+              <th>Qty</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in by_type %}
+            <tr>
+              <td>{{ row[0]|title }}</td>
+              <td>{{ row[1] }}</td>
+              <td>{{ row[2] }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Inventory by Status -->
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header">
+        <h5 class="mb-0">Inventory by Status</h5>
+      </div>
+      <div class="card-body">
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Items</th>
+              <th>Qty</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in by_status %}
+            <tr>
+              <td>
+                {% if row[0] == 'verfügbar' %}
+                  <span class="badge bg-success">Verfügbar</span>
+                {% elif row[0] == 'reserviert' %}
+                  <span class="badge bg-warning text-dark">Reserviert</span>
+                {% elif row[0] == 'verkauft' %}
+                  <span class="badge bg-info text-dark">Verkauft</span>
+                {% elif row[0] == 'archiviert' %}
+                  <span class="badge bg-secondary">Archiviert</span>
+                {% else %}
+                  {{ row[0] }}
+                {% endif %}
+              </td>
+              <td>{{ row[1] }}</td>
+              <td>{{ row[2] }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Low Stock Alert -->
+{% if low_stock %}
+<div class="card mb-4">
+  <div class="card-header bg-warning">
+    <h5 class="mb-0">Low Stock Alert (Qty ≤ 1)</h5>
+  </div>
+  <div class="card-body">
+    <table class="table table-sm">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Set</th>
+          <th>Qty</th>
+          <th>Price</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in low_stock %}
+        <tr>
+          <td>{{ row[1] }}</td>
+          <td>{{ row[2] }}</td>
+          <td><span class="badge bg-warning text-dark">{{ row[3] }}</span></td>
+          <td>€{{ "%.2f"|format(row[4]) }}</td>
+          <td>
+            <a href="{{ url_for('edit_card_view', card_id=row[0]) }}" class="btn btn-sm btn-outline-primary">Edit</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- Recent Activity -->
+<div class="card">
+  <div class="card-header">
+    <h5 class="mb-0">Recent Activity</h5>
+  </div>
+  <div class="card-body">
+    <table class="table table-sm">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>User</th>
+          <th>Action</th>
+          <th>Card</th>
+          <th>Field</th>
+          <th>Change</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in recent_activity %}
+        <tr>
+          <td><small>{{ row[0][:19] }}</small></td>
+          <td>{{ row[1] }}</td>
+          <td><span class="badge bg-secondary">{{ row[2] }}</span></td>
+          <td>{{ row[3] if row[3] else '—' }}</td>
+          <td>{{ row[4] if row[4] else '—' }}</td>
+          <td>
+            {% if row[5] and row[6] %}
+            <small>{{ row[5] }} → {{ row[6] }}</small>
+            {% else %}
+            —
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="text-end">
+      <a href="{{ url_for('audit_log_view') }}" class="btn btn-sm btn-outline-primary">View Full Audit Log</a>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

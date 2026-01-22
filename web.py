@@ -231,7 +231,105 @@ def lookup_api():
 @app.route("/")
 @login_required
 def index():
-    return redirect(url_for("list_cards"))
+    return redirect(url_for("dashboard"))
+
+
+@app.route("/dashboard")
+@login_required
+def dashboard():
+    """Display dashboard with inventory statistics."""
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        
+        # Total cards and value
+        c.execute("SELECT COUNT(*), SUM(quantity), SUM(price * quantity) FROM cards WHERE status != 'archiviert'")
+        total_items, total_qty, total_value = c.fetchone()
+        total_items = total_items or 0
+        total_qty = total_qty or 0
+        total_value = total_value or 0
+        
+        # Inventory by folder
+        c.execute("""
+            SELECT COALESCE(folders.name, 'No Folder'), COUNT(*), SUM(cards.quantity)
+            FROM cards 
+            LEFT JOIN folders ON cards.folder_id = folders.id
+            WHERE cards.status != 'archiviert'
+            GROUP BY folders.name
+            ORDER BY COUNT(*) DESC
+            LIMIT 10
+        """)
+        by_folder = c.fetchall()
+        
+        # Inventory by set
+        c.execute("""
+            SELECT set_code, COUNT(*), SUM(quantity)
+            FROM cards
+            WHERE status != 'archiviert'
+            GROUP BY set_code
+            ORDER BY COUNT(*) DESC
+            LIMIT 10
+        """)
+        by_set = c.fetchall()
+        
+        # Inventory by type
+        c.execute("""
+            SELECT item_type, COUNT(*), SUM(quantity)
+            FROM cards
+            WHERE status != 'archiviert'
+            GROUP BY item_type
+        """)
+        by_type = c.fetchall()
+        
+        # Inventory by status
+        c.execute("""
+            SELECT status, COUNT(*), SUM(quantity)
+            FROM cards
+            GROUP BY status
+        """)
+        by_status = c.fetchall()
+        
+        # Low stock alerts (qty <= 1)
+        c.execute("""
+            SELECT id, name, set_code, quantity, price
+            FROM cards
+            WHERE quantity <= 1 AND status = 'verfügbar'
+            ORDER BY quantity ASC, name ASC
+            LIMIT 20
+        """)
+        low_stock = c.fetchall()
+        
+        # Missing images
+        c.execute("""
+            SELECT COUNT(*)
+            FROM cards
+            WHERE (image_url IS NULL OR image_url = '') AND status != 'archiviert'
+        """)
+        missing_images = c.fetchone()[0]
+        
+        # Recent activity from audit log (last 20 entries)
+        c.execute("""
+            SELECT audit_log.timestamp, audit_log.user, audit_log.action, 
+                   cards.name, audit_log.field_name, audit_log.old_value, audit_log.new_value
+            FROM audit_log
+            LEFT JOIN cards ON audit_log.card_id = cards.id
+            ORDER BY audit_log.timestamp DESC
+            LIMIT 20
+        """)
+        recent_activity = c.fetchall()
+    
+    return render_template(
+        "dashboard.html",
+        total_items=total_items,
+        total_qty=total_qty,
+        total_value=total_value,
+        by_folder=by_folder,
+        by_set=by_set,
+        by_type=by_type,
+        by_status=by_status,
+        low_stock=low_stock,
+        missing_images=missing_images,
+        recent_activity=recent_activity
+    )
 
 
 @app.route("/cards")
@@ -1064,6 +1162,78 @@ def update_view():
     success, message = update_repo()
     flash(message, "error" if not success else None)
     return redirect(url_for("index"))
+
+
+@app.route("/audit-log")
+@login_required
+def audit_log_view():
+    """Display the full audit log with filtering."""
+    page = int(request.args.get("page", 1))
+    per_page = int(request.args.get("per_page", 50))
+    action_filter = request.args.get("action")
+    user_filter = request.args.get("user")
+    
+    offset = (page - 1) * per_page
+    
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        
+        query = """
+            SELECT audit_log.id, audit_log.timestamp, audit_log.user, audit_log.action,
+                   cards.name, audit_log.field_name, audit_log.old_value, audit_log.new_value,
+                   audit_log.card_id
+            FROM audit_log
+            LEFT JOIN cards ON audit_log.card_id = cards.id
+        """
+        
+        conditions = []
+        params = []
+        
+        if action_filter:
+            conditions.append("audit_log.action = ?")
+            params.append(action_filter)
+        
+        if user_filter:
+            conditions.append("audit_log.user = ?")
+            params.append(user_filter)
+        
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        
+        query += " ORDER BY audit_log.timestamp DESC LIMIT ? OFFSET ?"
+        params.extend([per_page, offset])
+        
+        c.execute(query, tuple(params))
+        logs = c.fetchall()
+        
+        # Get total count
+        count_query = "SELECT COUNT(*) FROM audit_log"
+        if conditions:
+            count_query += " WHERE " + " AND ".join(conditions)
+        c.execute(count_query, tuple(params[:-2]) if conditions else ())
+        total_logs = c.fetchone()[0]
+        
+        # Get distinct users and actions for filters
+        c.execute("SELECT DISTINCT user FROM audit_log ORDER BY user")
+        users = [row[0] for row in c.fetchall()]
+        
+        c.execute("SELECT DISTINCT action FROM audit_log ORDER BY action")
+        actions = [row[0] for row in c.fetchall()]
+    
+    total_pages = (total_logs + per_page - 1) // per_page
+    
+    return render_template(
+        "audit_log.html",
+        logs=logs,
+        page=page,
+        per_page=per_page,
+        total_pages=total_pages,
+        total_logs=total_logs,
+        users=users,
+        actions=actions,
+        action_filter=action_filter,
+        user_filter=user_filter
+    )
 
 
 @app.route("/upload_database", methods=["GET", "POST"])
