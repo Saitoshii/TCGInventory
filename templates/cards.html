@@ -259,8 +259,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
   bulkExportBtn.addEventListener('click', function() {
     const selectedIds = Array.from(document.querySelectorAll('.card-checkbox:checked')).map(cb => cb.dataset.id);
-    // Implement bulk export logic here
-    alert('Bulk export not yet implemented. Selected IDs: ' + selectedIds.join(', '));
+    if (selectedIds.length === 0) return;
+    
+    // Redirect to export with selected IDs as query parameter
+    // For now, just export all with current filters - bulk selection feature pending implementation
+    window.location.href = '{{ url_for("export_cards") }}' + window.location.search;
   });
 
   // Handle image modal

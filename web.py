@@ -375,10 +375,49 @@ def list_cards():
         offset
     )
     
-    # Get total count for pagination
+    # Get total count for pagination with same filters
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
-        c.execute("SELECT COUNT(*) FROM cards")
+        query = "SELECT COUNT(*) FROM cards LEFT JOIN folders ON cards.folder_id = folders.id"
+        conditions = []
+        params: list[str | int | float] = []
+        
+        if search:
+            like = f"%{search}%"
+            conditions.append("(cards.name LIKE ? OR cards.set_code LIKE ? OR cards.collector_number LIKE ?)")
+            params.extend([like, like, like])
+        if fid is not None:
+            conditions.append("cards.folder_id = ?")
+            params.append(fid)
+        if status:
+            conditions.append("cards.status = ?")
+            params.append(status)
+        if language:
+            conditions.append("cards.language = ?")
+            params.append(language)
+        if condition:
+            conditions.append("cards.condition = ?")
+            params.append(condition)
+        if item_type:
+            conditions.append("cards.item_type = ?")
+            params.append(item_type)
+        if min_p is not None:
+            conditions.append("cards.price >= ?")
+            params.append(min_p)
+        if max_p is not None:
+            conditions.append("cards.price <= ?")
+            params.append(max_p)
+        if min_q is not None:
+            conditions.append("cards.quantity >= ?")
+            params.append(min_q)
+        if max_q is not None:
+            conditions.append("cards.quantity <= ?")
+            params.append(max_q)
+            
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        
+        c.execute(query, tuple(params))
         total_cards = c.fetchone()[0]
     
     total_pages = (total_cards + per_page - 1) // per_page
@@ -449,8 +488,11 @@ def export_cards():
         ]
     )
     for row in rows:
+        # Row indices: 0=id, 1=name, 2=set_code, 3=language, 4=condition, 5=price, 
+        # 6=quantity, 7=storage_code, 8=folder, 9=status, 10=image_url, 11=foil,
+        # 12=collector_number, 13=item_type, 14=location_hint
         writer.writerow([
-            row[12],  # collector_number
+            row[12] if len(row) > 12 else '',  # collector_number
             row[1],   # name
             row[2],   # set_code
             row[3],   # language
