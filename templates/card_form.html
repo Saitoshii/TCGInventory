@@ -2,6 +2,14 @@
 {% block content %}
 <h2 class="mb-4">{{ 'Edit' if card else 'Add' }} Card</h2>
 <form method="post">
+  <div class="mb-3">
+    <label class="form-label">Item Type</label>
+    <select class="form-select" name="item_type" id="item-type-select">
+      {% set type = card[14] if card else 'card' %}
+      <option value="card" {% if type=='card' %}selected{% endif %}>Card</option>
+      <option value="display" {% if type=='display' %}selected{% endif %}>Display Item</option>
+    </select>
+  </div>
   <div class="mb-3 position-relative">
     <label class="form-label">Name</label>
     <input id="name-input" class="form-control" autocomplete="off" name="name" value="{{ card[1] if card else '' }}" required>
@@ -10,12 +18,19 @@
   <img id="preview-image" class="img-thumbnail mb-3{% if not card or not card[12] %} d-none{% endif %}" style="max-width:200px;" src="{{ card[12] if card else '' }}">
   <div class="mb-3">
     <label class="form-label">Language</label>
-    <input class="form-control" name="language" value="{{ card[3] if card else '' }}">
+    <select class="form-select" name="language">
+      {% set lang = card[3] if card else '' %}
+      <option value="">-- none --</option>
+      {% for l in ['de', 'en', 'fr', 'it', 'es', 'ja'] %}
+      <option value="{{ l }}" {% if lang==l %}selected{% endif %}>{{ l.upper() }}</option>
+      {% endfor %}
+    </select>
   </div>
   <div class="mb-3">
     <label class="form-label">Condition</label>
     <select class="form-select" name="condition">
       {% set cond = card[4] if card else '' %}
+      <option value="">-- none --</option>
       {% for c in ['MT', 'NM', 'EX', 'GD', 'LP', 'PL', 'PO'] %}
       <option value="{{ c }}" {% if cond==c %}selected{% endif %}>{{ c }}</option>
       {% endfor %}
@@ -33,8 +48,8 @@
     <input class="form-check-input" type="checkbox" name="foil" id="foil-check" {% if card and card[13] %}checked{% endif %}>
     <label class="form-check-label" for="foil-check">Foil</label>
   </div>
-  <div class="mb-3">
-    <label class="form-label">Storage Code (optional)</label>
+  <div class="mb-3" id="storage-section">
+    <label class="form-label">Storage Code <span id="storage-required-label">(required for cards)</span></label>
     <div class="row g-2">
       <div class="col-auto">
         <input class="form-control" name="folder_part" readonly value="{{ folder_part }}" placeholder="Ordner">
@@ -46,6 +61,10 @@
         <input class="form-control" name="slot" value="{{ slot }}" placeholder="Platz" min="1" max="9">
       </div>
     </div>
+  </div>
+  <div class="mb-3 d-none" id="location-hint-section">
+    <label class="form-label">Location Hint (optional for displays)</label>
+    <input class="form-control" name="location_hint" value="{{ card[15] if card else '' }}" placeholder="e.g., Shelf A, Box 3">
   </div>
   <div class="mb-3">
     <label class="form-label">Cardmarket ID</label>
@@ -90,7 +109,28 @@ document.addEventListener('DOMContentLoaded', function() {
   const numberInput = document.getElementById('collector-number-input');
   const numberList = document.getElementById('collector-number-list');
   const numberSelect = document.getElementById('collector-number-select');
+  const itemTypeSelect = document.getElementById('item-type-select');
+  const storageSection = document.getElementById('storage-section');
+  const locationHintSection = document.getElementById('location-hint-section');
+  const storageRequiredLabel = document.getElementById('storage-required-label');
   let timeout = null;
+
+  // Toggle storage/location hint based on item type
+  function updateItemTypeVisibility() {
+    const isCard = itemTypeSelect.value === 'card';
+    if (isCard) {
+      storageSection.classList.remove('d-none');
+      locationHintSection.classList.add('d-none');
+      storageRequiredLabel.textContent = '(required for cards)';
+    } else {
+      storageSection.classList.remove('d-none');
+      locationHintSection.classList.remove('d-none');
+      storageRequiredLabel.textContent = '(optional for displays)';
+    }
+  }
+  
+  itemTypeSelect.addEventListener('change', updateItemTypeVisibility);
+  updateItemTypeVisibility();
 
   nameInput.addEventListener('input', function() {
     clearTimeout(timeout);
@@ -194,7 +234,12 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   function fillFields(info) {
-    document.querySelector('input[name=language]').value = info.language || '';
+    const langSelect = document.querySelector('select[name=language]');
+    if (langSelect && info.language) {
+      for (const opt of langSelect.options) {
+        if (opt.value === info.language) { opt.selected = true; break; }
+      }
+    }
     document.querySelector('input[name=cardmarket_id]').value = info.cardmarket_id || '';
     document.querySelector('input[name=collector_number]').value = info.collector_number || '';
     if (numberSelect) {

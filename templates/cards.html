@@ -1,35 +1,204 @@
 {% extends "base.html" %}
 {% block content %}
 <h2 class="mb-4">All Cards</h2>
-<form method="get" class="mb-3 position-relative" id="search-form">
-  <div class="input-group">
-    <input id="search-input" class="form-control" autocomplete="off" type="text" name="q" placeholder="Search" value="{{ search }}">
-    <button class="btn btn-outline-secondary" type="submit">Search</button>
+
+<!-- Filter Bar -->
+<form method="get" id="filter-form" class="mb-4">
+  <div class="card">
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-3">
+          <label class="form-label">Search</label>
+          <input id="search-input" class="form-control" autocomplete="off" type="text" name="q" placeholder="Name, Set, Number..." value="{{ search }}">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Status</label>
+          <select class="form-select" name="status">
+            <option value="">All</option>
+            <option value="verfügbar" {% if status=='verfügbar' %}selected{% endif %}>Verfügbar</option>
+            <option value="reserviert" {% if status=='reserviert' %}selected{% endif %}>Reserviert</option>
+            <option value="verkauft" {% if status=='verkauft' %}selected{% endif %}>Verkauft</option>
+            <option value="archiviert" {% if status=='archiviert' %}selected{% endif %}>Archiviert</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Language</label>
+          <select class="form-select" name="language">
+            <option value="">All</option>
+            <option value="de" {% if language=='de' %}selected{% endif %}>DE</option>
+            <option value="en" {% if language=='en' %}selected{% endif %}>EN</option>
+            <option value="fr" {% if language=='fr' %}selected{% endif %}>FR</option>
+            <option value="it" {% if language=='it' %}selected{% endif %}>IT</option>
+            <option value="es" {% if language=='es' %}selected{% endif %}>ES</option>
+            <option value="ja" {% if language=='ja' %}selected{% endif %}>JA</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Condition</label>
+          <select class="form-select" name="condition">
+            <option value="">All</option>
+            <option value="MT" {% if condition=='MT' %}selected{% endif %}>MT</option>
+            <option value="NM" {% if condition=='NM' %}selected{% endif %}>NM</option>
+            <option value="EX" {% if condition=='EX' %}selected{% endif %}>EX</option>
+            <option value="GD" {% if condition=='GD' %}selected{% endif %}>GD</option>
+            <option value="LP" {% if condition=='LP' %}selected{% endif %}>LP</option>
+            <option value="PL" {% if condition=='PL' %}selected{% endif %}>PL</option>
+            <option value="PO" {% if condition=='PO' %}selected{% endif %}>PO</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Type</label>
+          <select class="form-select" name="item_type">
+            <option value="">All</option>
+            <option value="card" {% if item_type=='card' %}selected{% endif %}>Card</option>
+            <option value="display" {% if item_type=='display' %}selected{% endif %}>Display</option>
+          </select>
+        </div>
+      </div>
+      <div class="row g-3 mt-2">
+        <div class="col-md-2">
+          <label class="form-label">Min Price</label>
+          <input type="number" step="0.01" class="form-control" name="min_price" value="{{ min_price }}">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Max Price</label>
+          <input type="number" step="0.01" class="form-control" name="max_price" value="{{ max_price }}">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Min Qty</label>
+          <input type="number" class="form-control" name="min_qty" value="{{ min_qty }}">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Max Qty</label>
+          <input type="number" class="form-control" name="max_qty" value="{{ max_qty }}">
+        </div>
+        <div class="col-md-4 d-flex align-items-end">
+          <button type="submit" class="btn btn-primary me-2">Filter</button>
+          <a href="{{ url_for('list_cards') }}" class="btn btn-outline-secondary">Clear</a>
+        </div>
+      </div>
+    </div>
   </div>
-  <div id="search-suggestions" class="dropdown-menu w-100"></div>
 </form>
-<table class="table table-striped">
-<tr><th>Number</th><th>Image</th><th>Name</th><th>Set</th><th>Lang</th><th>Condition</th><th>Price</th><th>Qty</th><th>Storage</th><th>Folder</th><th>Status</th><th>Actions</th></tr>
+
+<!-- Bulk Actions -->
+<div class="mb-3">
+  <button type="button" class="btn btn-sm btn-outline-primary" id="select-all-btn">Select All</button>
+  <button type="button" class="btn btn-sm btn-outline-secondary" id="deselect-all-btn">Deselect All</button>
+  <button type="button" class="btn btn-sm btn-outline-info" id="bulk-export-btn" disabled>Export Selected</button>
+  <span class="ms-3 text-muted" id="selected-count">0 selected</span>
+</div>
+
+<!-- Pagination Controls (Top) -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <label class="form-label me-2">Items per page:</label>
+    <select class="form-select d-inline-block w-auto" id="per-page-select">
+      <option value="10" {% if per_page==10 %}selected{% endif %}>10</option>
+      <option value="30" {% if per_page==30 %}selected{% endif %}>30</option>
+      <option value="50" {% if per_page==50 %}selected{% endif %}>50</option>
+      <option value="100" {% if per_page==100 %}selected{% endif %}>100</option>
+    </select>
+  </div>
+  <div>
+    Showing {{ ((page - 1) * per_page + 1) if cards else 0 }} - {{ min(page * per_page, total_cards) }} of {{ total_cards }}
+  </div>
+</div>
+
+<!-- Cards Table -->
+<div class="table-responsive">
+<table class="table table-striped table-hover">
+<thead>
+<tr>
+  <th><input type="checkbox" id="select-all-checkbox"></th>
+  <th><a href="?{{ request.query_string.decode()|replace('sort_by=id', 'sort_by=id')|replace('sort_order=ASC', 'sort_order=DESC') if sort_by=='id' and sort_order=='ASC' else request.query_string.decode() + '&sort_by=id&sort_order=ASC' }}">Number</a></th>
+  <th>Image</th>
+  <th><a href="?{{ request.query_string.decode()|replace('sort_by=name', 'sort_by=name')|replace('sort_order=ASC', 'sort_order=DESC') if sort_by=='name' and sort_order=='ASC' else request.query_string.decode() + '&sort_by=name&sort_order=ASC' }}">Name</a></th>
+  <th><a href="?{{ request.query_string.decode()|replace('sort_by=set_code', 'sort_by=set_code')|replace('sort_order=ASC', 'sort_order=DESC') if sort_by=='set_code' and sort_order=='ASC' else request.query_string.decode() + '&sort_by=set_code&sort_order=ASC' }}">Set</a></th>
+  <th><a href="?{{ request.query_string.decode()|replace('sort_by=language', 'sort_by=language')|replace('sort_order=ASC', 'sort_order=DESC') if sort_by=='language' and sort_order=='ASC' else request.query_string.decode() + '&sort_by=language&sort_order=ASC' }}">Lang</a></th>
+  <th><a href="?{{ request.query_string.decode()|replace('sort_by=condition', 'sort_by=condition')|replace('sort_order=ASC', 'sort_order=DESC') if sort_by=='condition' and sort_order=='ASC' else request.query_string.decode() + '&sort_by=condition&sort_order=ASC' }}">Condition</a></th>
+  <th><a href="?{{ request.query_string.decode()|replace('sort_by=price', 'sort_by=price')|replace('sort_order=ASC', 'sort_order=DESC') if sort_by=='price' and sort_order=='ASC' else request.query_string.decode() + '&sort_by=price&sort_order=ASC' }}">Price</a></th>
+  <th><a href="?{{ request.query_string.decode()|replace('sort_by=quantity', 'sort_by=quantity')|replace('sort_order=ASC', 'sort_order=DESC') if sort_by=='quantity' and sort_order=='ASC' else request.query_string.decode() + '&sort_by=quantity&sort_order=ASC' }}">Qty</a></th>
+  <th>Storage/Location</th>
+  <th>Folder</th>
+  <th><a href="?{{ request.query_string.decode()|replace('sort_by=status', 'sort_by=status')|replace('sort_order=ASC', 'sort_order=DESC') if sort_by=='status' and sort_order=='ASC' else request.query_string.decode() + '&sort_by=status&sort_order=ASC' }}">Status</a></th>
+  <th>Type</th>
+  <th>Actions</th>
+</tr>
+</thead>
+<tbody>
 {% for c in cards %}
 <tr data-card-id="{{ c[0] }}">
-<td>{{ c[12] }}</td>
-<td>{% if c[10] %}<img src="{{ c[10] }}" style="max-height:80px;" class="img-thumbnail clickable-image" data-bs-toggle="modal" data-bs-target="#imgModal" data-img="{{ c[10] }}">{% endif %}</td>
-<td>{{ c[1] }}{% if c[11] %} <span title="Foil">★</span>{% endif %}</td>
-<td>{{ c[2] }}</td>
-<td>{{ c[3] }}</td>
-<td>{{ c[4] }}</td>
-<td>{{ c[5] }}</td>
-<td class="qty-cell">{{ c[6] }}</td>
-<td>{{ c[7] }}</td>
-<td>{{ c[8] }}</td>
-<td>{{ c[9] }}</td>
-<td>
-  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('edit_card_view', card_id=c[0]) }}">Edit</a>
-  <button type="button" class="btn btn-sm btn-outline-danger sell-btn" data-id="{{ c[0] }}">Verkauft</button>
-</td>
+  <td><input type="checkbox" class="card-checkbox" data-id="{{ c[0] }}"></td>
+  <td>{{ c[12] }}</td>
+  <td class="position-relative">
+    {% if c[10] %}
+    <img src="{{ c[10] }}" style="max-height:60px;" class="img-thumbnail clickable-image hover-preview" data-bs-toggle="modal" data-bs-target="#imgModal" data-img="{{ c[10] }}">
+    {% else %}
+    <span class="badge bg-warning text-dark">No Image</span>
+    {% endif %}
+  </td>
+  <td>{{ c[1] }}{% if c[11] %} <span title="Foil" class="text-warning">★</span>{% endif %}</td>
+  <td>{{ c[2] }}</td>
+  <td>{{ c[3]|upper if c[3] else '—' }}</td>
+  <td>{{ c[4] if c[4] else '—' }}</td>
+  <td>€{{ "%.2f"|format(c[5]) if c[5] else '0.00' }}</td>
+  <td class="qty-cell">{{ c[6] }}</td>
+  <td>{{ c[7] if c[7] else (c[14] if c[14] else '—') }}</td>
+  <td>{{ c[8] if c[8] else '—' }}</td>
+  <td>
+    {% set status = c[9] %}
+    {% if status == 'verfügbar' %}
+      <span class="badge bg-success">Verfügbar</span>
+    {% elif status == 'reserviert' %}
+      <span class="badge bg-warning text-dark">Reserviert</span>
+    {% elif status == 'verkauft' %}
+      <span class="badge bg-info text-dark">Verkauft</span>
+    {% elif status == 'archiviert' %}
+      <span class="badge bg-secondary">Archiviert</span>
+    {% else %}
+      <span class="badge bg-light text-dark">{{ status }}</span>
+    {% endif %}
+  </td>
+  <td>{{ c[13] if c[13] else 'card' }}</td>
+  <td>
+    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('edit_card_view', card_id=c[0]) }}">Edit</a>
+    <button type="button" class="btn btn-sm btn-danger sell-btn" data-id="{{ c[0] }}">Verkauft</button>
+  </td>
 </tr>
 {% endfor %}
+</tbody>
 </table>
+</div>
+
+<!-- Pagination Controls (Bottom) -->
+<nav aria-label="Page navigation">
+  <ul class="pagination justify-content-center">
+    {% if page > 1 %}
+    <li class="page-item"><a class="page-link" href="?{{ request.query_string.decode()|replace('page=' + page|string, 'page=' + (page - 1)|string) if 'page=' in request.query_string.decode() else request.query_string.decode() + '&page=' + (page - 1)|string }}">Previous</a></li>
+    {% else %}
+    <li class="page-item disabled"><span class="page-link">Previous</span></li>
+    {% endif %}
+    
+    {% for p in range(1, total_pages + 1) %}
+      {% if p == page %}
+      <li class="page-item active"><span class="page-link">{{ p }}</span></li>
+      {% elif p <= 3 or p > total_pages - 3 or (p >= page - 2 and p <= page + 2) %}
+      <li class="page-item"><a class="page-link" href="?{{ request.query_string.decode()|replace('page=' + page|string, 'page=' + p|string) if 'page=' in request.query_string.decode() else request.query_string.decode() + '&page=' + p|string }}">{{ p }}</a></li>
+      {% elif p == 4 or p == total_pages - 3 %}
+      <li class="page-item disabled"><span class="page-link">...</span></li>
+      {% endif %}
+    {% endfor %}
+    
+    {% if page < total_pages %}
+    <li class="page-item"><a class="page-link" href="?{{ request.query_string.decode()|replace('page=' + page|string, 'page=' + (page + 1)|string) if 'page=' in request.query_string.decode() else request.query_string.decode() + '&page=' + (page + 1)|string }}">Next</a></li>
+    {% else %}
+    <li class="page-item disabled"><span class="page-link">Next</span></li>
+    {% endif %}
+  </ul>
+</nav>
+
+<!-- Image Modal -->
 <div class="modal fade" id="imgModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content bg-dark">
@@ -39,47 +208,63 @@
     </div>
   </div>
 </div>
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-  const input = document.getElementById('search-input');
-  const list = document.getElementById('search-suggestions');
   const modalImg = document.getElementById('modal-img');
   const modal = new bootstrap.Modal(document.getElementById('imgModal'));
-  let timeout = null;
+  const selectAllCheckbox = document.getElementById('select-all-checkbox');
+  const cardCheckboxes = document.querySelectorAll('.card-checkbox');
+  const selectAllBtn = document.getElementById('select-all-btn');
+  const deselectAllBtn = document.getElementById('deselect-all-btn');
+  const bulkExportBtn = document.getElementById('bulk-export-btn');
+  const selectedCountSpan = document.getElementById('selected-count');
+  const perPageSelect = document.getElementById('per-page-select');
 
-  input.addEventListener('input', function() {
-    clearTimeout(timeout);
-    const query = this.value.trim();
-    if (query.length < 2) {
-      list.classList.remove('show');
-      return;
-    }
-    timeout = setTimeout(function() {
-      fetch(`/api/autocomplete?q=${encodeURIComponent(query)}`)
-        .then(resp => resp.json())
-        .then(data => {
-          list.innerHTML = '';
-          data.forEach(name => {
-            const item = document.createElement('button');
-            item.type = 'button';
-            item.className = 'dropdown-item';
-            item.textContent = name;
-            item.addEventListener('click', () => {
-              input.value = name;
-              list.classList.remove('show');
-            });
-            list.appendChild(item);
-          });
-          if (data.length) list.classList.add('show');
-          else list.classList.remove('show');
-        });
-    }, 300);
+  // Handle per-page change
+  perPageSelect.addEventListener('change', function() {
+    const url = new URL(window.location);
+    url.searchParams.set('per_page', this.value);
+    url.searchParams.set('page', '1');
+    window.location = url;
   });
 
+  // Handle checkbox selection
+  function updateSelectedCount() {
+    const selected = document.querySelectorAll('.card-checkbox:checked').length;
+    selectedCountSpan.textContent = `${selected} selected`;
+    bulkExportBtn.disabled = selected === 0;
+  }
+
+  selectAllCheckbox.addEventListener('change', function() {
+    cardCheckboxes.forEach(cb => cb.checked = this.checked);
+    updateSelectedCount();
+  });
+
+  cardCheckboxes.forEach(cb => {
+    cb.addEventListener('change', updateSelectedCount);
+  });
+
+  selectAllBtn.addEventListener('click', function() {
+    cardCheckboxes.forEach(cb => cb.checked = true);
+    selectAllCheckbox.checked = true;
+    updateSelectedCount();
+  });
+
+  deselectAllBtn.addEventListener('click', function() {
+    cardCheckboxes.forEach(cb => cb.checked = false);
+    selectAllCheckbox.checked = false;
+    updateSelectedCount();
+  });
+
+  bulkExportBtn.addEventListener('click', function() {
+    const selectedIds = Array.from(document.querySelectorAll('.card-checkbox:checked')).map(cb => cb.dataset.id);
+    // Implement bulk export logic here
+    alert('Bulk export not yet implemented. Selected IDs: ' + selectedIds.join(', '));
+  });
+
+  // Handle image modal
   document.addEventListener('click', (e) => {
-    if (!input.contains(e.target) && !list.contains(e.target)) {
-      list.classList.remove('show');
-    }
     if (e.target.classList.contains('clickable-image')) {
       const src = e.target.getAttribute('data-img');
       if (src) {
@@ -89,13 +274,14 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
 
+  // Handle sell button
   document.querySelectorAll('.sell-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const id = btn.getAttribute('data-id');
       fetch(`/cards/${id}/sell`, { method: 'POST' })
         .then(r => r.json())
         .then(data => {
-          if (data.removed) {
+          if (data.archived) {
             window.location.reload();
           } else {
             const row = btn.closest('tr');
@@ -109,4 +295,15 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 });
 </script>
+
+<style>
+.hover-preview {
+  transition: transform 0.2s;
+}
+.hover-preview:hover {
+  transform: scale(1.2);
+  z-index: 100;
+  position: relative;
+}
+</style>
 {% endblock %}

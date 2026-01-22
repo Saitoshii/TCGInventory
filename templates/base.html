@@ -6,28 +6,67 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
     .clickable-image { cursor: pointer; }
+    .nav-group { margin-right: 1rem; }
+    .nav-group-title { font-size: 0.8rem; text-transform: uppercase; color: #6c757d; margin-bottom: 0.25rem; }
   </style>
 </head>
 <body class="bg-light">
-  <div class="container py-4">
-    <h1 class="mb-4">TCG Inventory</h1>
+  <div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h1>TCG Inventory</h1>
+      {% if session.get('user') %}
+      <div class="ms-auto">
+        <span class="text-muted me-3">{{ session.get('user') }}</span>
+        <a class="btn btn-outline-danger btn-sm" href="{{ url_for('logout') }}">Logout</a>
+      </div>
+      {% endif %}
+    </div>
+    
     <nav class="mb-4">
       {% if session.get('user') %}
-      <a class="btn btn-primary me-2" href="{{ url_for('list_cards') }}">Cards</a>
-      <a class="btn btn-secondary me-2" href="{{ url_for('add_card_view') }}">Add Card</a>
-      <a class="btn btn-secondary me-2" href="{{ url_for('bulk_add_view') }}">Bulk Add</a>
-      <a class="btn btn-secondary me-2" href="{{ url_for('upload_queue_view') }}">Upload Queue</a>
-      <a class="btn btn-secondary me-2" href="{{ url_for('list_folders_view') }}">Folders</a>
-      <a class="btn btn-secondary me-2" href="{{ url_for('list_orders') }}">Offene Bestellungen</a>
-      <a class="btn btn-secondary me-2" href="{{ url_for('upload_database') }}">Upload DB</a>
-      <a class="btn btn-secondary me-2" href="{{ url_for('update_view') }}">Update</a>
-      <a class="btn btn-danger" href="{{ url_for('logout') }}">Logout</a>
+      <div class="d-flex flex-wrap align-items-start">
+        <!-- Inventory Group -->
+        <div class="nav-group">
+          <div class="nav-group-title">Inventory</div>
+          <div>
+            <a class="btn btn-primary me-2 mb-2" href="{{ url_for('list_cards') }}">Cards</a>
+            <a class="btn btn-secondary me-2 mb-2" href="{{ url_for('list_folders_view') }}">Folders</a>
+          </div>
+        </div>
+        
+        <!-- Add/Import Group -->
+        <div class="nav-group">
+          <div class="nav-group-title">Add/Import</div>
+          <div>
+            <a class="btn btn-secondary me-2 mb-2" href="{{ url_for('add_card_view') }}">Add Card</a>
+            <a class="btn btn-secondary me-2 mb-2" href="{{ url_for('bulk_add_view') }}">Bulk Add</a>
+            <a class="btn btn-secondary me-2 mb-2" href="{{ url_for('upload_queue_view') }}">Upload Queue</a>
+          </div>
+        </div>
+        
+        <!-- Orders Group -->
+        <div class="nav-group">
+          <div class="nav-group-title">Orders</div>
+          <div>
+            <a class="btn btn-secondary me-2 mb-2" href="{{ url_for('list_orders') }}">Open Orders</a>
+          </div>
+        </div>
+        
+        <!-- System Group -->
+        <div class="nav-group">
+          <div class="nav-group-title">System</div>
+          <div>
+            <a class="btn btn-secondary me-2 mb-2" href="{{ url_for('export_cards') }}">Export</a>
+            <a class="btn btn-secondary me-2 mb-2" href="{{ url_for('upload_database') }}">Upload DB</a>
+            <a class="btn btn-secondary me-2 mb-2" href="{{ url_for('update_view') }}">Update</a>
+          </div>
+        </div>
+      </div>
       {% else %}
       <a class="btn btn-primary" href="{{ url_for('login') }}">Login</a>
       {% endif %}
-      <a class="btn btn-secondary me-2" href="{{ url_for('export_cards') }}">Export</a>
-      {# Storage management not required right now #}
     </nav>
+    
     {% with messages = get_flashed_messages() %}
       {% if messages %}
         <div class="alert alert-info">
