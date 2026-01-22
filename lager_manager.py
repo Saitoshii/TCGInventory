@@ -55,10 +55,19 @@ CONDITION_VALUES = ["MT", "NM", "EX", "GD", "LP", "PL", "PO", ""]
 
 
 def log_audit(card_id: int, user: str, action: str, field_name: str = None, 
-              old_value: str = None, new_value: str = None) -> None:
+              old_value: str = None, new_value: str = None, cursor: sqlite3.Cursor = None) -> None:
     """Log an audit entry for a card change."""
-    with sqlite3.connect(DB_FILE) as conn:
-        cursor = conn.cursor()
+    if cursor is None:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO audit_log (card_id, user, action, field_name, old_value, new_value, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (card_id, user, action, field_name, old_value, new_value, datetime.now().isoformat())
+            )
+    else:
         cursor.execute(
             """
             INSERT INTO audit_log (card_id, user, action, field_name, old_value, new_value, timestamp)
@@ -294,7 +303,7 @@ def update_card(card_id, user="system", **kwargs):
             
             # Log changes to quantity, price, and status
             if key in ['quantity', 'price', 'status'] and old_row[idx] != value:
-                log_audit(card_id, user, 'update', key, str(old_row[idx]), str(value))
+                log_audit(card_id, user, 'update', key, str(old_row[idx]), str(value), cursor)
 
         values.append(card_id)
 
@@ -304,7 +313,7 @@ def update_card(card_id, user="system", **kwargs):
         # Auto-archive if quantity becomes 0
         if 'quantity' in kwargs and kwargs['quantity'] == 0:
             cursor.execute("UPDATE cards SET status = 'archiviert' WHERE id = ?", (card_id,))
-            log_audit(card_id, user, 'auto-archive', 'status', 'verfügbar', 'archiviert')
+            log_audit(card_id, user, 'auto-archive', 'status', 'verfügbar', 'archiviert', cursor)
 
     print(f"📝 Karte mit ID {card_id} wurde aktualisiert.")
 
@@ -352,7 +361,7 @@ def sell_card(card_id: int, user="system") -> bool:
                 "UPDATE cards SET quantity = ? WHERE id = ?",
                 (new_qty, card_id),
             )
-            log_audit(card_id, user, 'sell', 'quantity', str(qty), str(new_qty))
+            log_audit(card_id, user, 'sell', 'quantity', str(qty), str(new_qty), cursor)
             conn.commit()
             print(f"🛒 Karte verkauft. {new_qty} verbleibend.")
             return True
@@ -362,8 +371,8 @@ def sell_card(card_id: int, user="system") -> bool:
                 "UPDATE cards SET quantity = 0, status = 'archiviert' WHERE id = ?",
                 (card_id,)
             )
-            log_audit(card_id, user, 'sell', 'quantity', str(qty), '0')
-            log_audit(card_id, user, 'auto-archive', 'status', 'verfügbar', 'archiviert')
+            log_audit(card_id, user, 'sell', 'quantity', str(qty), '0', cursor)
+            log_audit(card_id, user, 'auto-archive', 'status', 'verfügbar', 'archiviert', cursor)
             conn.commit()
             print(f"🛒 Karte verkauft und archiviert (Menge 0).")
             return True

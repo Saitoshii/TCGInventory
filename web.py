@@ -21,6 +21,7 @@ from TCGInventory.lager_manager import (
     add_card,
     update_card,
     delete_card,
+    sell_card,
     add_storage_slot,
     add_folder,
     edit_folder,
