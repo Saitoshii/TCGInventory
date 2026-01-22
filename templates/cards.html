@@ -101,7 +101,7 @@
     </select>
   </div>
   <div>
-    Showing {{ ((page - 1) * per_page + 1) if cards else 0 }} - {{ min(page * per_page, total_cards) }} of {{ total_cards }}
+    Showing {{ ((page - 1) * per_page + 1) if cards else 0 }} - {{ (page * per_page) if (page * per_page) < total_cards else total_cards }} of {{ total_cards }}
   </div>
 </div>
 
