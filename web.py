@@ -408,10 +408,27 @@ def list_cards():
 @app.route("/cards/export")
 @login_required
 def export_cards():
-    """Return a CSV export of all cards or a single folder."""
+    """Return a CSV export with optional filters."""
+    # Get filter parameters
     folder = request.args.get("folder")
+    status = request.args.get("status")
+    item_type = request.args.get("item_type")
+    language = request.args.get("language")
+    condition = request.args.get("condition")
+    
     fid = int(folder) if folder and folder.isdigit() else None
-    rows = fetch_cards(folder_id=fid)
+    
+    # Fetch cards with filters (no pagination for export)
+    rows = fetch_cards(
+        folder_id=fid,
+        status=status,
+        item_type=item_type,
+        language=language,
+        condition=condition,
+        limit=10000,  # Large limit for export
+        offset=0
+    )
+    
     output = io.StringIO()
     writer = csv.writer(output, delimiter=";")
     writer.writerow(
@@ -427,24 +444,38 @@ def export_cards():
             "Ordner",
             "Status",
             "Bild",
+            "Typ",
+            "Standort",
         ]
     )
     for row in rows:
         writer.writerow([
-            row[12],
-            row[1],
-            row[2],
-            row[3],
-            row[4],
-            row[5],
-            row[6],
-            row[7],
-            row[8],
-            row[9],
-            row[10],
+            row[12],  # collector_number
+            row[1],   # name
+            row[2],   # set_code
+            row[3],   # language
+            row[4],   # condition
+            row[5],   # price
+            row[6],   # quantity
+            row[7],   # storage_code
+            row[8],   # folder
+            row[9],   # status
+            row[10],  # image_url
+            row[13] if len(row) > 13 else 'card',  # item_type
+            row[14] if len(row) > 14 else '',  # location_hint
         ])
-    resp = Response(output.getvalue(), mimetype="text/csv")
-    filename = "inventory.csv" if fid is None else f"folder_{fid}.csv"
+    resp = Response(output.getvalue(), mimetype="text/csv; charset=utf-8")
+    
+    # Build filename based on filters
+    filename_parts = ["inventory"]
+    if fid:
+        filename_parts.append(f"folder_{fid}")
+    if status:
+        filename_parts.append(status)
+    if item_type:
+        filename_parts.append(item_type)
+    filename = "_".join(filename_parts) + ".csv"
+    
     resp.headers["Content-Disposition"] = f"attachment; filename={filename}"
     return resp
 
@@ -594,16 +625,24 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
                     if isinstance(v, list):
                         v = v[0] if v else ""
                     normalized[k.strip().lower().replace(" ", "_")] = (v or "").strip()
-                name = normalized.get("card_name", "")
+                name = normalized.get("card_name", "") or normalized.get("name", "")
                 if not name:
                     BULK_PROGRESS = int((idx + 1) / total * 100)
                     continue
                 qty = int(normalized.get("quantity", "1") or 1)
-                set_row = normalized.get("set_code", "")
-                card_no = normalized.get("card_number", "")
-                language = normalized.get("language", "")
+                set_row = normalized.get("set_code", "") or normalized.get("set", "")
+                card_no = normalized.get("card_number", "") or normalized.get("collector_number", "")
+                language = normalized.get("language", "") or normalized.get("lang", "")
                 condition = normalized.get("condition", "")
                 foil_flag = normalized.get("foil", "").lower() in {"1", "true", "yes", "foil"}
+                item_type = normalized.get("type", "") or normalized.get("item_type", "card")
+                storage = normalized.get("storage", "") or normalized.get("storage_code", "")
+                location_hint = normalized.get("location_hint", "") or normalized.get("location", "")
+                
+                # Validate item type
+                if item_type not in ["card", "display"]:
+                    item_type = "card"
+                
                 info = fetch_card_info_by_name(name)
                 variant = None
                 if set_row:
@@ -634,6 +673,9 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
                         "scryfall_id": info.get("scryfall_id", ""),
                         "image_url": info.get("image_url", ""),
                         "foil": foil_flag,
+                        "item_type": item_type,
+                        "storage_code": storage,
+                        "location_hint": location_hint,
                     }
                 )
                 added_any = True
@@ -1106,13 +1148,15 @@ def upload_card_route(index: int):
             card.get("condition", ""),
             0,
             card.get("quantity", 1),
-            None,
+            card.get("storage_code", None),
             card.get("cardmarket_id", ""),
             card.get("folder_id"),
             card.get("collector_number", ""),
             card.get("scryfall_id", ""),
             card.get("image_url", ""),
             card.get("foil", False),
+            card.get("item_type", "card"),
+            card.get("location_hint", ""),
         )
         flash(
             "Card added" if success else "No slot for " + card["name"],
@@ -1134,13 +1178,15 @@ def upload_all_route():
             card.get("condition", ""),
             0,
             card.get("quantity", 1),
-            None,
+            card.get("storage_code", None),
             card.get("cardmarket_id", ""),
             card.get("folder_id"),
             card.get("collector_number", ""),
             card.get("scryfall_id", ""),
             card.get("image_url", ""),
             card.get("foil", False),
+            card.get("item_type", "card"),
+            card.get("location_hint", ""),
         )
     flash("All queued cards added")
     return redirect(url_for("list_cards"))

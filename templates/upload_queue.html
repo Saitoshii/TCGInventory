@@ -8,43 +8,78 @@
   </div>
 </form>
 {% if queue %}
-<table class="table">
+<table class="table table-striped">
   <thead>
     <tr>
       <th>Image</th>
       <th>Name</th>
+      <th>Type</th>
       <th>Qty</th>
       <th>Set</th>
       <th>Language</th>
+      <th>Condition</th>
+      <th>Storage/Location</th>
       <th>Foil</th>
-      <th></th>
+      <th>Warnings</th>
+      <th>Actions</th>
     </tr>
   </thead>
   <tbody>
     {% for idx, card in queue %}
     <tr>
-      <td>{% if card.image_url %}<img src="{{ card.image_url }}" style="max-width:80px;">{% endif %}</td>
+      <td>
+        {% if card.image_url %}
+          <img src="{{ card.image_url }}" style="max-width:60px;" class="img-thumbnail">
+        {% else %}
+          <span class="badge bg-warning text-dark">No Image</span>
+        {% endif %}
+      </td>
       <td>{{ card.name }}</td>
+      <td>
+        <span class="badge {% if card.get('item_type', 'card') == 'card' %}bg-primary{% else %}bg-info{% endif %}">
+          {{ card.get('item_type', 'card')|title }}
+        </span>
+      </td>
       <td>{{ card.quantity }}</td>
       <td>{{ card.set_code }}</td>
-      <td>{{ card.language }}</td>
+      <td>{{ card.language|upper if card.language else '—' }}</td>
+      <td>{{ card.condition if card.condition else '—' }}</td>
       <td>
-        <form method="post" action="{{ url_for('toggle_queued_foil', index=idx) }}">
+        {% if card.get('storage_code') %}
+          {{ card.storage_code }}
+        {% elif card.get('location_hint') %}
+          {{ card.location_hint }}
+        {% else %}
+          —
+        {% endif %}
+      </td>
+      <td>
+        <form method="post" action="{{ url_for('toggle_queued_foil', index=idx) }}" class="d-inline">
           <input type="hidden" name="foil" value="0">
           <input type="checkbox" name="foil" value="1" onchange="this.form.submit()" {% if card.foil %}checked{% endif %}>
         </form>
       </td>
       <td>
-        <a class="btn btn-sm btn-outline-secondary me-2" href="{{ url_for('edit_queued_card', index=idx) }}">Edit</a>
-        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('upload_card_route', index=idx) }}">Add</a>
+        {% if not card.image_url %}
+          <span class="badge bg-warning text-dark" title="Missing image">⚠️</span>
+        {% endif %}
+        {% if card.get('item_type') == 'card' and not card.get('storage_code') %}
+          <span class="badge bg-info" title="No storage assigned">ℹ️</span>
+        {% endif %}
+      </td>
+      <td>
+        <a class="btn btn-sm btn-outline-secondary me-1" href="{{ url_for('edit_queued_card', index=idx) }}">Edit</a>
+        <a class="btn btn-sm btn-primary" href="{{ url_for('upload_card_route', index=idx) }}">Add</a>
       </td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
-<a class="btn btn-primary me-2" href="{{ url_for('upload_all_route') }}">Add All</a>
-<a class="btn btn-outline-danger" href="{{ url_for('clear_upload_queue') }}">Clear Queue</a>
+<div class="mt-3">
+  <a class="btn btn-primary me-2" href="{{ url_for('upload_all_route') }}">Add All ({{ queue|length }})</a>
+  <a class="btn btn-outline-danger" href="{{ url_for('clear_upload_queue') }}">Clear Queue</a>
+</div>
 {% else %}
-<p>No cards in queue.</p>
+<p class="text-muted">No cards in queue.</p>
 {% endif %}
 {% endblock %}
