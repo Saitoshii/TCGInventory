@@ -64,6 +64,13 @@ def initialize_database() -> None:
             cursor.execute("ALTER TABLE cards ADD COLUMN quantity INTEGER DEFAULT 1")
         if "foil" not in columns:
             cursor.execute("ALTER TABLE cards ADD COLUMN foil INTEGER DEFAULT 0")
+        # New fields for improved data model
+        if "item_type" not in columns:
+            cursor.execute("ALTER TABLE cards ADD COLUMN item_type TEXT DEFAULT 'card'")
+        if "reserved_until" not in columns:
+            cursor.execute("ALTER TABLE cards ADD COLUMN reserved_until TEXT")
+        if "location_hint" not in columns:
+            cursor.execute("ALTER TABLE cards ADD COLUMN location_hint TEXT")
 
         # Tabelle 2: Lagerplätze
         cursor.execute(
@@ -121,6 +128,23 @@ def initialize_database() -> None:
                 image_url TEXT,
                 storage_code TEXT,
                 FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE
+            )
+            """
+        )
+
+        # Tabelle 6: Audit log for tracking changes
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                card_id INTEGER,
+                user TEXT,
+                action TEXT NOT NULL,
+                field_name TEXT,
+                old_value TEXT,
+                new_value TEXT,
+                timestamp TEXT NOT NULL,
+                FOREIGN KEY(card_id) REFERENCES cards(id)
             )
             """
         )

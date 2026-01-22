@@ -21,6 +21,7 @@ from TCGInventory.lager_manager import (
     add_card,
     update_card,
     delete_card,
+    sell_card,
     add_storage_slot,
     add_folder,
     edit_folder,
@@ -83,18 +84,26 @@ def init_db() -> None:
     initialize_database()
 
 
-def fetch_cards(search: str | None = None, folder_id: int | None = None):
-    """Return card rows optionally filtered by search term and folder."""
+def fetch_cards(search: str | None = None, folder_id: int | None = None, 
+                status: str | None = None, language: str | None = None,
+                condition: str | None = None, item_type: str | None = None,
+                min_price: float | None = None, max_price: float | None = None,
+                min_qty: int | None = None, max_qty: int | None = None,
+                sort_by: str = "id", sort_order: str = "ASC",
+                limit: int = 100, offset: int = 0):
+    """Return card rows optionally filtered by search term, folder, and various criteria."""
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         query = (
             "SELECT cards.id, cards.name, cards.set_code, cards.language, "
             "cards.condition, cards.price, cards.quantity, cards.storage_code, "
             "COALESCE(folders.name, ''), cards.status, cards.image_url, cards.foil, "
-            "cards.collector_number FROM cards LEFT JOIN folders ON cards.folder_id = folders.id"
+            "cards.collector_number, cards.item_type, cards.location_hint FROM cards "
+            "LEFT JOIN folders ON cards.folder_id = folders.id"
         )
         conditions = []
-        params: list[str | int] = []
+        params: list[str | int | float] = []
+        
         if search:
             like = f"%{search}%"
             conditions.append(
@@ -104,8 +113,46 @@ def fetch_cards(search: str | None = None, folder_id: int | None = None):
         if folder_id is not None:
             conditions.append("cards.folder_id = ?")
             params.append(folder_id)
+        if status:
+            conditions.append("cards.status = ?")
+            params.append(status)
+        if language:
+            conditions.append("cards.language = ?")
+            params.append(language)
+        if condition:
+            conditions.append("cards.condition = ?")
+            params.append(condition)
+        if item_type:
+            conditions.append("cards.item_type = ?")
+            params.append(item_type)
+        if min_price is not None:
+            conditions.append("cards.price >= ?")
+            params.append(min_price)
+        if max_price is not None:
+            conditions.append("cards.price <= ?")
+            params.append(max_price)
+        if min_qty is not None:
+            conditions.append("cards.quantity >= ?")
+            params.append(min_qty)
+        if max_qty is not None:
+            conditions.append("cards.quantity <= ?")
+            params.append(max_qty)
+            
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
+        
+        # Add sorting
+        valid_sort_columns = ["id", "name", "set_code", "language", "condition", "price", "quantity", "status"]
+        if sort_by not in valid_sort_columns:
+            sort_by = "id"
+        if sort_order.upper() not in ["ASC", "DESC"]:
+            sort_order = "ASC"
+        query += f" ORDER BY cards.{sort_by} {sort_order}"
+        
+        # Add pagination
+        query += " LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        
         c.execute(query, tuple(params))
         return c.fetchall()
 
@@ -116,7 +163,7 @@ def get_card(card_id: int):
         c.execute(
             "SELECT id, name, set_code, language, condition, price, quantity, "
             "storage_code, cardmarket_id, folder_id, collector_number, "
-            "scryfall_id, image_url, foil FROM cards WHERE id = ?",
+            "scryfall_id, image_url, foil, item_type, location_hint FROM cards WHERE id = ?",
             (card_id,),
         )
         return c.fetchone()
@@ -184,7 +231,105 @@ def lookup_api():
 @app.route("/")
 @login_required
 def index():
-    return redirect(url_for("list_cards"))
+    return redirect(url_for("dashboard"))
+
+
+@app.route("/dashboard")
+@login_required
+def dashboard():
+    """Display dashboard with inventory statistics."""
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        
+        # Total cards and value
+        c.execute("SELECT COUNT(*), SUM(quantity), SUM(price * quantity) FROM cards WHERE status != 'archiviert'")
+        total_items, total_qty, total_value = c.fetchone()
+        total_items = total_items or 0
+        total_qty = total_qty or 0
+        total_value = total_value or 0
+        
+        # Inventory by folder
+        c.execute("""
+            SELECT COALESCE(folders.name, 'No Folder'), COUNT(*), SUM(cards.quantity)
+            FROM cards 
+            LEFT JOIN folders ON cards.folder_id = folders.id
+            WHERE cards.status != 'archiviert'
+            GROUP BY folders.name
+            ORDER BY COUNT(*) DESC
+            LIMIT 10
+        """)
+        by_folder = c.fetchall()
+        
+        # Inventory by set
+        c.execute("""
+            SELECT set_code, COUNT(*), SUM(quantity)
+            FROM cards
+            WHERE status != 'archiviert'
+            GROUP BY set_code
+            ORDER BY COUNT(*) DESC
+            LIMIT 10
+        """)
+        by_set = c.fetchall()
+        
+        # Inventory by type
+        c.execute("""
+            SELECT item_type, COUNT(*), SUM(quantity)
+            FROM cards
+            WHERE status != 'archiviert'
+            GROUP BY item_type
+        """)
+        by_type = c.fetchall()
+        
+        # Inventory by status
+        c.execute("""
+            SELECT status, COUNT(*), SUM(quantity)
+            FROM cards
+            GROUP BY status
+        """)
+        by_status = c.fetchall()
+        
+        # Low stock alerts (qty <= 1)
+        c.execute("""
+            SELECT id, name, set_code, quantity, price
+            FROM cards
+            WHERE quantity <= 1 AND status = 'verfügbar'
+            ORDER BY quantity ASC, name ASC
+            LIMIT 20
+        """)
+        low_stock = c.fetchall()
+        
+        # Missing images
+        c.execute("""
+            SELECT COUNT(*)
+            FROM cards
+            WHERE (image_url IS NULL OR image_url = '') AND status != 'archiviert'
+        """)
+        missing_images = c.fetchone()[0]
+        
+        # Recent activity from audit log (last 20 entries)
+        c.execute("""
+            SELECT audit_log.timestamp, audit_log.user, audit_log.action, 
+                   cards.name, audit_log.field_name, audit_log.old_value, audit_log.new_value
+            FROM audit_log
+            LEFT JOIN cards ON audit_log.card_id = cards.id
+            ORDER BY audit_log.timestamp DESC
+            LIMIT 20
+        """)
+        recent_activity = c.fetchall()
+    
+    return render_template(
+        "dashboard.html",
+        total_items=total_items,
+        total_qty=total_qty,
+        total_value=total_value,
+        by_folder=by_folder,
+        by_set=by_set,
+        by_type=by_type,
+        by_status=by_status,
+        low_stock=low_stock,
+        missing_images=missing_images,
+        recent_activity=recent_activity
+    )
 
 
 @app.route("/cards")
@@ -192,18 +337,137 @@ def index():
 def list_cards():
     search = request.args.get("q", "")
     folder = request.args.get("folder")
+    status = request.args.get("status")
+    language = request.args.get("language")
+    condition = request.args.get("condition")
+    item_type = request.args.get("item_type")
+    min_price = request.args.get("min_price")
+    max_price = request.args.get("max_price")
+    min_qty = request.args.get("min_qty")
+    max_qty = request.args.get("max_qty")
+    sort_by = request.args.get("sort_by", "id")
+    sort_order = request.args.get("sort_order", "ASC")
+    page = int(request.args.get("page", 1))
+    per_page = int(request.args.get("per_page", 30))
+    
     fid = int(folder) if folder and folder.isdigit() else None
-    cards = fetch_cards(search if search else None, fid)
-    return render_template("cards.html", cards=cards, search=search, folder=fid)
+    min_p = float(min_price) if min_price else None
+    max_p = float(max_price) if max_price else None
+    min_q = int(min_qty) if min_qty else None
+    max_q = int(max_qty) if max_qty else None
+    
+    offset = (page - 1) * per_page
+    
+    cards = fetch_cards(
+        search if search else None, 
+        fid,
+        status,
+        language,
+        condition,
+        item_type,
+        min_p,
+        max_p,
+        min_q,
+        max_q,
+        sort_by,
+        sort_order,
+        per_page,
+        offset
+    )
+    
+    # Get total count for pagination with same filters
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        query = "SELECT COUNT(*) FROM cards LEFT JOIN folders ON cards.folder_id = folders.id"
+        conditions = []
+        params: list[str | int | float] = []
+        
+        if search:
+            like = f"%{search}%"
+            conditions.append("(cards.name LIKE ? OR cards.set_code LIKE ? OR cards.collector_number LIKE ?)")
+            params.extend([like, like, like])
+        if fid is not None:
+            conditions.append("cards.folder_id = ?")
+            params.append(fid)
+        if status:
+            conditions.append("cards.status = ?")
+            params.append(status)
+        if language:
+            conditions.append("cards.language = ?")
+            params.append(language)
+        if condition:
+            conditions.append("cards.condition = ?")
+            params.append(condition)
+        if item_type:
+            conditions.append("cards.item_type = ?")
+            params.append(item_type)
+        if min_p is not None:
+            conditions.append("cards.price >= ?")
+            params.append(min_p)
+        if max_p is not None:
+            conditions.append("cards.price <= ?")
+            params.append(max_p)
+        if min_q is not None:
+            conditions.append("cards.quantity >= ?")
+            params.append(min_q)
+        if max_q is not None:
+            conditions.append("cards.quantity <= ?")
+            params.append(max_q)
+            
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        
+        c.execute(query, tuple(params))
+        total_cards = c.fetchone()[0]
+    
+    total_pages = (total_cards + per_page - 1) // per_page
+    
+    return render_template(
+        "cards.html", 
+        cards=cards, 
+        search=search, 
+        folder=fid,
+        status=status,
+        language=language,
+        condition=condition,
+        item_type=item_type,
+        min_price=min_price,
+        max_price=max_price,
+        min_qty=min_qty,
+        max_qty=max_qty,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        page=page,
+        per_page=per_page,
+        total_pages=total_pages,
+        total_cards=total_cards
+    )
 
 
 @app.route("/cards/export")
 @login_required
 def export_cards():
-    """Return a CSV export of all cards or a single folder."""
+    """Return a CSV export with optional filters."""
+    # Get filter parameters
     folder = request.args.get("folder")
+    status = request.args.get("status")
+    item_type = request.args.get("item_type")
+    language = request.args.get("language")
+    condition = request.args.get("condition")
+    
     fid = int(folder) if folder and folder.isdigit() else None
-    rows = fetch_cards(folder_id=fid)
+    
+    # Fetch cards with filters (no pagination for export)
+    rows = fetch_cards(
+        folder_id=fid,
+        status=status,
+        item_type=item_type,
+        language=language,
+        condition=condition,
+        limit=10000,  # Large limit for export
+        offset=0
+    )
+    
     output = io.StringIO()
     writer = csv.writer(output, delimiter=";")
     writer.writerow(
@@ -219,24 +483,41 @@ def export_cards():
             "Ordner",
             "Status",
             "Bild",
+            "Typ",
+            "Standort",
         ]
     )
     for row in rows:
+        # Row indices: 0=id, 1=name, 2=set_code, 3=language, 4=condition, 5=price, 
+        # 6=quantity, 7=storage_code, 8=folder, 9=status, 10=image_url, 11=foil,
+        # 12=collector_number, 13=item_type, 14=location_hint
         writer.writerow([
-            row[12],
-            row[1],
-            row[2],
-            row[3],
-            row[4],
-            row[5],
-            row[6],
-            row[7],
-            row[8],
-            row[9],
-            row[10],
+            row[12] if len(row) > 12 else '',  # collector_number
+            row[1],   # name
+            row[2],   # set_code
+            row[3],   # language
+            row[4],   # condition
+            row[5],   # price
+            row[6],   # quantity
+            row[7],   # storage_code
+            row[8],   # folder
+            row[9],   # status
+            row[10],  # image_url
+            row[13] if len(row) > 13 else 'card',  # item_type
+            row[14] if len(row) > 14 else '',  # location_hint
         ])
-    resp = Response(output.getvalue(), mimetype="text/csv")
-    filename = "inventory.csv" if fid is None else f"folder_{fid}.csv"
+    resp = Response(output.getvalue(), mimetype="text/csv; charset=utf-8")
+    
+    # Build filename based on filters
+    filename_parts = ["inventory"]
+    if fid:
+        filename_parts.append(f"folder_{fid}")
+    if status:
+        filename_parts.append(status)
+    if item_type:
+        filename_parts.append(item_type)
+    filename = "_".join(filename_parts) + ".csv"
+    
     resp.headers["Content-Disposition"] = f"attachment; filename={filename}"
     return resp
 
@@ -386,16 +667,24 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
                     if isinstance(v, list):
                         v = v[0] if v else ""
                     normalized[k.strip().lower().replace(" ", "_")] = (v or "").strip()
-                name = normalized.get("card_name", "")
+                name = normalized.get("card_name", "") or normalized.get("name", "")
                 if not name:
                     BULK_PROGRESS = int((idx + 1) / total * 100)
                     continue
                 qty = int(normalized.get("quantity", "1") or 1)
-                set_row = normalized.get("set_code", "")
-                card_no = normalized.get("card_number", "")
-                language = normalized.get("language", "")
+                set_row = normalized.get("set_code", "") or normalized.get("set", "")
+                card_no = normalized.get("card_number", "") or normalized.get("collector_number", "")
+                language = normalized.get("language", "") or normalized.get("lang", "")
                 condition = normalized.get("condition", "")
                 foil_flag = normalized.get("foil", "").lower() in {"1", "true", "yes", "foil"}
+                item_type = normalized.get("type", "") or normalized.get("item_type", "card")
+                storage = normalized.get("storage", "") or normalized.get("storage_code", "")
+                location_hint = normalized.get("location_hint", "") or normalized.get("location", "")
+                
+                # Validate item type
+                if item_type not in ["card", "display"]:
+                    item_type = "card"
+                
                 info = fetch_card_info_by_name(name)
                 variant = None
                 if set_row:
@@ -426,6 +715,9 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
                         "scryfall_id": info.get("scryfall_id", ""),
                         "image_url": info.get("image_url", ""),
                         "foil": foil_flag,
+                        "item_type": item_type,
+                        "storage_code": storage,
+                        "location_hint": location_hint,
                     }
                 )
                 added_any = True
@@ -472,9 +764,13 @@ def add_card_view():
             if str(f[0]) == str(folder_id):
                 set_code = f[1]
                 break
+        
+        item_type = request.form.get("item_type", "card")
         page = request.form.get("page")
         slot = request.form.get("slot")
         storage_code = make_storage_code(folder_id, page, slot)
+        location_hint = request.form.get("location_hint", "")
+        
         success = add_card(
             request.form["name"],
             set_code,
@@ -489,6 +785,8 @@ def add_card_view():
             request.form.get("scryfall_id", ""),
             request.form.get("image_url", ""),
             bool(request.form.get("foil")),
+            item_type,
+            location_hint,
         )
         if success:
             flash("Card added")
@@ -514,8 +812,12 @@ def edit_card_view(card_id: int):
         page = request.form.get("page")
         slot = request.form.get("slot")
         storage_code = make_storage_code(folder_id, page, slot)
+        item_type = request.form.get("item_type", "card")
+        location_hint = request.form.get("location_hint", "")
+        
         update_card(
             card_id,
+            user=session.get('user', 'system'),
             name=request.form["name"],
             set_code=set_code,
             language=request.form.get("language", ""),
@@ -529,6 +831,8 @@ def edit_card_view(card_id: int):
             scryfall_id=request.form.get("scryfall_id", ""),
             image_url=request.form.get("image_url", ""),
             foil=bool(request.form.get("foil")),
+            item_type=item_type,
+            location_hint=location_hint,
         )
         flash("Card updated")
         return redirect(url_for("list_cards"))
@@ -560,17 +864,26 @@ def delete_card_route(card_id: int):
 @app.route("/cards/<int:card_id>/sell", methods=["POST"])
 @login_required
 def sell_card_route(card_id: int):
-    """Decrease card quantity by one or delete if none remain."""
+    """Decrease card quantity by one or archive if none remain."""
     card = get_card(card_id)
     if not card:
         return jsonify({"error": "not found"}), 404
-    qty = card[6] or 0
-    if qty > 1:
-        update_card(card_id, quantity=qty - 1)
-        return jsonify({"quantity": qty - 1, "removed": False})
-    delete_card(card_id)
-    flash("Card sold")
-    return jsonify({"quantity": 0, "removed": True})
+    
+    user = session.get('user', 'system')
+    success = sell_card(card_id, user)
+    
+    if not success:
+        return jsonify({"error": "could not sell"}), 400
+    
+    # Reload card to get updated quantity
+    card = get_card(card_id)
+    qty = card[6] if card else 0
+    
+    if qty > 0:
+        return jsonify({"quantity": qty, "removed": False, "archived": False})
+    else:
+        flash("Card sold and archived")
+        return jsonify({"quantity": 0, "removed": False, "archived": True})
 
 
 @app.route("/folders/delete/<int:folder_id>")
@@ -877,13 +1190,15 @@ def upload_card_route(index: int):
             card.get("condition", ""),
             0,
             card.get("quantity", 1),
-            None,
+            card.get("storage_code", None),
             card.get("cardmarket_id", ""),
             card.get("folder_id"),
             card.get("collector_number", ""),
             card.get("scryfall_id", ""),
             card.get("image_url", ""),
             card.get("foil", False),
+            card.get("item_type", "card"),
+            card.get("location_hint", ""),
         )
         flash(
             "Card added" if success else "No slot for " + card["name"],
@@ -905,13 +1220,15 @@ def upload_all_route():
             card.get("condition", ""),
             0,
             card.get("quantity", 1),
-            None,
+            card.get("storage_code", None),
             card.get("cardmarket_id", ""),
             card.get("folder_id"),
             card.get("collector_number", ""),
             card.get("scryfall_id", ""),
             card.get("image_url", ""),
             card.get("foil", False),
+            card.get("item_type", "card"),
+            card.get("location_hint", ""),
         )
     flash("All queued cards added")
     return redirect(url_for("list_cards"))
@@ -933,6 +1250,78 @@ def update_view():
     success, message = update_repo()
     flash(message, "error" if not success else None)
     return redirect(url_for("index"))
+
+
+@app.route("/audit-log")
+@login_required
+def audit_log_view():
+    """Display the full audit log with filtering."""
+    page = int(request.args.get("page", 1))
+    per_page = int(request.args.get("per_page", 50))
+    action_filter = request.args.get("action")
+    user_filter = request.args.get("user")
+    
+    offset = (page - 1) * per_page
+    
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        
+        query = """
+            SELECT audit_log.id, audit_log.timestamp, audit_log.user, audit_log.action,
+                   cards.name, audit_log.field_name, audit_log.old_value, audit_log.new_value,
+                   audit_log.card_id
+            FROM audit_log
+            LEFT JOIN cards ON audit_log.card_id = cards.id
+        """
+        
+        conditions = []
+        params = []
+        
+        if action_filter:
+            conditions.append("audit_log.action = ?")
+            params.append(action_filter)
+        
+        if user_filter:
+            conditions.append("audit_log.user = ?")
+            params.append(user_filter)
+        
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        
+        query += " ORDER BY audit_log.timestamp DESC LIMIT ? OFFSET ?"
+        params.extend([per_page, offset])
+        
+        c.execute(query, tuple(params))
+        logs = c.fetchall()
+        
+        # Get total count
+        count_query = "SELECT COUNT(*) FROM audit_log"
+        if conditions:
+            count_query += " WHERE " + " AND ".join(conditions)
+        c.execute(count_query, tuple(params[:-2]) if conditions else ())
+        total_logs = c.fetchone()[0]
+        
+        # Get distinct users and actions for filters
+        c.execute("SELECT DISTINCT user FROM audit_log ORDER BY user")
+        users = [row[0] for row in c.fetchall()]
+        
+        c.execute("SELECT DISTINCT action FROM audit_log ORDER BY action")
+        actions = [row[0] for row in c.fetchall()]
+    
+    total_pages = (total_logs + per_page - 1) // per_page
+    
+    return render_template(
+        "audit_log.html",
+        logs=logs,
+        page=page,
+        per_page=per_page,
+        total_pages=total_pages,
+        total_logs=total_logs,
+        users=users,
+        actions=actions,
+        action_filter=action_filter,
+        user_filter=user_filter
+    )
 
 
 @app.route("/upload_database", methods=["GET", "POST"])

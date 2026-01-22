@@ -38,12 +38,17 @@ def test_sell_route(tmp_path, monkeypatch):
         resp = client.post(f"/cards/{card_id}/sell")
         assert resp.status_code == 200
         data = resp.get_json()
-        assert data["quantity"] == 1 and not data["removed"]
+        assert data["quantity"] == 1 and not data.get("archived", False)
 
         resp = client.post(f"/cards/{card_id}/sell")
         data = resp.get_json()
-        assert data["removed"]
+        # Now cards are archived instead of removed
+        assert data.get("archived", False)
+        assert data["quantity"] == 0
 
+    # Card should still exist but be archived
     with sqlite3.connect(str(db)) as conn:
         count = conn.execute("SELECT COUNT(*) FROM cards").fetchone()[0]
-    assert count == 0
+        status = conn.execute("SELECT status FROM cards WHERE id = ?", (card_id,)).fetchone()[0]
+    assert count == 1
+    assert status == "archiviert"
