@@ -83,18 +83,26 @@ def init_db() -> None:
     initialize_database()
 
 
-def fetch_cards(search: str | None = None, folder_id: int | None = None):
-    """Return card rows optionally filtered by search term and folder."""
+def fetch_cards(search: str | None = None, folder_id: int | None = None, 
+                status: str | None = None, language: str | None = None,
+                condition: str | None = None, item_type: str | None = None,
+                min_price: float | None = None, max_price: float | None = None,
+                min_qty: int | None = None, max_qty: int | None = None,
+                sort_by: str = "id", sort_order: str = "ASC",
+                limit: int = 100, offset: int = 0):
+    """Return card rows optionally filtered by search term, folder, and various criteria."""
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         query = (
             "SELECT cards.id, cards.name, cards.set_code, cards.language, "
             "cards.condition, cards.price, cards.quantity, cards.storage_code, "
             "COALESCE(folders.name, ''), cards.status, cards.image_url, cards.foil, "
-            "cards.collector_number FROM cards LEFT JOIN folders ON cards.folder_id = folders.id"
+            "cards.collector_number, cards.item_type, cards.location_hint FROM cards "
+            "LEFT JOIN folders ON cards.folder_id = folders.id"
         )
         conditions = []
-        params: list[str | int] = []
+        params: list[str | int | float] = []
+        
         if search:
             like = f"%{search}%"
             conditions.append(
@@ -104,8 +112,46 @@ def fetch_cards(search: str | None = None, folder_id: int | None = None):
         if folder_id is not None:
             conditions.append("cards.folder_id = ?")
             params.append(folder_id)
+        if status:
+            conditions.append("cards.status = ?")
+            params.append(status)
+        if language:
+            conditions.append("cards.language = ?")
+            params.append(language)
+        if condition:
+            conditions.append("cards.condition = ?")
+            params.append(condition)
+        if item_type:
+            conditions.append("cards.item_type = ?")
+            params.append(item_type)
+        if min_price is not None:
+            conditions.append("cards.price >= ?")
+            params.append(min_price)
+        if max_price is not None:
+            conditions.append("cards.price <= ?")
+            params.append(max_price)
+        if min_qty is not None:
+            conditions.append("cards.quantity >= ?")
+            params.append(min_qty)
+        if max_qty is not None:
+            conditions.append("cards.quantity <= ?")
+            params.append(max_qty)
+            
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
+        
+        # Add sorting
+        valid_sort_columns = ["id", "name", "set_code", "language", "condition", "price", "quantity", "status"]
+        if sort_by not in valid_sort_columns:
+            sort_by = "id"
+        if sort_order.upper() not in ["ASC", "DESC"]:
+            sort_order = "ASC"
+        query += f" ORDER BY cards.{sort_by} {sort_order}"
+        
+        # Add pagination
+        query += " LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        
         c.execute(query, tuple(params))
         return c.fetchall()
 
@@ -116,7 +162,7 @@ def get_card(card_id: int):
         c.execute(
             "SELECT id, name, set_code, language, condition, price, quantity, "
             "storage_code, cardmarket_id, folder_id, collector_number, "
-            "scryfall_id, image_url, foil FROM cards WHERE id = ?",
+            "scryfall_id, image_url, foil, item_type, location_hint FROM cards WHERE id = ?",
             (card_id,),
         )
         return c.fetchone()
@@ -192,9 +238,72 @@ def index():
 def list_cards():
     search = request.args.get("q", "")
     folder = request.args.get("folder")
+    status = request.args.get("status")
+    language = request.args.get("language")
+    condition = request.args.get("condition")
+    item_type = request.args.get("item_type")
+    min_price = request.args.get("min_price")
+    max_price = request.args.get("max_price")
+    min_qty = request.args.get("min_qty")
+    max_qty = request.args.get("max_qty")
+    sort_by = request.args.get("sort_by", "id")
+    sort_order = request.args.get("sort_order", "ASC")
+    page = int(request.args.get("page", 1))
+    per_page = int(request.args.get("per_page", 30))
+    
     fid = int(folder) if folder and folder.isdigit() else None
-    cards = fetch_cards(search if search else None, fid)
-    return render_template("cards.html", cards=cards, search=search, folder=fid)
+    min_p = float(min_price) if min_price else None
+    max_p = float(max_price) if max_price else None
+    min_q = int(min_qty) if min_qty else None
+    max_q = int(max_qty) if max_qty else None
+    
+    offset = (page - 1) * per_page
+    
+    cards = fetch_cards(
+        search if search else None, 
+        fid,
+        status,
+        language,
+        condition,
+        item_type,
+        min_p,
+        max_p,
+        min_q,
+        max_q,
+        sort_by,
+        sort_order,
+        per_page,
+        offset
+    )
+    
+    # Get total count for pagination
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM cards")
+        total_cards = c.fetchone()[0]
+    
+    total_pages = (total_cards + per_page - 1) // per_page
+    
+    return render_template(
+        "cards.html", 
+        cards=cards, 
+        search=search, 
+        folder=fid,
+        status=status,
+        language=language,
+        condition=condition,
+        item_type=item_type,
+        min_price=min_price,
+        max_price=max_price,
+        min_qty=min_qty,
+        max_qty=max_qty,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        page=page,
+        per_page=per_page,
+        total_pages=total_pages,
+        total_cards=total_cards
+    )
 
 
 @app.route("/cards/export")
@@ -472,9 +581,13 @@ def add_card_view():
             if str(f[0]) == str(folder_id):
                 set_code = f[1]
                 break
+        
+        item_type = request.form.get("item_type", "card")
         page = request.form.get("page")
         slot = request.form.get("slot")
         storage_code = make_storage_code(folder_id, page, slot)
+        location_hint = request.form.get("location_hint", "")
+        
         success = add_card(
             request.form["name"],
             set_code,
@@ -489,6 +602,8 @@ def add_card_view():
             request.form.get("scryfall_id", ""),
             request.form.get("image_url", ""),
             bool(request.form.get("foil")),
+            item_type,
+            location_hint,
         )
         if success:
             flash("Card added")
@@ -514,8 +629,12 @@ def edit_card_view(card_id: int):
         page = request.form.get("page")
         slot = request.form.get("slot")
         storage_code = make_storage_code(folder_id, page, slot)
+        item_type = request.form.get("item_type", "card")
+        location_hint = request.form.get("location_hint", "")
+        
         update_card(
             card_id,
+            user=session.get('user', 'system'),
             name=request.form["name"],
             set_code=set_code,
             language=request.form.get("language", ""),
@@ -529,6 +648,8 @@ def edit_card_view(card_id: int):
             scryfall_id=request.form.get("scryfall_id", ""),
             image_url=request.form.get("image_url", ""),
             foil=bool(request.form.get("foil")),
+            item_type=item_type,
+            location_hint=location_hint,
         )
         flash("Card updated")
         return redirect(url_for("list_cards"))
@@ -560,17 +681,26 @@ def delete_card_route(card_id: int):
 @app.route("/cards/<int:card_id>/sell", methods=["POST"])
 @login_required
 def sell_card_route(card_id: int):
-    """Decrease card quantity by one or delete if none remain."""
+    """Decrease card quantity by one or archive if none remain."""
     card = get_card(card_id)
     if not card:
         return jsonify({"error": "not found"}), 404
-    qty = card[6] or 0
-    if qty > 1:
-        update_card(card_id, quantity=qty - 1)
-        return jsonify({"quantity": qty - 1, "removed": False})
-    delete_card(card_id)
-    flash("Card sold")
-    return jsonify({"quantity": 0, "removed": True})
+    
+    user = session.get('user', 'system')
+    success = sell_card(card_id, user)
+    
+    if not success:
+        return jsonify({"error": "could not sell"}), 400
+    
+    # Reload card to get updated quantity
+    card = get_card(card_id)
+    qty = card[6] if card else 0
+    
+    if qty > 0:
+        return jsonify({"quantity": qty, "removed": False, "archived": False})
+    else:
+        flash("Card sold and archived")
+        return jsonify({"quantity": 0, "removed": False, "archived": True})
 
 
 @app.route("/folders/delete/<int:folder_id>")

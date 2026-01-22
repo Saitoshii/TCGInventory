@@ -22,6 +22,7 @@ __all__ = [
     "delete_folder",
     "list_folders",
     "export_inventory_csv",
+    "log_audit",
 ]
 
 # Valid columns in the ``cards`` table that can be updated via ``update_card``
@@ -41,7 +42,30 @@ ALLOWED_FIELDS = {
     "scryfall_id",
     "image_url",
     "foil",
+    "item_type",
+    "reserved_until",
+    "location_hint",
 }
+
+# Constants for item types and status values
+ITEM_TYPES = ["card", "display"]
+STATUS_VALUES = ["verfügbar", "reserviert", "verkauft", "archiviert"]
+LANGUAGE_VALUES = ["de", "en", "fr", "it", "es", "ja", ""]
+CONDITION_VALUES = ["MT", "NM", "EX", "GD", "LP", "PL", "PO", ""]
+
+
+def log_audit(card_id: int, user: str, action: str, field_name: str = None, 
+              old_value: str = None, new_value: str = None) -> None:
+    """Log an audit entry for a card change."""
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO audit_log (card_id, user, action, field_name, old_value, new_value, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (card_id, user, action, field_name, old_value, new_value, datetime.now().isoformat())
+        )
 
 # 📦 Funktion: Karte hinzufügen
 def add_card(
@@ -58,9 +82,16 @@ def add_card(
     scryfall_id="",
     image_url="",
     foil=False,
+    item_type="card",
+    location_hint="",
 ):
-    """Add a card and reserve a storage slot if available."""
-    if not storage_code:
+    """Add a card or display item and reserve a storage slot if available."""
+    # Validate item_type
+    if item_type not in ITEM_TYPES:
+        item_type = "card"
+    
+    # For cards, storage is required; for displays it's optional
+    if item_type == "card" and not storage_code:
         prefix = f"O{int(folder_id):02d}-" if folder_id else f"{set_code}-"
         storage_code = get_next_free_slot(prefix)
         if not storage_code:
@@ -83,8 +114,8 @@ def add_card(
             """
         INSERT INTO cards (name, set_code, language, condition, price, quantity, storage_code,
                            cardmarket_id, date_added, folder_id, collector_number,
-                           scryfall_id, image_url, foil)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                           scryfall_id, image_url, foil, item_type, location_hint)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 name,
@@ -101,12 +132,16 @@ def add_card(
                 scryfall_id,
                 image_url,
                 int(bool(foil)),
+                item_type,
+                location_hint,
             ),
         )
 
-    message = f"✅ Karte '{name}' erfolgreich hinzugefügt"
+    message = f"✅ {'Karte' if item_type == 'card' else 'Display-Item'} '{name}' erfolgreich hinzugefügt"
     if storage_code:
         message += f" und auf '{storage_code}' abgelegt."
+    elif location_hint:
+        message += f" (Standort: {location_hint})."
     else:
         message += "."
     print(message)
@@ -227,8 +262,8 @@ def export_inventory_csv(path: str, folder: str | None = None) -> None:
     print(f"📤 Kartenexport gespeichert unter '{path}'.")
 
 # ✏️ Funktion: Karte aktualisieren
-def update_card(card_id, **kwargs):
-    """Update fields of a card if the field names are valid."""
+def update_card(card_id, user="system", **kwargs):
+    """Update fields of a card if the field names are valid. Logs changes to audit_log."""
     invalid_fields = [key for key in kwargs if key not in ALLOWED_FIELDS]
     if invalid_fields:
         print(f"❌ Ungültige Felder: {', '.join(invalid_fields)}. Aktualisierung abgebrochen.")
@@ -240,18 +275,36 @@ def update_card(card_id, **kwargs):
 
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
+        
+        # Get current values for audit logging
+        cursor.execute(f"SELECT {', '.join(kwargs.keys())} FROM cards WHERE id = ?", (card_id,))
+        old_row = cursor.fetchone()
+        
+        if old_row is None:
+            print(f"⚠️ Keine Karte mit ID {card_id} gefunden.")
+            return
 
         fields = []
         values = []
 
-        for key, value in kwargs.items():
+        # Log changes for auditable fields
+        for idx, (key, value) in enumerate(kwargs.items()):
             fields.append(f"{key} = ?")
             values.append(value)
+            
+            # Log changes to quantity, price, and status
+            if key in ['quantity', 'price', 'status'] and old_row[idx] != value:
+                log_audit(card_id, user, 'update', key, str(old_row[idx]), str(value))
 
         values.append(card_id)
 
         query = f"UPDATE cards SET {', '.join(fields)} WHERE id = ?"
         cursor.execute(query, values)
+        
+        # Auto-archive if quantity becomes 0
+        if 'quantity' in kwargs and kwargs['quantity'] == 0:
+            cursor.execute("UPDATE cards SET status = 'archiviert' WHERE id = ?", (card_id,))
+            log_audit(card_id, user, 'auto-archive', 'status', 'verfügbar', 'archiviert')
 
     print(f"📝 Karte mit ID {card_id} wurde aktualisiert.")
 
@@ -282,8 +335,8 @@ def delete_card(card_id):
             print(f"⚠️ Keine Karte mit ID {card_id} gefunden.")
 
 
-def sell_card(card_id: int) -> bool:
-    """Decrease quantity of a card or delete it when none remain."""
+def sell_card(card_id: int, user="system") -> bool:
+    """Decrease quantity of a card or archive it when none remain."""
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT quantity FROM cards WHERE id = ?", (card_id,))
@@ -292,17 +345,28 @@ def sell_card(card_id: int) -> bool:
             print(f"⚠️ Keine Karte mit ID {card_id} gefunden.")
             return False
         qty = row[0] or 0
-        if qty > 1:
+        new_qty = qty - 1
+        
+        if new_qty > 0:
             cursor.execute(
                 "UPDATE cards SET quantity = ? WHERE id = ?",
-                (qty - 1, card_id),
+                (new_qty, card_id),
             )
+            log_audit(card_id, user, 'sell', 'quantity', str(qty), str(new_qty))
             conn.commit()
-            print(f"🛒 Karte verkauft. {qty - 1} verbleibend.")
+            print(f"🛒 Karte verkauft. {new_qty} verbleibend.")
             return True
-
-    delete_card(card_id)
-    return True
+        else:
+            # Archive when quantity reaches 0
+            cursor.execute(
+                "UPDATE cards SET quantity = 0, status = 'archiviert' WHERE id = ?",
+                (card_id,)
+            )
+            log_audit(card_id, user, 'sell', 'quantity', str(qty), '0')
+            log_audit(card_id, user, 'auto-archive', 'status', 'verfügbar', 'archiviert')
+            conn.commit()
+            print(f"🛒 Karte verkauft und archiviert (Menge 0).")
+            return True
 
 
 # ---------------------------------------------------------------------------
