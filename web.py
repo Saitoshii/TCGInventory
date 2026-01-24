@@ -1495,31 +1495,38 @@ def mark_order_sold(order_id: int):
         cards_not_found = []
         
         for card_name, quantity in order_items:
-            # Find matching cards in inventory (case-insensitive)
-            c.execute(
-                """
-                SELECT id, quantity as stock
-                FROM cards
-                WHERE LOWER(name) = LOWER(?)
-                AND status = 'verfügbar'
-                ORDER BY id
-                """,
-                (card_name,)
-            )
-            inventory_cards = c.fetchall()
-            
             remaining_to_sell = quantity
             
-            for card_id, stock in inventory_cards:
-                if remaining_to_sell <= 0:
+            # Keep selling until we've sold the required quantity or run out of stock
+            while remaining_to_sell > 0:
+                # Re-query each time to get current inventory state
+                c.execute(
+                    """
+                    SELECT id, quantity
+                    FROM cards
+                    WHERE LOWER(name) = LOWER(?)
+                    AND status = 'verfügbar'
+                    AND quantity > 0
+                    ORDER BY id
+                    LIMIT 1
+                    """,
+                    (card_name,)
+                )
+                card = c.fetchone()
+                
+                if not card:
+                    # No more cards available in inventory
                     break
                 
-                # Sell cards one at a time to use the existing sell_card logic
-                sell_count = min(stock, remaining_to_sell)
-                for _ in range(sell_count):
-                    sell_card(card_id, user)
+                card_id = card[0]
+                # Sell one card at a time using existing sell_card logic
+                # This ensures audit logging and proper archiving when quantity reaches 0
+                if sell_card(card_id, user):
                     cards_sold += 1
                     remaining_to_sell -= 1
+                else:
+                    # sell_card failed, stop trying this card
+                    break
             
             # Track cards that couldn't be found in inventory
             if remaining_to_sell > 0:
