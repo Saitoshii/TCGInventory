@@ -1473,9 +1473,66 @@ def list_orders():
 @app.route("/orders/<int:order_id>/mark_sold", methods=["POST"])
 @login_required
 def mark_order_sold(order_id: int):
-    """Mark an order as sold/completed."""
+    """Mark an order as sold/completed and remove cards from inventory."""
+    user = session.get('user', 'system')
+    
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
+        
+        # Get all items in this order
+        c.execute(
+            """
+            SELECT card_name, quantity
+            FROM order_items
+            WHERE order_id = ?
+            """,
+            (order_id,)
+        )
+        order_items = c.fetchall()
+        
+        # For each item, find matching cards in inventory and sell them
+        cards_sold = 0
+        cards_not_found = []
+        
+        for card_name, quantity in order_items:
+            remaining_to_sell = quantity
+            
+            # Keep selling until we've sold the required quantity or run out of stock
+            while remaining_to_sell > 0:
+                # Re-query each time to get current inventory state
+                c.execute(
+                    """
+                    SELECT id, quantity
+                    FROM cards
+                    WHERE LOWER(name) = LOWER(?)
+                    AND status = 'verfügbar'
+                    AND quantity > 0
+                    ORDER BY id
+                    LIMIT 1
+                    """,
+                    (card_name,)
+                )
+                card = c.fetchone()
+                
+                if not card:
+                    # No more cards available in inventory
+                    break
+                
+                card_id = card[0]
+                # Sell one card at a time using existing sell_card logic
+                # This ensures audit logging and proper archiving when quantity reaches 0
+                if sell_card(card_id, user):
+                    cards_sold += 1
+                    remaining_to_sell -= 1
+                else:
+                    # sell_card failed, stop trying this card
+                    break
+            
+            # Track cards that couldn't be found in inventory
+            if remaining_to_sell > 0:
+                cards_not_found.append(f"{card_name} ({remaining_to_sell}x)")
+        
+        # Mark order as sold
         c.execute(
             """
             UPDATE orders 
@@ -1486,7 +1543,12 @@ def mark_order_sold(order_id: int):
         )
         conn.commit()
     
-    flash("Order marked as sold")
+    # Provide feedback to user
+    if cards_not_found:
+        flash(f"Order marked as sold. {cards_sold} cards removed from inventory. Not found: {', '.join(cards_not_found)}", "warning")
+    else:
+        flash(f"Order marked as sold and {cards_sold} cards removed from inventory", "success")
+    
     return redirect(url_for("list_orders"))
 
 
