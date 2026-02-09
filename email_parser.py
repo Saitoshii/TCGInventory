@@ -154,6 +154,9 @@ def _clean_card_name(name: str) -> str:
     - "Card Name (Set Name | ... 1,50 EUR)"
     - "Sothera, the Supervoid (Edge of Eternities) - M - English - NM 3,98 EUR"
     - "Lorwyn Eclipsed Play Booster Box (Lorwyn Eclipsed) - English 140,00 EUR"
+    - "Annie Joins Up - R - Deuts" (truncated language)
+    - "Kavaron Harrier - U - Englisch - NM" (variant language spelling)
+    - "Card Name - R" (rarity-only suffix)
     
     Args:
         name: Raw card name
@@ -174,9 +177,51 @@ def _clean_card_name(name: str) -> str:
     # Handle both comma and dot decimals, and optional decimals
     name = re.sub(r'\s*[\d]+(?:[.,][\d]+)?\s*(EUR|€)\s*\)?$', '', name, flags=re.IGNORECASE)
     
+    # Remove format suffixes with truncated/partial languages: "- <rarity> - <partial_language> [- <condition>] [trailing]"
+    # Matches patterns like:
+    # - "- R - Deuts" (truncated German)
+    # - "- U - Englisch - NM" (German variant of English)
+    # - "- M - Eng" (truncated English)
+    # Language patterns (min 3 chars to avoid false positives):
+    # Eng[lish|lisch]?, Deu[t|ts|tsch]?, German, Franz?, French, Ital?, Italian, Span?, Spanish, Port?, Portuguese, Jap?, Japanese, Chin?, Chinese, Kor?, Korean
+    
+    # Build language pattern from common truncations and full names
+    lang_prefixes = [
+        r'Eng(?:l(?:ish|isch)?)?',  # Eng, Engl, English, Englisch
+        r'Deu(?:t(?:s(?:ch)?)?)?',  # Deu, Deut, Deuts, Deutsch
+        r'German',
+        r'Fran(?:z)?',               # Fran, Franz
+        r'French',
+        r'Ital(?:ian)?',            # Ital, Italian
+        r'Span(?:ish)?',            # Span, Spanish
+        r'Port(?:uguese)?',         # Port, Portuguese
+        r'Jap(?:anese)?',           # Jap, Japanese
+        r'Chin(?:ese)?',            # Chin, Chinese
+        r'Kor(?:ean)?',             # Kor, Korean
+    ]
+    lang_pattern = r'(?:' + '|'.join(lang_prefixes) + r')'
+    
+    condition_pattern = r'(?:NM|EX|GD|LP|PL|HP|DMG|M|Near\s*Mint|Excellent|Good|Light\s*Played|Played|Heavily\s*Played|Damaged)'
+    
+    # Pattern for: "- <rarity> - <language> [- <condition>] [anything]"
+    # Use specific single rarity codes [RUMC] rather than [A-Z]+ to avoid false positives
+    name = re.sub(
+        rf'\s*-\s*[RUMC]\s*-\s*{lang_pattern}(?:\s*-\s*{condition_pattern})?.*$',
+        '',
+        name,
+        flags=re.IGNORECASE
+    )
+    
     # Remove English format suffixes: "- <rarity> - <language> - <condition> <price>"
     # Example: "- M - English - NM 3,98 EUR" or "- R - German - EX 1,00 EUR"
+    # Keep this for full language names that might not match the pattern above
     name = re.sub(r'\s*-\s*[A-Z]+\s*-\s*(English|German|French|Italian|Spanish|Portuguese|Japanese|Chinese|Korean)\s*-\s*(NM|EX|GD|LP|PL|HP|DMG|M|Near Mint|Excellent|Good|Light Played|Played|Heavily Played|Damaged).*$', '', name, flags=re.IGNORECASE)
+    
+    # Remove rarity-only suffixes: "- <single_letter_rarity> [trailing]"
+    # Example: "- R", "- U", "- M", "- C"
+    # Only match single letters (common rarity codes: R=Rare, U=Uncommon, M=Mythic, C=Common)
+    # Use word boundary to handle edge cases like "- R-something"
+    name = re.sub(r'\s*-\s*[RUMC]\b.*$', '', name, flags=re.IGNORECASE)
     
     # Remove language-only suffixes: "- <language>"
     # Example: "- English" or "- German"

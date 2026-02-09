@@ -277,6 +277,93 @@ def test_clean_card_name_english_format():
     assert _clean_card_name("Test Card - C - French - GD 0,50 EUR") == "Test Card"
 
 
+def test_clean_card_name_rarity_only_suffix():
+    """Test card name cleaning for rarity-only suffixes."""
+    # Test single-letter rarity codes (R, U, M, C)
+    assert _clean_card_name("Card Name - R") == "Card Name"
+    assert _clean_card_name("Another Card - U") == "Another Card"
+    assert _clean_card_name("Mythic Card - M") == "Mythic Card"
+    assert _clean_card_name("Common Card - C") == "Common Card"
+    # Test with trailing content
+    assert _clean_card_name("Test Card - R 1,00 EUR") == "Test Card"
+    assert _clean_card_name("Sample - M something else") == "Sample"
+
+
+def test_clean_card_name_truncated_languages():
+    """Test card name cleaning for truncated/partial language names."""
+    # Test cases from the issue
+    assert _clean_card_name("Annie Joins Up - R - Deuts") == "Annie Joins Up"
+    assert _clean_card_name("Kavaron Harrier - U - Englisch - NM") == "Kavaron Harrier"
+    assert _clean_card_name("Card - M - Eng") == "Card"
+    
+    # Test various truncated English variants
+    assert _clean_card_name("Card Name - R - Eng") == "Card Name"
+    assert _clean_card_name("Card Name - R - Engl") == "Card Name"
+    assert _clean_card_name("Card Name - R - English") == "Card Name"
+    assert _clean_card_name("Card Name - R - Englisch") == "Card Name"  # German variant
+    
+    # Test various truncated German variants
+    assert _clean_card_name("Card Name - U - Deu") == "Card Name"
+    assert _clean_card_name("Card Name - U - Deut") == "Card Name"
+    assert _clean_card_name("Card Name - U - Deuts") == "Card Name"
+    assert _clean_card_name("Card Name - U - Deutsch") == "Card Name"
+    assert _clean_card_name("Card Name - U - German") == "Card Name"
+    
+    # Test other languages with truncation
+    assert _clean_card_name("Card Name - M - Fre") == "Card Name"
+    assert _clean_card_name("Card Name - M - Franz") == "Card Name"
+    assert _clean_card_name("Card Name - M - French") == "Card Name"
+    
+    assert _clean_card_name("Card Name - C - Ita") == "Card Name"
+    assert _clean_card_name("Card Name - C - Ital") == "Card Name"
+    assert _clean_card_name("Card Name - C - Italian") == "Card Name"
+    
+    assert _clean_card_name("Card Name - R - Spa") == "Card Name"
+    assert _clean_card_name("Card Name - R - Span") == "Card Name"
+    assert _clean_card_name("Card Name - R - Spanish") == "Card Name"
+    
+    assert _clean_card_name("Card Name - U - Por") == "Card Name"
+    assert _clean_card_name("Card Name - U - Port") == "Card Name"
+    assert _clean_card_name("Card Name - U - Portuguese") == "Card Name"
+    
+    assert _clean_card_name("Card Name - M - Jap") == "Card Name"
+    assert _clean_card_name("Card Name - M - Japanese") == "Card Name"
+    
+    assert _clean_card_name("Card Name - R - Chi") == "Card Name"
+    assert _clean_card_name("Card Name - R - Chin") == "Card Name"
+    assert _clean_card_name("Card Name - R - Chinese") == "Card Name"
+    
+    assert _clean_card_name("Card Name - C - Kor") == "Card Name"
+    assert _clean_card_name("Card Name - C - Korean") == "Card Name"
+
+
+def test_clean_card_name_truncated_with_condition():
+    """Test card name cleaning for truncated languages with condition markers."""
+    # Truncated language with condition
+    assert _clean_card_name("Card Name - R - Eng - NM") == "Card Name"
+    assert _clean_card_name("Card Name - U - Deut - EX") == "Card Name"
+    assert _clean_card_name("Card Name - M - Franz - GD") == "Card Name"
+    
+    # With price at the end
+    assert _clean_card_name("Card Name - R - Engl - NM 2,50 EUR") == "Card Name"
+    assert _clean_card_name("Card Name - U - Deuts - EX 1,00 EUR") == "Card Name"
+
+
+def test_clean_card_name_backward_compatibility():
+    """Test that existing card name cleaning behavior still works."""
+    # Original test cases that should still work
+    assert _clean_card_name("  Lightning Bolt  ") == "Lightning Bolt"
+    assert _clean_card_name("Card Name,") == "Card Name"
+    assert _clean_card_name("Card (EN)") == "Card"
+    assert _clean_card_name("Card [NM]") == "Card"
+    assert _clean_card_name("Multiple   Spaces") == "Multiple Spaces"
+    
+    # Full language names should still work
+    assert _clean_card_name("Card Name - M - English - NM") == "Card Name"
+    assert _clean_card_name("Card Name - R - German - EX") == "Card Name"
+    assert _clean_card_name("Card Name - U - French - GD") == "Card Name"
+
+
 if __name__ == "__main__":
     test_parse_buyer_from_subject()
     test_parse_buyer_from_body_pattern()
@@ -293,4 +380,8 @@ if __name__ == "__main__":
     test_english_email_subject_format()
     test_english_email_body_pattern()
     test_clean_card_name_english_format()
+    test_clean_card_name_rarity_only_suffix()
+    test_clean_card_name_truncated_languages()
+    test_clean_card_name_truncated_with_condition()
+    test_clean_card_name_backward_compatibility()
     print("All tests passed!")
