@@ -184,12 +184,29 @@ def _clean_card_name(name: str) -> str:
     # - "- M - Eng" (truncated English)
     # Language patterns (min 3 chars to avoid false positives):
     # Eng[lish|lisch]?, Deu[t|ts|tsch]?, German, Franz?, French, Ital?, Italian, Span?, Spanish, Port?, Portuguese, Jap?, Japanese, Chin?, Chinese, Kor?, Korean
-    lang_pattern = r'(?:Eng(?:l(?:ish|isch)?)?|Deu(?:t(?:s(?:ch)?)?)?|German|Franz?|French|Ital(?:ian)?|Span(?:ish)?|Port(?:uguese)?|Jap(?:anese)?|Chin(?:ese)?|Kor(?:ean)?)'
+    
+    # Build language pattern from common truncations and full names
+    lang_prefixes = [
+        r'Eng(?:l(?:ish|isch)?)?',  # Eng, Engl, English, Englisch
+        r'Deu(?:t(?:s(?:ch)?)?)?',  # Deu, Deut, Deuts, Deutsch
+        r'German',
+        r'Franz?',                   # Fran, Franz
+        r'French',
+        r'Ital(?:ian)?',            # Ital, Italian
+        r'Span(?:ish)?',            # Span, Spanish
+        r'Port(?:uguese)?',         # Port, Portuguese
+        r'Jap(?:anese)?',           # Jap, Japanese
+        r'Chin(?:ese)?',            # Chin, Chinese
+        r'Kor(?:ean)?',             # Kor, Korean
+    ]
+    lang_pattern = r'(?:' + '|'.join(lang_prefixes) + r')'
+    
     condition_pattern = r'(?:NM|EX|GD|LP|PL|HP|DMG|M|Near\s*Mint|Excellent|Good|Light\s*Played|Played|Heavily\s*Played|Damaged)'
     
     # Pattern for: "- <rarity> - <language> [- <condition>] [anything]"
+    # Use specific rarity codes [RUMC] rather than [A-Z]+ to avoid false positives
     name = re.sub(
-        rf'\s*-\s*[A-Z]+\s*-\s*{lang_pattern}(?:\s*-\s*{condition_pattern})?.*$',
+        rf'\s*-\s*[RUMC]+\s*-\s*{lang_pattern}(?:\s*-\s*{condition_pattern})?.*$',
         '',
         name,
         flags=re.IGNORECASE
@@ -203,7 +220,8 @@ def _clean_card_name(name: str) -> str:
     # Remove rarity-only suffixes: "- <single_letter_rarity> [trailing]"
     # Example: "- R", "- U", "- M", "- C"
     # Only match single letters (common rarity codes: R=Rare, U=Uncommon, M=Mythic, C=Common)
-    name = re.sub(r'\s*-\s*[RUMC](?:\s+.*)?$', '', name, flags=re.IGNORECASE)
+    # Use word boundary to handle edge cases like "- R-something"
+    name = re.sub(r'\s*-\s*[RUMC]\b.*$', '', name, flags=re.IGNORECASE)
     
     # Remove language-only suffixes: "- <language>"
     # Example: "- English" or "- German"
