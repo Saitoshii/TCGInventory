@@ -190,7 +190,7 @@ def _clean_card_name(name: str) -> str:
         r'Eng(?:l(?:ish|isch)?)?',  # Eng, Engl, English, Englisch
         r'Deu(?:t(?:s(?:ch)?)?)?',  # Deu, Deut, Deuts, Deutsch
         r'German',
-        r'Franz?',                   # Fran, Franz
+        r'Fran(?:z)?',               # Fran, Franz
         r'French',
         r'Ital(?:ian)?',            # Ital, Italian
         r'Span(?:ish)?',            # Span, Spanish
@@ -204,9 +204,9 @@ def _clean_card_name(name: str) -> str:
     condition_pattern = r'(?:NM|EX|GD|LP|PL|HP|DMG|M|Near\s*Mint|Excellent|Good|Light\s*Played|Played|Heavily\s*Played|Damaged)'
     
     # Pattern for: "- <rarity> - <language> [- <condition>] [anything]"
-    # Use specific rarity codes [RUMC] rather than [A-Z]+ to avoid false positives
+    # Use specific single rarity codes [RUMC] rather than [A-Z]+ to avoid false positives
     name = re.sub(
-        rf'\s*-\s*[RUMC]+\s*-\s*{lang_pattern}(?:\s*-\s*{condition_pattern})?.*$',
+        rf'\s*-\s*[RUMC]\s*-\s*{lang_pattern}(?:\s*-\s*{condition_pattern})?.*$',
         '',
         name,
         flags=re.IGNORECASE
