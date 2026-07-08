@@ -1,0 +1,12 @@
+/*
+ * app.css — TCGInventory custom styling layer on top of Bootstrap 5.
+ *
+ * These rules were extracted verbatim from the inline <style> block that used
+ * to live in templates/base.html. No visual change is intended here; this file
+ * exists so the custom CSS lives outside the templates and can grow into a
+ * proper design layer later (see tokens.css for the planned CSS-variable base).
+ */
+
+.clickable-image { cursor: pointer; }
+.nav-group { margin-right: 1rem; }
+.nav-group-title { font-size: 0.8rem; text-transform: uppercase; color: #6c757d; margin-bottom: 0.25rem; }

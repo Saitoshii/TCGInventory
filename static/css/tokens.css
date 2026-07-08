@@ -1,0 +1,49 @@
+/*
+ * tokens.css — design tokens (CSS custom properties) for TCGInventory.
+ *
+ * PLACEHOLDER ONLY. This file is intentionally free of any active rules so it
+ * introduces NO visual change in the current work package (WP1a). The variables
+ * below are commented out as a scaffold; the actual visual redesign that gives
+ * them values and wires them into app.css / Bootstrap overrides is planned for
+ * a later package (WP1c).
+ *
+ * When activated, uncomment :root and fill in values. Keep this file loaded
+ * BEFORE app.css so tokens are available to the custom rules.
+ */
+
+/*
+:root {
+  --=== Colors ===--
+  --color-bg: ;
+  --color-surface: ;
+  --color-text: ;
+  --color-text-muted: ;
+  --color-primary: ;
+  --color-primary-contrast: ;
+  --color-success: ;
+  --color-warning: ;
+  --color-danger: ;
+  --color-border: ;
+
+  --=== Spacing ===--
+  --space-xs: ;
+  --space-sm: ;
+  --space-md: ;
+  --space-lg: ;
+  --space-xl: ;
+
+  --=== Typography ===--
+  --font-family-base: ;
+  --font-size-base: ;
+  --font-size-sm: ;
+  --font-size-lg: ;
+  --font-weight-normal: ;
+  --font-weight-bold: ;
+  --line-height-base: ;
+
+  --=== Radii & borders ===--
+  --radius-sm: ;
+  --radius-md: ;
+  --border-width: ;
+}
+*/
