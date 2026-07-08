@@ -4,11 +4,8 @@
   <meta charset="utf-8">
   <title>TCG Inventory</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css" rel="stylesheet">
-  <style>
-    .clickable-image { cursor: pointer; }
-    .nav-group { margin-right: 1rem; }
-    .nav-group-title { font-size: 0.8rem; text-transform: uppercase; color: #6c757d; margin-bottom: 0.25rem; }
-  </style>
+  <link href="{{ url_for('static', filename='css/tokens.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/app.css') }}" rel="stylesheet">
 </head>
 <body class="bg-light">
   <div class="container-fluid py-4">
