@@ -71,6 +71,38 @@ def initialize_database() -> None:
             cursor.execute("ALTER TABLE cards ADD COLUMN reserved_until TEXT")
         if "location_hint" not in columns:
             cursor.execute("ALTER TABLE cards ADD COLUMN location_hint TEXT")
+        # Identity-path columns (safety net for very old databases). These are
+        # part of the CREATE TABLE above for fresh installs; the guards below
+        # add them non-destructively as nullable columns if an older schema is
+        # missing them. See CLAUDE.md for the canonical identity path.
+        if "set_code" not in columns:
+            cursor.execute("ALTER TABLE cards ADD COLUMN set_code TEXT")
+        if "language" not in columns:
+            cursor.execute("ALTER TABLE cards ADD COLUMN language TEXT")
+        if "cardmarket_id" not in columns:
+            cursor.execute("ALTER TABLE cards ADD COLUMN cardmarket_id TEXT")
+        if "storage_code" not in columns:
+            cursor.execute("ALTER TABLE cards ADD COLUMN storage_code TEXT")
+
+        # Indexes for the identity path and common lookups. CREATE INDEX
+        # IF NOT EXISTS keeps this idempotent and non-destructive. All columns
+        # referenced here are guaranteed to exist by the migration above.
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cards_cardmarket_id ON cards(cardmarket_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cards_scryfall_id ON cards(scryfall_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cards_identity "
+            "ON cards(set_code, collector_number, language, foil)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cards_storage_code ON cards(storage_code)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cards_name ON cards(name)"
+        )
 
         # Tabelle 2: Lagerplätze
         cursor.execute(
