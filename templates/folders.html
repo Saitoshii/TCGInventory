@@ -1,63 +1,123 @@
 {% extends "base.html" %}
 {% block content %}
-<h2 class="mb-4">Folders</h2>
-<form method="get" class="mb-3">
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h2 class="page-title mb-0">Ordner <small>· {{ folders|length }}</small></h2>
+  <a href="{{ url_for('add_folder_view') }}" class="btn btn-primary">＋ Ordner anlegen</a>
+</div>
+
+<form method="get" class="mb-4">
   <div class="row g-2">
     <div class="col">
-      <input class="form-control" type="text" name="q" placeholder="Filter by name, number or storage" value="{{ search }}">
+      <input class="form-control" type="text" name="q" placeholder="Nach Name, Nummer oder Lagerort filtern" value="{{ search }}">
     </div>
     <div class="col-auto">
       <select class="form-select" name="sort">
         <option value="name" {% if sort == 'name' %}selected{% endif %}>Name</option>
-        <option value="id" {% if sort == 'id' %}selected{% endif %}>Number</option>
-        <option value="storage" {% if sort == 'storage' %}selected{% endif %}>Storage</option>
+        <option value="id" {% if sort == 'id' %}selected{% endif %}>Nummer</option>
+        <option value="storage" {% if sort == 'storage' %}selected{% endif %}>Lagerort</option>
       </select>
     </div>
     <div class="col-auto">
-      <button class="btn btn-outline-secondary" type="submit">Apply</button>
+      <button class="btn btn-outline-secondary" type="submit">Anwenden</button>
     </div>
   </div>
 </form>
+
+{% if not folders %}
+<div class="empty-state"><span class="ico">📁</span>Noch keine Ordner angelegt.</div>
+{% endif %}
+
 {% for f in folders %}
-  <h4 class="mt-4">
-    <button class="btn btn-sm btn-outline-secondary me-2 folder-toggle" data-target="folder-{{ f[0] }}">Hide</button>
-    <a href="{{ url_for('export_cards', folder=f[0]) }}" class="btn btn-sm btn-outline-secondary me-2">Export CSV</a>
-    {{ f[1] }} ({{ '%02d'|format(f[0]) }}) - {{ f[2] }} pages
-    <a href="{{ url_for('edit_folder_view', folder_id=f[0]) }}" class="btn btn-sm btn-outline-primary ms-2">Edit</a>
-  </h4>
-  <div id="folder-{{ f[0] }}">
-  <table class="table table-sm table-striped">
-    <tr><th>Number</th><th>Name</th><th>Set</th><th>Qty</th><th>Storage</th></tr>
-    {% for c in folder_cards.get(f[0], []) %}
-    <tr>
-      <td>{{ c[5] }}</td>
-      <td>{{ c[1] }}{% if c[6] %} <span title="Foil">★</span>{% endif %}</td>
-      <td>{{ c[2] }}</td>
-      <td>{{ c[3] }}</td>
-      <td>{{ c[4] }}</td>
-    </tr>
-    {% endfor %}
-    {% if not folder_cards.get(f[0], []) %}
-    <tr><td colspan="5" class="text-muted">No cards</td></tr>
-    {% endif %}
-  </table>
+  {% set cards_in = folder_cards.get(f[0], []) %}
+  {% set ns = namespace(qty=0) %}
+  {% for c in cards_in %}{% set ns.qty = ns.qty + (c[3] or 0) %}{% endfor %}
+  <div class="folder-panel">
+    <div class="folder-panel__head">
+      <span class="folder-panel__icon">📁</span>
+      <span class="folder-panel__name">{{ f[1] }} <span class="folder-panel__num">#{{ '%02d'|format(f[0]) }}</span></span>
+      <div class="folder-panel__stats">
+        <span class="folder-count-pill">🃏 {{ cards_in|length }} Karten</span>
+        <span class="folder-count-pill">Σ {{ ns.qty }} Stück</span>
+        <span class="folder-count-pill">{{ f[2] }} Seiten</span>
+      </div>
+      <span class="folder-panel__spacer"></span>
+      <a href="{{ url_for('export_cards', folder=f[0]) }}" class="btn btn-sm btn-outline-secondary">Export CSV</a>
+      <a href="{{ url_for('edit_folder_view', folder_id=f[0]) }}" class="btn btn-sm btn-outline-primary">Bearbeiten</a>
+      <button class="btn btn-sm btn-outline-secondary folder-toggle" data-target="folder-{{ f[0] }}">Ausblenden</button>
+    </div>
+    <div class="folder-panel__body" id="folder-{{ f[0] }}">
+      {% if cards_in %}
+      <table class="table table-sm table-hover align-middle mb-0">
+        <thead>
+          <tr><th style="width:48px;"></th><th>Nr</th><th>Name</th><th>Set</th><th>Menge</th><th>Lagerort</th></tr>
+        </thead>
+        <tbody>
+        {% for c in cards_in %}
+          <tr>
+            <td>
+              {% if c[7] %}
+              <img src="{{ c[7] }}" class="folder-thumb clickable-image" data-img="{{ c[7] }}" alt="{{ c[1] }}" loading="lazy">
+              {% else %}
+              <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td>{{ c[5] if c[5] else '—' }}</td>
+            <td>{{ c[1] }}{% if c[6] %} <span class="foil-star-inline" title="Foil">★</span>{% endif %}</td>
+            <td>{{ c[2]|upper if c[2] else '—' }}</td>
+            <td>{{ c[3] }}</td>
+            <td>
+              {% if c[4] %}<span class="storage-badge">{{ c[4] }}</span>
+              {% else %}<span class="storage-badge storage-badge--empty">—</span>{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="text-muted p-3">Keine Karten in diesem Ordner.</div>
+      {% endif %}
+    </div>
   </div>
 {% endfor %}
-<a href="{{ url_for('add_folder_view') }}" class="btn btn-primary mt-3">Add Folder</a>
+
+<!-- Image Modal (thumbnails) -->
+<div class="modal fade" id="imgModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content bg-dark">
+      <div class="modal-body p-0">
+        <img id="modal-img" src="" class="img-fluid" alt="Kartenbild">
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
   document.querySelectorAll('.folder-toggle').forEach(btn => {
     btn.addEventListener('click', function() {
       const target = document.getElementById(this.dataset.target);
       if (!target) return;
+      const head = this.closest('.folder-panel__head');
       if (target.classList.contains('d-none')) {
         target.classList.remove('d-none');
-        this.textContent = 'Hide';
+        if (head) head.classList.remove('is-collapsed');
+        this.textContent = 'Ausblenden';
       } else {
         target.classList.add('d-none');
-        this.textContent = 'Show';
+        if (head) head.classList.add('is-collapsed');
+        this.textContent = 'Einblenden';
       }
     });
+  });
+
+  const modalImg = document.getElementById('modal-img');
+  const modalEl = document.getElementById('imgModal');
+  let modal = (typeof bootstrap !== 'undefined' && modalEl) ? new bootstrap.Modal(modalEl) : null;
+  document.addEventListener('click', (e) => {
+    if (e.target.classList.contains('clickable-image')) {
+      const src = e.target.getAttribute('data-img');
+      if (src && modalImg) { modalImg.src = src; if (modal) modal.show(); }
+    }
   });
 });
 </script>
