@@ -261,3 +261,89 @@ def find_variant(name: str, set_code: str, collector_number: str | None = None) 
         ):
             return variant
     return None
+
+
+def _choose_by_language(rows: List[Dict], language: str | None) -> Dict:
+    """Pick the best row for a language: exact match, else English, else the
+    first (deterministic). Rows must expose a ``lang`` key.
+    """
+    if language:
+        for r in rows:
+            if (r.get("lang") or "").lower() == language.lower():
+                return r
+    for r in rows:
+        if (r.get("lang") or "").lower() == "en":
+            return r
+    return rows[0]
+
+
+def find_by_identity(
+    set_code: str, collector_number: str, language: str | None = None
+) -> Optional[CardInfo]:
+    """Look up the canonical Scryfall printing by card identity.
+
+    Matches on ``(set_code, collector_number)`` in the local Scryfall database and
+    prefers the given ``language`` (exact match, else English, else the first
+    deterministic row). ``set_code`` is expected already normalized (lower case).
+
+    Returns the canonical identity (``scryfall_id``, ``cardmarket_id``, canonical
+    ``name``, ``image_url`` …) or ``None`` when there is no ``(set_code,
+    collector_number)`` match at all — the caller routes those to Needs-Review
+    instead of importing with a missing identity.
+
+    Note: the local ``default-cards`` database may only contain one printing per
+    card (usually English). When the exact language is absent we fall back to the
+    English printing for the canonical IDs/name/image; the card's own language is
+    still taken from the import (kept by the caller), so no identity is guessed.
+    """
+    if not set_code or not collector_number:
+        return None
+    _load_card_database()
+
+    if _DB_CONN:
+        c = _DB_CONN.execute(
+            "SELECT id, name, set_code, lang, cardmarket_id, collector_number, image_url "
+            "FROM cards WHERE lower(set_code)=lower(?) AND collector_number=?",
+            (set_code, str(collector_number)),
+        )
+        rows = [dict(r) for r in c.fetchall()]
+        if not rows:
+            return None
+        row = _choose_by_language(rows, language)
+        return {
+            "scryfall_id": row["id"],
+            "name": row["name"],
+            "set_code": row["set_code"],
+            "language": row["lang"],
+            "cardmarket_id": row["cardmarket_id"],
+            "collector_number": row["collector_number"],
+            "image_url": row["image_url"],
+        }
+
+    # JSON fallback (no prebuilt DB): scan the loaded cards.
+    matches = [
+        {
+            "id": card.get("id", ""),
+            "name": card.get("name", ""),
+            "set_code": card.get("set", ""),
+            "lang": card.get("lang", ""),
+            "cardmarket_id": str(card.get("cardmarket_id", "")),
+            "collector_number": card.get("collector_number", ""),
+            "image_url": (card.get("image_uris") or {}).get("normal", ""),
+        }
+        for card in _CARDS_BY_ID.values()
+        if (card.get("set", "").lower() == set_code.lower())
+        and str(card.get("collector_number", "")) == str(collector_number)
+    ]
+    if not matches:
+        return None
+    row = _choose_by_language(matches, language)
+    return {
+        "scryfall_id": row["id"],
+        "name": row["name"],
+        "set_code": row["set_code"],
+        "language": row["lang"],
+        "cardmarket_id": row["cardmarket_id"],
+        "collector_number": row["collector_number"],
+        "image_url": row["image_url"],
+    }

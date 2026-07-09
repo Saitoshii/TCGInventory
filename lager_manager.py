@@ -9,6 +9,8 @@ from . import DB_FILE
 
 __all__ = [
     "add_card",
+    "add_or_increment_card",
+    "find_card_by_identity",
     "add_storage_slot",
     "create_binder",
     "list_all_cards",
@@ -155,6 +157,97 @@ def add_card(
         message += "."
     print(message)
     return True
+
+def find_card_by_identity(set_code, collector_number, language, foil, folder_id):
+    """Return the id of an existing card with the same identity in the same
+    folder, or ``None``.
+
+    Identity = ``set_code`` + ``collector_number`` + ``language`` + ``foil``
+    (condition and price are deliberately not part of the key, matching the
+    canonical identity in CLAUDE.md). ``folder_id`` may be ``None`` (no folder).
+    """
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        query = (
+            "SELECT id FROM cards WHERE set_code = ? AND collector_number = ? "
+            "AND language = ? AND foil = ? AND "
+        )
+        params = [set_code, collector_number, language, int(bool(foil))]
+        if folder_id in (None, ""):
+            query += "folder_id IS NULL"
+        else:
+            query += "folder_id = ?"
+            params.append(int(folder_id))
+        query += " ORDER BY id LIMIT 1"
+        cursor.execute(query, params)
+        row = cursor.fetchone()
+        return row[0] if row else None
+
+
+def add_or_increment_card(
+    name,
+    set_code,
+    language,
+    condition,
+    price,
+    quantity=1,
+    storage_code=None,
+    cardmarket_id="",
+    folder_id=None,
+    collector_number="",
+    scryfall_id="",
+    image_url="",
+    foil=False,
+    item_type="card",
+    location_hint="",
+    user="system",
+):
+    """Add a card, or increment the quantity of an identical one in the same folder.
+
+    Dedupe rule (import default): if a card with the same identity
+    (``set_code`` + ``collector_number`` + ``language`` + ``foil``) already
+    exists in the same folder, its ``quantity`` is increased by ``quantity`` and
+    no new storage slot is used. Otherwise a new card is created via
+    :func:`add_card` (which allocates a slot). Dedupe only applies when both
+    ``set_code`` and ``collector_number`` are present; incomplete identities
+    always create a new row to avoid merging unrelated entries.
+    """
+    if set_code and collector_number:
+        existing = find_card_by_identity(
+            set_code, collector_number, language, foil, folder_id
+        )
+        if existing is not None:
+            with sqlite3.connect(DB_FILE) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT quantity FROM cards WHERE id = ?", (existing,))
+                old_qty = cursor.fetchone()[0] or 0
+                new_qty = old_qty + (quantity or 1)
+                cursor.execute(
+                    "UPDATE cards SET quantity = ? WHERE id = ?", (new_qty, existing)
+                )
+                log_audit(existing, user, "update", "quantity", str(old_qty), str(new_qty), cursor)
+                conn.commit()
+            print(f"➕ Menge von '{name}' erhöht: {old_qty} → {new_qty}.")
+            return True
+
+    return add_card(
+        name,
+        set_code,
+        language,
+        condition,
+        price,
+        quantity,
+        storage_code,
+        cardmarket_id,
+        folder_id,
+        collector_number,
+        scryfall_id,
+        image_url,
+        foil,
+        item_type,
+        location_hint,
+    )
+
 
 # 📍 Funktion: Lagerplatz hinzufügen
 def add_storage_slot(code):
