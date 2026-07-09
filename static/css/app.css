@@ -1,12 +1,386 @@
 /*
- * app.css — TCGInventory custom styling layer on top of Bootstrap 5.
+ * app.css — TCGInventory visual layer on top of Bootstrap 5 (dark theme).
  *
- * These rules were extracted verbatim from the inline <style> block that used
- * to live in templates/base.html. No visual change is intended here; this file
- * exists so the custom CSS lives outside the templates and can grow into a
- * proper design layer later (see tokens.css for the planned CSS-variable base).
+ * Loads after tokens.css (design tokens) and Bootstrap. It (1) maps the tokens
+ * onto Bootstrap's CSS variables so stock components go dark cohesively, and
+ * (2) defines the custom components: the card gallery grid, the foil star,
+ * storage-location badges and the folder panels.
  */
 
+/* ============================================================
+ * 1. Bootstrap variable overrides + base
+ * ============================================================ */
+:root,
+[data-bs-theme="dark"] {
+  --bs-body-bg: var(--color-bg);
+  --bs-body-color: var(--color-text);
+  --bs-emphasis-color: var(--color-text);
+  --bs-secondary-color: var(--color-text-muted);
+  --bs-tertiary-color: var(--color-text-dim);
+  --bs-border-color: var(--color-border);
+  --bs-border-color-translucent: var(--color-border);
+  --bs-link-color: var(--color-primary);
+  --bs-link-hover-color: var(--color-primary-hover);
+  --bs-link-color-rgb: 76, 141, 255;
+  --bs-primary: var(--color-primary);
+  --bs-primary-rgb: 76, 141, 255;
+  --bs-heading-color: var(--color-text);
+}
+
+body {
+  background-color: var(--color-bg);
+  background-image:
+    radial-gradient(1100px 520px at 100% -8%, rgba(76, 141, 255, 0.08), transparent 60%),
+    radial-gradient(900px 500px at -10% 0%, rgba(124, 92, 255, 0.06), transparent 55%);
+  background-attachment: fixed;
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-base);
+}
+
+h1, h2, h3, h4, h5, h6 { color: var(--color-text); }
+
+/* Keep the legacy helper from the extracted base.html styles */
 .clickable-image { cursor: pointer; }
-.nav-group { margin-right: 1rem; }
-.nav-group-title { font-size: 0.8rem; text-transform: uppercase; color: #6c757d; margin-bottom: 0.25rem; }
+
+/* ============================================================
+ * 2. Cards / panels / tables / forms / buttons
+ * ============================================================ */
+.card {
+  --bs-card-bg: var(--color-surface);
+  --bs-card-border-color: var(--color-border);
+  --bs-card-cap-bg: var(--color-surface-2);
+  --bs-card-color: var(--color-text);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+.card-header { border-bottom-color: var(--color-border); font-weight: var(--font-weight-medium); }
+
+.table {
+  --bs-table-bg: transparent;
+  --bs-table-color: var(--color-text);
+  --bs-table-border-color: var(--color-border);
+  --bs-table-striped-bg: rgba(255, 255, 255, 0.028);
+  --bs-table-striped-color: var(--color-text);
+  --bs-table-hover-bg: var(--color-primary-soft);
+  --bs-table-hover-color: var(--color-text);
+}
+.table > :not(caption) > * > * { border-bottom-color: var(--color-border); }
+.table thead th {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-weight: var(--font-weight-medium);
+}
+
+.form-control,
+.form-select {
+  background-color: var(--color-surface-2);
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+.form-control:focus,
+.form-select:focus {
+  background-color: var(--color-surface-2);
+  border-color: var(--color-primary);
+  color: var(--color-text);
+  box-shadow: 0 0 0 0.2rem rgba(76, 141, 255, 0.25);
+}
+.form-control::placeholder { color: var(--color-text-dim); }
+.form-label { color: var(--color-text-muted); font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); margin-bottom: 0.3rem; }
+
+.btn-primary {
+  --bs-btn-bg: var(--color-primary);
+  --bs-btn-border-color: var(--color-primary);
+  --bs-btn-hover-bg: var(--color-primary-hover);
+  --bs-btn-hover-border-color: var(--color-primary-hover);
+  --bs-btn-active-bg: var(--color-primary-hover);
+  --bs-btn-active-border-color: var(--color-primary-hover);
+  --bs-btn-color: #fff;
+  --bs-btn-hover-color: #fff;
+  --bs-btn-active-color: #fff;
+}
+.btn-outline-primary {
+  --bs-btn-color: var(--color-primary-hover);
+  --bs-btn-border-color: rgba(76, 141, 255, 0.5);
+  --bs-btn-hover-bg: var(--color-primary);
+  --bs-btn-hover-border-color: var(--color-primary);
+  --bs-btn-hover-color: #fff;
+}
+.btn { --bs-btn-border-radius: var(--radius-sm); font-weight: var(--font-weight-medium); }
+
+code { color: #ffb3c7; }
+
+.alert-info {
+  --bs-alert-bg: rgba(88, 166, 255, 0.12);
+  --bs-alert-border-color: rgba(88, 166, 255, 0.3);
+  --bs-alert-color: #bcd9ff;
+}
+
+.modal-content { background-color: var(--color-surface); border: 1px solid var(--color-border); }
+
+/* ============================================================
+ * 3. App bar / navigation
+ * ============================================================ */
+.app-navbar {
+  background-color: rgba(13, 17, 23, 0.85);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--color-border);
+  position: sticky;
+  top: 0;
+  z-index: 1030;
+}
+.app-brand {
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.02em;
+  color: var(--color-text);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.app-brand:hover { color: var(--color-text); }
+.app-brand__mark { font-size: 1.35rem; line-height: 1; }
+.app-navbar .navbar-nav { --bs-nav-link-color: var(--color-text-muted); }
+.app-navbar .nav-link {
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-medium);
+  border-radius: var(--radius-sm);
+  padding: 0.35rem 0.7rem;
+}
+.app-navbar .nav-link:hover,
+.app-navbar .nav-link:focus { color: var(--color-text); background: rgba(255, 255, 255, 0.05); }
+.app-navbar .nav-link.active { color: #fff; background: var(--color-primary-soft); }
+.dropdown-menu {
+  --bs-dropdown-bg: var(--color-surface);
+  --bs-dropdown-border-color: var(--color-border);
+  --bs-dropdown-link-color: var(--color-text);
+  --bs-dropdown-link-hover-bg: var(--color-primary-soft);
+  --bs-dropdown-link-hover-color: #fff;
+  --bs-dropdown-link-active-bg: var(--color-primary);
+  box-shadow: var(--shadow-md);
+}
+.app-user { color: var(--color-text-muted); font-size: var(--font-size-sm); }
+
+.page-title { font-weight: var(--font-weight-bold); margin-bottom: 1.25rem; }
+.page-title small { color: var(--color-text-muted); font-weight: var(--font-weight-normal); font-size: 0.9rem; }
+
+/* ============================================================
+ * 4. Pagination
+ * ============================================================ */
+.pagination {
+  --bs-pagination-bg: var(--color-surface);
+  --bs-pagination-color: var(--color-text-muted);
+  --bs-pagination-border-color: var(--color-border);
+  --bs-pagination-hover-bg: var(--color-surface-3);
+  --bs-pagination-hover-color: var(--color-text);
+  --bs-pagination-focus-bg: var(--color-surface-3);
+  --bs-pagination-active-bg: var(--color-primary);
+  --bs-pagination-active-border-color: var(--color-primary);
+  --bs-pagination-disabled-bg: var(--color-surface);
+  --bs-pagination-disabled-color: var(--color-text-dim);
+}
+
+/* ============================================================
+ * 5. Badges (status + storage + foil)
+ * ============================================================ */
+.badge { font-weight: var(--font-weight-medium); letter-spacing: 0.01em; }
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  border: 1px solid transparent;
+}
+.status-badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.status-badge--verfuegbar { color: #64d67a; background: rgba(63, 185, 80, 0.14); border-color: rgba(63, 185, 80, 0.32); }
+.status-badge--reserviert { color: #e7c14a; background: rgba(214, 165, 22, 0.14); border-color: rgba(214, 165, 22, 0.32); }
+.status-badge--verkauft   { color: #6fb6ff; background: rgba(88, 166, 255, 0.14); border-color: rgba(88, 166, 255, 0.32); }
+.status-badge--archiviert { color: #9aa4b2; background: rgba(110, 119, 135, 0.16); border-color: rgba(110, 119, 135, 0.34); }
+
+/* Storage / location — "where do we find it" */
+.storage-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+  background: var(--color-primary-soft);
+  color: #bcd4ff;
+  border: 1px solid rgba(76, 141, 255, 0.35);
+  white-space: nowrap;
+}
+.storage-badge::before { content: "\1F4CD"; font-size: 0.85em; }
+.storage-badge--empty {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text-dim);
+  border-color: var(--color-border);
+}
+.storage-badge--empty::before { content: "\2014"; }
+
+/* ============================================================
+ * 6. Card gallery grid + foil star
+ * ============================================================ */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-4);
+}
+.tcg-card {
+  position: relative;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+.tcg-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); border-color: var(--color-border-strong); }
+.tcg-card.is-foil { border-color: rgba(255, 207, 51, 0.4); }
+.tcg-card.is-foil:hover { border-color: rgba(255, 207, 51, 0.7); }
+
+.tcg-card__media {
+  position: relative;
+  aspect-ratio: 488 / 680;
+  background:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.02) 0 10px, transparent 10px 20px),
+    var(--color-surface-2);
+}
+.tcg-card__img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in; }
+.tcg-card__noimg {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  color: var(--color-text-dim);
+  font-size: var(--font-size-sm);
+  text-align: center;
+  padding: var(--space-3);
+}
+.tcg-card__noimg .ico { font-size: 1.6rem; opacity: 0.7; }
+
+/* Foil star — top-left overlay on the card image */
+.tcg-card__foil {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 3;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: conic-gradient(from 210deg, var(--color-foil-a), var(--color-foil-b), var(--color-foil-c), var(--color-foil-a));
+  color: #3a2c00;
+  font-size: 17px;
+  line-height: 1;
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  box-shadow: var(--shadow-foil);
+}
+
+.tcg-card__check { position: absolute; top: 8px; right: 8px; z-index: 3; }
+.tcg-card__check .form-check-input { width: 1.15rem; height: 1.15rem; background-color: rgba(13, 17, 23, 0.75); border-color: rgba(255, 255, 255, 0.5); cursor: pointer; }
+.tcg-card__check .form-check-input:checked { background-color: var(--color-primary); border-color: var(--color-primary); }
+
+.tcg-card__body { padding: var(--space-3); display: flex; flex-direction: column; gap: var(--space-2); flex: 1; }
+.tcg-card__title { font-weight: var(--font-weight-medium); font-size: 0.92rem; line-height: 1.25; color: var(--color-text); }
+.tcg-card__meta { font-size: var(--font-size-sm); color: var(--color-text-muted); display: flex; flex-wrap: wrap; gap: 0.15rem 0.5rem; align-items: center; }
+.tcg-card__meta .sep { opacity: 0.4; }
+.tcg-card__stats { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.tcg-card__price { font-weight: var(--font-weight-bold); color: var(--color-text); }
+.tcg-card__qty { font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.tcg-card__row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; }
+.tcg-card__actions { display: flex; gap: var(--space-2); margin-top: auto; padding-top: 0.25rem; }
+.tcg-card__actions .btn { flex: 1; }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.72rem;
+  font-weight: var(--font-weight-medium);
+  background: var(--color-surface-3);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.chip--foil { background: linear-gradient(90deg, rgba(255, 213, 74, 0.18), rgba(255, 142, 199, 0.18), rgba(106, 215, 255, 0.18)); color: #ffe08a; border-color: rgba(255, 207, 51, 0.4); }
+
+/* Toolbar above the grid */
+.list-toolbar { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; justify-content: space-between; margin-bottom: var(--space-3); }
+.result-count { color: var(--color-text-muted); font-size: var(--font-size-sm); }
+
+.empty-state { text-align: center; padding: var(--space-6) var(--space-4); color: var(--color-text-muted); border: 1px dashed var(--color-border); border-radius: var(--radius-md); background: rgba(255, 255, 255, 0.02); }
+.empty-state .ico { font-size: 2.5rem; opacity: 0.6; display: block; margin-bottom: 0.5rem; }
+
+/* ============================================================
+ * 7. Dashboard stat tiles
+ * ============================================================ */
+.stat-tile { position: relative; overflow: hidden; }
+.stat-tile__label { color: var(--color-text-muted); font-size: var(--font-size-sm); text-transform: uppercase; letter-spacing: 0.03em; }
+.stat-tile__value { font-size: 1.9rem; font-weight: var(--font-weight-bold); line-height: 1.1; margin: 0.15rem 0; }
+.stat-tile__hint { color: var(--color-text-dim); font-size: var(--font-size-sm); }
+.stat-tile__accent { color: var(--color-primary); }
+
+/* ============================================================
+ * 8. Folder panels
+ * ============================================================ */
+.folder-panel { margin-bottom: var(--space-4); }
+.folder-panel__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-3) var(--space-4);
+  background: linear-gradient(180deg, var(--color-surface-2), var(--color-surface));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+.folder-panel__head.is-collapsed { border-radius: var(--radius-md); }
+.folder-panel__icon { font-size: 1.3rem; }
+.folder-panel__name { font-weight: var(--font-weight-bold); font-size: 1.05rem; }
+.folder-panel__num { color: var(--color-text-dim); font-weight: var(--font-weight-normal); }
+.folder-panel__stats { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.folder-panel__spacer { flex: 1; }
+.folder-panel__body {
+  border: 1px solid var(--color-border);
+  border-top: none;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  padding: var(--space-2);
+  background: var(--color-surface);
+}
+.folder-count-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-sm);
+  background: var(--color-surface-3);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+.folder-thumb { width: 34px; height: 47px; object-fit: cover; border-radius: 4px; background: var(--color-surface-2); cursor: pointer; }
+.foil-star-inline { color: var(--color-foil-star); filter: drop-shadow(0 0 3px rgba(255, 207, 51, 0.5)); }
+
+/* ============================================================
+ * 9. Responsive tweaks
+ * ============================================================ */
+@media (max-width: 575.98px) {
+  .card-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--space-3); }
+  .container-fluid { padding-left: 0.75rem; padding-right: 0.75rem; }
+}

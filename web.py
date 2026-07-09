@@ -909,7 +909,7 @@ def list_folders_view():
         c = conn.cursor()
         for fid, _, _ in folders:
             query = (
-                "SELECT id, name, set_code, quantity, storage_code, collector_number, foil FROM cards "
+                "SELECT id, name, set_code, quantity, storage_code, collector_number, foil, image_url FROM cards "
                 "WHERE folder_id=?"
             )
             params = [fid]
