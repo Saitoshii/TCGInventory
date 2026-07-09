@@ -1,78 +1,78 @@
 <!doctype html>
-<html lang="en">
+<html lang="de" data-bs-theme="dark">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>TCG Inventory</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/tokens.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/app.css') }}" rel="stylesheet">
 </head>
-<body class="bg-light">
-  <div class="container-fluid py-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-      <h1>TCG Inventory</h1>
-      {% if session.get('user') %}
-      <div class="ms-auto">
-        <span class="text-muted me-3">{{ session.get('user') }}</span>
-        <a class="btn btn-outline-danger btn-sm" href="{{ url_for('logout') }}">Logout</a>
+<body>
+  {% if session.get('user') %}
+  {% set ep = request.endpoint %}
+  <nav class="app-navbar navbar navbar-expand-lg">
+    <div class="container-fluid">
+      <a class="app-brand navbar-brand" href="{{ url_for('dashboard') }}">
+        <span class="app-brand__mark">🃏</span> TCG Inventory
+      </a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainnav"
+              aria-controls="mainnav" aria-expanded="false" aria-label="Navigation umschalten">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="mainnav">
+        <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+          <li class="nav-item">
+            <a class="nav-link {% if ep == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}">Dashboard</a>
+          </li>
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle {% if ep in ['list_cards', 'list_folders_view'] %}active{% endif %}"
+               href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Inventar</a>
+            <ul class="dropdown-menu">
+              <li><a class="dropdown-item" href="{{ url_for('list_cards') }}">Karten</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('list_folders_view') }}">Ordner</a></li>
+            </ul>
+          </li>
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle {% if ep in ['add_card_view', 'bulk_add_view', 'upload_queue_view'] %}active{% endif %}"
+               href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Hinzufügen</a>
+            <ul class="dropdown-menu">
+              <li><a class="dropdown-item" href="{{ url_for('add_card_view') }}">Karte hinzufügen</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('bulk_add_view') }}">Bulk-Import</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('upload_queue_view') }}">Upload-Queue</a></li>
+            </ul>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link {% if ep == 'list_orders' %}active{% endif %}" href="{{ url_for('list_orders') }}">Bestellungen</a>
+          </li>
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle {% if ep in ['audit_log_view', 'export_cards', 'upload_database', 'update_view'] %}active{% endif %}"
+               href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">System</a>
+            <ul class="dropdown-menu">
+              <li><a class="dropdown-item" href="{{ url_for('audit_log_view') }}">Audit-Log</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('export_cards') }}">Export</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('upload_database') }}">DB hochladen</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('update_view') }}">Update</a></li>
+            </ul>
+          </li>
+        </ul>
+        <div class="d-flex align-items-center gap-3">
+          <span class="app-user">👤 {{ session.get('user') }}</span>
+          <a class="btn btn-outline-danger btn-sm" href="{{ url_for('logout') }}">Logout</a>
+        </div>
       </div>
-      {% endif %}
     </div>
-    
-    <nav class="mb-4">
-      {% if session.get('user') %}
-      <div class="d-flex flex-wrap align-items-start">
-        <!-- Dashboard -->
-        <div class="nav-group">
-          <div class="nav-group-title">Dashboard</div>
-          <div>
-            <a class="btn btn-primary me-2 mb-2" href="{{ url_for('dashboard') }}">Dashboard</a>
-          </div>
-        </div>
-        
-        <!-- Inventory Group -->
-        <div class="nav-group">
-          <div class="nav-group-title">Inventory</div>
-          <div>
-            <a class="btn btn-secondary me-2 mb-2" href="{{ url_for('list_cards') }}">Cards</a>
-            <a class="btn btn-secondary me-2 mb-2" href="{{ url_for('list_folders_view') }}">Folders</a>
-          </div>
-        </div>
-        
-        <!-- Add/Import Group -->
-        <div class="nav-group">
-          <div class="nav-group-title">Add/Import</div>
-          <div>
-            <a class="btn btn-secondary me-2 mb-2" href="{{ url_for('add_card_view') }}">Add Card</a>
-            <a class="btn btn-secondary me-2 mb-2" href="{{ url_for('bulk_add_view') }}">Bulk Add</a>
-            <a class="btn btn-secondary me-2 mb-2" href="{{ url_for('upload_queue_view') }}">Upload Queue</a>
-          </div>
-        </div>
-        
-        <!-- Orders Group -->
-        <div class="nav-group">
-          <div class="nav-group-title">Orders</div>
-          <div>
-            <a class="btn btn-secondary me-2 mb-2" href="{{ url_for('list_orders') }}">Open Orders</a>
-          </div>
-        </div>
-        
-        <!-- Reports & System Group -->
-        <div class="nav-group">
-          <div class="nav-group-title">Reports & System</div>
-          <div>
-            <a class="btn btn-secondary me-2 mb-2" href="{{ url_for('audit_log_view') }}">Audit Log</a>
-            <a class="btn btn-secondary me-2 mb-2" href="{{ url_for('export_cards') }}">Export</a>
-            <a class="btn btn-secondary me-2 mb-2" href="{{ url_for('upload_database') }}">Upload DB</a>
-            <a class="btn btn-secondary me-2 mb-2" href="{{ url_for('update_view') }}">Update</a>
-          </div>
-        </div>
-      </div>
-      {% else %}
+  </nav>
+  {% endif %}
+
+  <div class="container-fluid py-4">
+    {% if not session.get('user') %}
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h1 class="app-brand mb-0"><span class="app-brand__mark">🃏</span> TCG Inventory</h1>
       <a class="btn btn-primary" href="{{ url_for('login') }}">Login</a>
-      {% endif %}
-    </nav>
-    
+    </div>
+    {% endif %}
+
     {% with messages = get_flashed_messages() %}
       {% if messages %}
         <div class="alert alert-info">
