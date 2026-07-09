@@ -1,29 +1,36 @@
 {% extends "base.html" %}
 {% block content %}
-<h2 class="mb-4">Bulk Add Cards</h2>
+<h2 class="page-title">Bulk-Import</h2>
+<p class="text-muted">
+  Wähle den <strong>Zielordner</strong> für diesen Import (keine automatische
+  Zuordnung nach Set). Bei einer Dragonshield-CSV werden Foil (aus „Printing"),
+  Set-Code, Kartennummer und Sprache automatisch erkannt und über die lokale
+  Scryfall-Datenbank angereichert. Nicht eindeutig auflösbare Zeilen landen unter
+  <a href="{{ url_for('needs_review_view') }}">Needs-Review</a>, nicht im Bestand.
+</p>
 <form id="bulk-add-form" method="post" enctype="multipart/form-data">
   <div class="mb-3">
-    <label class="form-label">Folder</label>
+    <label class="form-label">Zielordner</label>
     <select name="folder_id" class="form-select">
-      <option value="">-- none --</option>
+      <option value="">-- keiner --</option>
       {% for f in folders %}
       <option value="{{ f[0] }}">{{ f[1] }} ({{ '%02d'|format(f[0]) }})</option>
       {% endfor %}
     </select>
   </div>
   <div class="mb-3">
-    <label class="form-label">Cards (one name per line)</label>
+    <label class="form-label">Karten (ein Name pro Zeile)</label>
     <textarea name="cards" class="form-control" rows="6"></textarea>
   </div>
   <div class="mb-3">
-    <label class="form-label">JSON File</label>
+    <label class="form-label">JSON-Datei</label>
     <input type="file" name="json_file" class="form-control">
   </div>
   <div class="mb-3">
-    <label class="form-label">CSV File</label>
-    <input type="file" name="csv_file" class="form-control">
+    <label class="form-label">CSV-Datei (Dragonshield)</label>
+    <input type="file" name="csv_file" class="form-control" accept=".csv">
   </div>
-  <button type="submit" class="btn btn-primary">Add</button>
+  <button type="submit" class="btn btn-primary">Hochladen</button>
   <div class="progress mt-3" style="display:none;" id="upload-progress">
     <div class="progress-bar progress-bar-striped progress-bar-animated bg-info" role="progressbar" style="width:0%">0%</div>
   </div>

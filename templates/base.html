@@ -34,12 +34,13 @@
             </ul>
           </li>
           <li class="nav-item dropdown">
-            <a class="nav-link dropdown-toggle {% if ep in ['add_card_view', 'bulk_add_view', 'upload_queue_view'] %}active{% endif %}"
+            <a class="nav-link dropdown-toggle {% if ep in ['add_card_view', 'bulk_add_view', 'upload_queue_view', 'needs_review_view'] %}active{% endif %}"
                href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Hinzufügen</a>
             <ul class="dropdown-menu">
               <li><a class="dropdown-item" href="{{ url_for('add_card_view') }}">Karte hinzufügen</a></li>
               <li><a class="dropdown-item" href="{{ url_for('bulk_add_view') }}">Bulk-Import</a></li>
-              <li><a class="dropdown-item" href="{{ url_for('upload_queue_view') }}">Upload-Queue</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('upload_queue_view') }}">Upload-Queue{% if queue_count %} <span class="badge bg-secondary">{{ queue_count }}</span>{% endif %}</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('needs_review_view') }}">Needs-Review{% if needs_review_count %} <span class="badge bg-danger">{{ needs_review_count }}</span>{% endif %}</a></li>
             </ul>
           </li>
           <li class="nav-item">

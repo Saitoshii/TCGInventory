@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h2 class="page-title mb-0">Needs-Review <small>· {{ entries|length }}</small></h2>
+  {% if entries %}
+  <form method="post" action="{{ url_for('needs_review_clear') }}"
+        onsubmit="return confirm('Wirklich alle Einträge verwerfen?')">
+    <button class="btn btn-outline-danger btn-sm" type="submit">Alle verwerfen</button>
+  </form>
+  {% endif %}
+</div>
+
+<p class="text-muted">
+  Diese Zeilen konnten beim Import <strong>nicht eindeutig</strong> aufgelöst werden
+  (unbekannter Set-Code, kein Scryfall-Treffer oder fehlerhafte Zeile). Korrigiere
+  Set-Code, Kartennummer oder Sprache und übernimm sie erneut – es wird nichts geraten
+  oder still verworfen.
+</p>
+
+{% if not entries %}
+<div class="empty-state"><span class="ico">✅</span>Keine offenen Fälle – alles sauber aufgelöst.</div>
+{% endif %}
+
+{% for i, e in entries %}
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span>
+      <strong>{{ e.name or 'Unbekannte Karte' }}</strong>
+      {% if e.foil %}<span class="chip chip--foil">★ Foil</span>{% endif %}
+    </span>
+    <span class="status-badge status-badge--reserviert">{{ e.reason }}</span>
+  </div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('needs_review_retry', index=i) }}" class="row g-2 align-items-end">
+      <div class="col-6 col-md-2">
+        <label class="form-label">Set-Code</label>
+        <input class="form-control" name="set_code" value="{{ e.set_code }}">
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label">Kartennummer</label>
+        <input class="form-control" name="collector_number" value="{{ e.collector_number }}">
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label">Sprache</label>
+        <select class="form-select" name="language">
+          {% for code in ['', 'de', 'en', 'fr', 'it', 'es', 'pt', 'ja', 'ko', 'ru', 'zhs', 'zht'] %}
+          <option value="{{ code }}" {% if e.language == code %}selected{% endif %}>{{ code|upper or '—' }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Zielordner</label>
+        <select class="form-select" name="folder_id">
+          <option value="">-- keiner --</option>
+          {% for f in folders %}
+          <option value="{{ f[0] }}" {% if e.folder_id and e.folder_id|string == f[0]|string %}selected{% endif %}>
+            {{ f[1] }} ({{ '%02d'|format(f[0]) }})
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <button class="btn btn-primary w-100" type="submit">Erneut übernehmen</button>
+      </div>
+    </form>
+    <div class="d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2">
+      <small class="text-muted">Menge {{ e.quantity }} · Zustand {{ e.condition or '—' }}</small>
+      <form method="post" action="{{ url_for('needs_review_discard', index=i) }}">
+        <button class="btn btn-outline-danger btn-sm" type="submit">Verwerfen</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% endblock %}

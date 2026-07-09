@@ -19,6 +19,7 @@ import io
 
 from TCGInventory.lager_manager import (
     add_card,
+    add_or_increment_card,
     update_card,
     delete_card,
     sell_card,
@@ -34,6 +35,12 @@ from TCGInventory.card_scanner import (
     autocomplete_names,
     fetch_variants,
     find_variant,
+    find_by_identity,
+)
+from TCGInventory.dragonshield import (
+    normalize_set_code,
+    normalize_language,
+    extract_row,
 )
 from TCGInventory.setup_db import initialize_database
 from TCGInventory import DB_FILE
@@ -58,6 +65,11 @@ app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
 # Queue for cards uploaded via the bulk add feature
 UPLOAD_QUEUE: list[dict] = []
 
+# Rows from a bulk import that could not be resolved to a unique, enriched
+# identity (unknown set code, no Scryfall match, malformed row). They are never
+# imported silently or guessed — the user corrects them in the Needs-Review view.
+NEEDS_REVIEW: list[dict] = []
+
 # Progress tracking for bulk uploads
 BULK_PROGRESS = 0
 BULK_DONE = False
@@ -65,6 +77,32 @@ BULK_MESSAGE: str | None = None
 
 # Order display settings
 ORDER_CUTOFF_DAYS = 30  # Only show orders from the last N days
+
+
+@app.context_processor
+def inject_queue_counts() -> dict:
+    """Expose queue / needs-review counts to all templates (nav badges)."""
+    return {
+        "queue_count": len(UPLOAD_QUEUE),
+        "needs_review_count": len(NEEDS_REVIEW),
+    }
+
+
+def _needs_review_entry(fields: dict, folder_id, reason: str, raw: dict) -> dict:
+    """Build a Needs-Review record from extracted fields + failure reason."""
+    return {
+        "name": fields.get("name", ""),
+        "set_code": fields.get("set_code", "") or fields.get("set_code_raw", ""),
+        "collector_number": fields.get("collector_number", ""),
+        "language": fields.get("language", ""),
+        "foil": bool(fields.get("foil", False)),
+        "condition": fields.get("condition", ""),
+        "quantity": fields.get("quantity", 1),
+        "price": fields.get("price", 0.0),
+        "folder_id": folder_id,
+        "reason": reason,
+        "raw": raw,
+    }
 
 
 def make_storage_code(
@@ -572,17 +610,23 @@ def _parse_csv_bytes(csv_bytes: bytes) -> list[dict]:
         delimiter = match.group(1) or match.group(2) or match.group(3)
         content = "\n".join(lines[1:])
 
-    # Attempt to detect the CSV dialect using Sniffer
-    try:
-        dialect = csv.Sniffer().sniff(content, delimiters=delimiter or ",;")
-    except csv.Error:
-        # Fall back to Excel dialect if sniffing fails
-        # Create a mutable dialect subclass since csv.excel is immutable
-        class FallbackDialect(csv.excel):
+    if delimiter:
+        # Explicit separator directive: use a deterministic Excel-style dialect
+        # with that delimiter. Standard double-quote handling means card names
+        # containing commas (e.g. "Ezio, Brash Novice") are parsed correctly.
+        class DirectiveDialect(csv.excel):
             pass
-        dialect = FallbackDialect
-        if delimiter:
-            dialect.delimiter = delimiter
+        DirectiveDialect.delimiter = delimiter
+        dialect = DirectiveDialect
+    else:
+        # No directive: detect the dialect using Sniffer.
+        try:
+            dialect = csv.Sniffer().sniff(content, delimiters=",;")
+        except csv.Error:
+            # Fall back to Excel dialect if sniffing fails
+            class FallbackDialect(csv.excel):
+                pass
+            dialect = FallbackDialect
 
     try:
         reader = csv.DictReader(io.StringIO(content), dialect=dialect)
@@ -667,57 +711,51 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
                     if isinstance(v, list):
                         v = v[0] if v else ""
                     normalized[k.strip().lower().replace(" ", "_")] = (v or "").strip()
-                name = normalized.get("card_name", "") or normalized.get("name", "")
-                if not name:
+
+                # Extract + normalize identity fields (set code, collector number,
+                # language, foil from "Printing"). Malformed rows are not guessed.
+                fields, error = extract_row(normalized)
+                if error:
+                    NEEDS_REVIEW.append(
+                        _needs_review_entry(fields, folder_id, error, normalized)
+                    )
                     BULK_PROGRESS = int((idx + 1) / total * 100)
                     continue
-                qty = int(normalized.get("quantity", "1") or 1)
-                set_row = normalized.get("set_code", "") or normalized.get("set", "")
-                card_no = normalized.get("card_number", "") or normalized.get("collector_number", "")
-                language = normalized.get("language", "") or normalized.get("lang", "")
-                condition = normalized.get("condition", "")
-                foil_flag = normalized.get("foil", "").lower() in {"1", "true", "yes", "foil"}
-                item_type = normalized.get("type", "") or normalized.get("item_type", "card")
-                storage = normalized.get("storage", "") or normalized.get("storage_code", "")
-                location_hint = normalized.get("location_hint", "") or normalized.get("location", "")
-                
-                # Validate item type
-                if item_type not in ["card", "display"]:
-                    item_type = "card"
-                
-                info = fetch_card_info_by_name(name)
-                variant = None
-                if set_row:
-                    variant = find_variant(name, set_row, card_no or None)
-                if not variant and info and card_no and info.get("collector_number") != card_no:
-                    variant = find_variant(name, set_row or info.get("set_code", ""), card_no)
-                if variant:
-                    info = variant
-                    if not card_no:
-                        card_no = variant.get("collector_number", card_no)
-                    set_row = variant.get("set_code", set_row)
 
-                elif info and not card_no:
-                    card_no = info.get("collector_number", "")
+                # Enrich via the local Scryfall DB on (set_code, collector_number,
+                # language). No match -> Needs-Review, never import without identity.
+                enrich = find_by_identity(
+                    fields["set_code"], fields["collector_number"], fields["language"]
+                )
+                if not enrich:
+                    reason = (
+                        f"Kein Scryfall-Treffer für Set '{fields['set_code']}' "
+                        f"Nr. {fields['collector_number']}"
+                    )
+                    NEEDS_REVIEW.append(
+                        _needs_review_entry(fields, folder_id, reason, normalized)
+                    )
+                    BULK_PROGRESS = int((idx + 1) / total * 100)
+                    continue
 
-                if not info:
-                    info = {}
                 UPLOAD_QUEUE.append(
                     {
-                        "name": info.get("name", name),
-                        "set_code": set_row or set_code or info.get("set_code", ""),
-                        "language": language or info.get("language", ""),
-                        "condition": condition,
-                        "quantity": qty,
-                        "cardmarket_id": info.get("cardmarket_id", ""),
+                        "name": enrich.get("name") or fields["name"],
+                        "set_code": enrich.get("set_code") or fields["set_code"],
+                        "language": fields["language"] or enrich.get("language", ""),
+                        "condition": fields["condition"],
+                        "quantity": fields["quantity"],
+                        "price": fields["price"],
+                        "cardmarket_id": enrich.get("cardmarket_id", ""),
                         "folder_id": folder_id,
-                        "collector_number": card_no or info.get("collector_number", ""),
-                        "scryfall_id": info.get("scryfall_id", ""),
-                        "image_url": info.get("image_url", ""),
-                        "foil": foil_flag,
-                        "item_type": item_type,
-                        "storage_code": storage,
-                        "location_hint": location_hint,
+                        "collector_number": fields["collector_number"]
+                        or enrich.get("collector_number", ""),
+                        "scryfall_id": enrich.get("scryfall_id", ""),
+                        "image_url": enrich.get("image_url", ""),
+                        "foil": fields["foil"],
+                        "item_type": "card",
+                        "storage_code": "",
+                        "location_hint": "",
                     }
                 )
                 added_any = True
@@ -745,11 +783,21 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
 
         BULK_PROGRESS = 100
         BULK_DONE = True
-        BULK_MESSAGE = "Cards queued for review" if added_any else "No cards added"
+        review_note = (
+            f" {len(NEEDS_REVIEW)} Zeile(n) benötigen Prüfung (Needs-Review)."
+            if NEEDS_REVIEW
+            else ""
+        )
+        if added_any:
+            BULK_MESSAGE = "Karten zur Prüfung in die Warteschlange gelegt." + review_note
+        elif NEEDS_REVIEW:
+            BULK_MESSAGE = "Keine Karte eindeutig aufgelöst." + review_note
+        else:
+            BULK_MESSAGE = "Keine Karten hinzugefügt."
     except Exception as exc:
         BULK_DONE = True
         BULK_PROGRESS = 100
-        BULK_MESSAGE = f"Error processing upload: {exc}"
+        BULK_MESSAGE = f"Fehler bei der Verarbeitung: {exc}"
 
 
 
@@ -1183,12 +1231,12 @@ def upload_card_route(index: int):
     """Add a queued card to the database and remove it from the queue."""
     if 0 <= index < len(UPLOAD_QUEUE):
         card = UPLOAD_QUEUE.pop(index)
-        success = add_card(
+        success = add_or_increment_card(
             card["name"],
             card.get("set_code", ""),
             card.get("language", ""),
             card.get("condition", ""),
-            0,
+            card.get("price", 0) or 0,
             card.get("quantity", 1),
             card.get("storage_code", None),
             card.get("cardmarket_id", ""),
@@ -1201,7 +1249,7 @@ def upload_card_route(index: int):
             card.get("location_hint", ""),
         )
         flash(
-            "Card added" if success else "No slot for " + card["name"],
+            "Karte übernommen" if success else "Kein Lagerplatz für " + card["name"],
             "error" if not success else None,
         )
     return redirect(url_for("upload_queue_view"))
@@ -1213,12 +1261,12 @@ def upload_all_route():
     """Add all cards from the upload queue."""
     while UPLOAD_QUEUE:
         card = UPLOAD_QUEUE.pop(0)
-        add_card(
+        add_or_increment_card(
             card["name"],
             card.get("set_code", ""),
             card.get("language", ""),
             card.get("condition", ""),
-            0,
+            card.get("price", 0) or 0,
             card.get("quantity", 1),
             card.get("storage_code", None),
             card.get("cardmarket_id", ""),
@@ -1230,7 +1278,7 @@ def upload_all_route():
             card.get("item_type", "card"),
             card.get("location_hint", ""),
         )
-    flash("All queued cards added")
+    flash("Alle Karten aus der Warteschlange übernommen")
     return redirect(url_for("list_cards"))
 
 
@@ -1239,8 +1287,106 @@ def upload_all_route():
 def clear_upload_queue():
     """Remove all cards from the upload queue."""
     UPLOAD_QUEUE.clear()
-    flash("Upload queue cleared")
+    flash("Warteschlange geleert")
     return redirect(url_for("upload_queue_view"))
+
+
+# ---------------------------------------------------------------------------
+# Needs-Review: rows a bulk import could not resolve to a unique identity.
+# ---------------------------------------------------------------------------
+@app.route("/cards/needs_review")
+@login_required
+def needs_review_view():
+    """List import rows that need manual correction before they can be imported."""
+    folders = list_folders()
+    return render_template(
+        "needs_review.html",
+        entries=list(enumerate(NEEDS_REVIEW)),
+        folders=folders,
+    )
+
+
+@app.route("/cards/needs_review/retry/<int:index>", methods=["POST"])
+@login_required
+def needs_review_retry(index: int):
+    """Apply the user's corrections and try to resolve the row again.
+
+    On success the row is enriched and moved to the upload queue; otherwise it
+    stays in Needs-Review with an updated reason. Nothing is guessed.
+    """
+    if not (0 <= index < len(NEEDS_REVIEW)):
+        flash("Ungültiger Eintrag", "error")
+        return redirect(url_for("needs_review_view"))
+
+    entry = NEEDS_REVIEW[index]
+    set_code = normalize_set_code(request.form.get("set_code", entry.get("set_code", "")))
+    collector = request.form.get("collector_number", entry.get("collector_number", "")).strip()
+    language = normalize_language(request.form.get("language", entry.get("language", "")))
+    folder_id = request.form.get("folder_id")
+    if folder_id in (None, ""):
+        folder_id = entry.get("folder_id")
+
+    entry.update(
+        {
+            "set_code": set_code,
+            "collector_number": collector,
+            "language": language,
+            "folder_id": folder_id,
+        }
+    )
+
+    if not set_code or not collector:
+        entry["reason"] = "Set-Code oder Kartennummer fehlt"
+        flash("Set-Code und Kartennummer werden benötigt.", "error")
+        return redirect(url_for("needs_review_view"))
+
+    enrich = find_by_identity(set_code, collector, language)
+    if not enrich:
+        entry["reason"] = f"Weiterhin kein Treffer für Set '{set_code}' Nr. {collector}"
+        flash("Kein Scryfall-Treffer – bitte Angaben prüfen.", "error")
+        return redirect(url_for("needs_review_view"))
+
+    UPLOAD_QUEUE.append(
+        {
+            "name": enrich.get("name") or entry.get("name", ""),
+            "set_code": enrich.get("set_code") or set_code,
+            "language": language or enrich.get("language", ""),
+            "condition": entry.get("condition", ""),
+            "quantity": entry.get("quantity", 1),
+            "price": entry.get("price", 0.0),
+            "cardmarket_id": enrich.get("cardmarket_id", ""),
+            "folder_id": folder_id,
+            "collector_number": collector or enrich.get("collector_number", ""),
+            "scryfall_id": enrich.get("scryfall_id", ""),
+            "image_url": enrich.get("image_url", ""),
+            "foil": bool(entry.get("foil", False)),
+            "item_type": "card",
+            "storage_code": "",
+            "location_hint": "",
+        }
+    )
+    NEEDS_REVIEW.pop(index)
+    flash(f"'{enrich.get('name')}' aufgelöst und in die Warteschlange übernommen.")
+    return redirect(url_for("needs_review_view"))
+
+
+@app.route("/cards/needs_review/discard/<int:index>", methods=["POST"])
+@login_required
+def needs_review_discard(index: int):
+    """Discard a single Needs-Review row."""
+    if 0 <= index < len(NEEDS_REVIEW):
+        NEEDS_REVIEW.pop(index)
+        flash("Eintrag verworfen")
+    return redirect(url_for("needs_review_view"))
+
+
+@app.route("/cards/needs_review/clear", methods=["POST"])
+@login_required
+def needs_review_clear():
+    """Discard all Needs-Review rows."""
+    NEEDS_REVIEW.clear()
+    flash("Needs-Review geleert")
+    return redirect(url_for("needs_review_view"))
 
 
 @app.route("/update")

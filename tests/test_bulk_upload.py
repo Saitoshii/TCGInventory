@@ -17,62 +17,115 @@ from TCGInventory.web import _process_bulk_upload, _parse_csv_bytes, UPLOAD_QUEU
 import pytest
 
 
-def test_bulk_upload_preserves_collector_number(monkeypatch):
-    """CSV uploads should keep the provided collector number if no variant is found."""
-    monkeypatch.setattr(web, "fetch_card_info_by_name", lambda name: {
-        "name": name,
-        "set_code": "ABC",
-        "collector_number": "007",
-    })
-    monkeypatch.setattr(web, "find_variant", lambda *a, **k: None)
-    monkeypatch.setattr(web, "list_folders", lambda: [])
-
+def _reset():
     UPLOAD_QUEUE.clear()
+    web.NEEDS_REVIEW.clear()
     web.BULK_PROGRESS = 0
     web.BULK_DONE = False
     web.BULK_MESSAGE = None
-    form_data = {"cards": "", "folder_id": None}
-    csv_content = "Card Name,Set Code,Card Number\nSample Card,ABC,123\n"
-    _process_bulk_upload(form_data, None, csv_content.encode())
 
+
+def _echo_identity(set_code, collector_number, language=None):
+    """Stub find_by_identity: pretend every (set, number) resolves. Returns no
+    canonical name so the parsed CSV name is kept (lets us assert parsing)."""
+    return {
+        "set_code": set_code,
+        "collector_number": collector_number,
+        "language": language or "en",
+        "scryfall_id": "sc-" + str(collector_number),
+        "cardmarket_id": "cm-" + str(collector_number),
+        "image_url": "http://img/" + str(collector_number),
+    }
+
+
+def test_bulk_upload_enriches_and_queues(monkeypatch):
+    """A resolvable CSV row is enriched (normalized set, canonical IDs) and queued."""
+    monkeypatch.setattr(web, "find_by_identity", _echo_identity)
+    monkeypatch.setattr(web, "list_folders", lambda: [])
+    _reset()
+
+    csv_content = "Card Name,Set Code,Card Number\nSample Card,ACR,123\n"
+    _process_bulk_upload({"cards": "", "folder_id": None}, None, csv_content.encode())
+
+    assert web.NEEDS_REVIEW == []
     assert len(UPLOAD_QUEUE) == 1
-    assert UPLOAD_QUEUE[0]["collector_number"] == "123"
-    UPLOAD_QUEUE.clear()
+    entry = UPLOAD_QUEUE[0]
+    assert entry["collector_number"] == "123"
+    assert entry["set_code"] == "acr"            # normalized to Scryfall convention
+    assert entry["scryfall_id"] == "sc-123"
+    assert entry["cardmarket_id"] == "cm-123"
+    _reset()
 
 
-def test_bulk_upload_keeps_number_if_variant_found(monkeypatch):
-    """Provided collector numbers should not be overwritten by variant data."""
-    monkeypatch.setattr(web, "fetch_card_info_by_name", lambda name: {
-        "name": name,
-        "set_code": "ABC",
-        "collector_number": "0123",
-    })
+def test_bulk_upload_unknown_set_goes_to_needs_review(monkeypatch):
+    """A row with no Scryfall match is routed to Needs-Review, not imported."""
+    monkeypatch.setattr(web, "find_by_identity", lambda *a, **k: None)
+    monkeypatch.setattr(web, "list_folders", lambda: [])
+    _reset()
 
-    monkeypatch.setattr(
-        web,
-        "find_variant",
-        lambda *a, **k: {
-            "name": "Sample Card",
-            "set_code": "ABC",
-            "collector_number": "0123",
-        },
+    csv_content = "Card Name,Set Code,Card Number\nMystery Card,ZZZ,999\n"
+    _process_bulk_upload({"cards": "", "folder_id": None}, None, csv_content.encode())
+
+    assert UPLOAD_QUEUE == []
+    assert len(web.NEEDS_REVIEW) == 1
+    review = web.NEEDS_REVIEW[0]
+    assert review["set_code"] == "zzz"
+    assert review["collector_number"] == "999"
+    assert "Kein Scryfall-Treffer" in review["reason"]
+    _reset()
+
+
+def test_bulk_upload_missing_identity_goes_to_needs_review(monkeypatch):
+    """A row without set code / collector number is malformed -> Needs-Review."""
+    monkeypatch.setattr(web, "find_by_identity", _echo_identity)
+    monkeypatch.setattr(web, "list_folders", lambda: [])
+    _reset()
+
+    csv_content = "Card Name,Set Code,Card Number\nJust A Name,,\n"
+    _process_bulk_upload({"cards": "", "folder_id": None}, None, csv_content.encode())
+
+    assert UPLOAD_QUEUE == []
+    assert len(web.NEEDS_REVIEW) == 1
+    assert "fehlt" in web.NEEDS_REVIEW[0]["reason"].lower()
+    _reset()
+
+
+def test_bulk_upload_comma_in_name(monkeypatch):
+    """Card names containing commas (quoted) are parsed as a single field."""
+    monkeypatch.setattr(web, "find_by_identity", _echo_identity)
+    monkeypatch.setattr(web, "list_folders", lambda: [])
+    _reset()
+
+    csv_content = (
+        'sep=,\n'
+        'Card Name,Set Code,Card Number\n'
+        '"Ezio, Brash Novice",ACR,12\n'
     )
+    _process_bulk_upload({"cards": "", "folder_id": None}, None, csv_content.encode())
+
+    assert web.NEEDS_REVIEW == []
+    assert len(UPLOAD_QUEUE) == 1
+    # _echo_identity returns no name, so the parsed CSV name is kept
+    assert UPLOAD_QUEUE[0]["name"] == "Ezio, Brash Novice"
+    _reset()
+
+
+@pytest.mark.parametrize("printing,expected", [("Foil", True), ("Normal", False), ("", False)])
+def test_bulk_upload_foil_from_printing(monkeypatch, printing, expected):
+    """The foil flag is derived from the Dragonshield 'Printing' column."""
+    monkeypatch.setattr(web, "find_by_identity", _echo_identity)
     monkeypatch.setattr(web, "list_folders", lambda: [])
+    _reset()
 
-    UPLOAD_QUEUE.clear()
-
-    web.BULK_PROGRESS = 0
-    web.BULK_DONE = False
-    web.BULK_MESSAGE = None
-
-
-    form_data = {"cards": "", "folder_id": None}
-    csv_content = "Card Name,Set Code,Card Number\nSample Card,ABC,123\n"
-    _process_bulk_upload(form_data, None, csv_content.encode())
+    csv_content = (
+        "Card Name,Set Code,Card Number,Printing\n"
+        f"Bayek of Siwa,ACR,10,{printing}\n"
+    )
+    _process_bulk_upload({"cards": "", "folder_id": None}, None, csv_content.encode())
 
     assert len(UPLOAD_QUEUE) == 1
-    assert UPLOAD_QUEUE[0]["collector_number"] == "123"
-    UPLOAD_QUEUE.clear()
+    assert UPLOAD_QUEUE[0]["foil"] is expected
+    _reset()
 
 
 # Tests for _parse_csv_bytes helper function
@@ -188,46 +241,84 @@ class TestBulkUploadWithSepDirective:
 
     def test_bulk_upload_with_quoted_sep_directive(self, monkeypatch):
         """CSV with quoted sep directive should work in bulk upload."""
-        monkeypatch.setattr(web, "fetch_card_info_by_name", lambda name: {
-            "name": name,
-            "set_code": "ABC",
-            "collector_number": "007",
-        })
-        monkeypatch.setattr(web, "find_variant", lambda *a, **k: None)
+        monkeypatch.setattr(web, "find_by_identity", _echo_identity)
         monkeypatch.setattr(web, "list_folders", lambda: [])
+        _reset()
 
-        UPLOAD_QUEUE.clear()
-        web.BULK_PROGRESS = 0
-        web.BULK_DONE = False
-        web.BULK_MESSAGE = None
-        form_data = {"cards": "", "folder_id": None}
         # CSV with quoted sep directive followed by header
         csv_content = b'"sep=,"\nCard Name,Set Code,Card Number\nSample Card,ABC,123\n'
-        _process_bulk_upload(form_data, None, csv_content)
+        _process_bulk_upload({"cards": "", "folder_id": None}, None, csv_content)
 
         assert len(UPLOAD_QUEUE) == 1
         assert UPLOAD_QUEUE[0]["collector_number"] == "123"
-        UPLOAD_QUEUE.clear()
+        _reset()
 
     def test_bulk_upload_with_bom_and_sep(self, monkeypatch):
         """CSV with BOM and sep directive should work in bulk upload."""
-        monkeypatch.setattr(web, "fetch_card_info_by_name", lambda name: {
-            "name": name,
-            "set_code": "ABC",
-            "collector_number": "007",
-        })
-        monkeypatch.setattr(web, "find_variant", lambda *a, **k: None)
+        monkeypatch.setattr(web, "find_by_identity", _echo_identity)
         monkeypatch.setattr(web, "list_folders", lambda: [])
+        _reset()
 
-        UPLOAD_QUEUE.clear()
-        web.BULK_PROGRESS = 0
-        web.BULK_DONE = False
-        web.BULK_MESSAGE = None
-        form_data = {"cards": "", "folder_id": None}
         # CSV with UTF-8 BOM and quoted sep directive
         csv_content = b'\xef\xbb\xbf"sep=,"\nCard Name,Set Code,Card Number\nTest Card,XYZ,456\n'
-        _process_bulk_upload(form_data, None, csv_content)
+        _process_bulk_upload({"cards": "", "folder_id": None}, None, csv_content)
 
         assert len(UPLOAD_QUEUE) == 1
         assert UPLOAD_QUEUE[0]["collector_number"] == "456"
-        UPLOAD_QUEUE.clear()
+        _reset()
+
+
+class TestDedupeOnImport:
+    """The import commit increments quantity for an identical card in the same folder."""
+
+    def _setup_db(self, tmp_path):
+        import TCGInventory
+        import TCGInventory.setup_db as setup_db
+        import TCGInventory.auth as auth
+        from TCGInventory import lager_manager
+
+        db = str(tmp_path / "dedupe.db")
+        for mod in (TCGInventory, setup_db, auth, lager_manager):
+            mod.DB_FILE = db
+        setup_db.initialize_database()
+        return db, lager_manager
+
+    def test_same_identity_increments_quantity(self, tmp_path):
+        import sqlite3
+        db, lager_manager = self._setup_db(tmp_path)
+
+        lager_manager.add_or_increment_card(
+            "Sol Ring", "cmr", "de", "MT", 2.0, quantity=1,
+            folder_id=None, collector_number="472", foil=False,
+        )
+        lager_manager.add_or_increment_card(
+            "Sol Ring", "cmr", "de", "MT", 2.0, quantity=2,
+            folder_id=None, collector_number="472", foil=False,
+        )
+
+        with sqlite3.connect(db) as conn:
+            rows = conn.execute(
+                "SELECT quantity FROM cards WHERE set_code='cmr' AND collector_number='472' "
+                "AND language='de' AND foil=0"
+            ).fetchall()
+        assert len(rows) == 1
+        assert rows[0][0] == 3
+
+    def test_foil_variant_is_separate(self, tmp_path):
+        import sqlite3
+        db, lager_manager = self._setup_db(tmp_path)
+
+        lager_manager.add_or_increment_card(
+            "Sol Ring", "cmr", "de", "MT", 2.0, quantity=1,
+            folder_id=None, collector_number="472", foil=False,
+        )
+        lager_manager.add_or_increment_card(
+            "Sol Ring", "cmr", "de", "MT", 2.0, quantity=1,
+            folder_id=None, collector_number="472", foil=True,
+        )
+
+        with sqlite3.connect(db) as conn:
+            total = conn.execute(
+                "SELECT COUNT(*) FROM cards WHERE set_code='cmr' AND collector_number='472'"
+            ).fetchone()[0]
+        assert total == 2

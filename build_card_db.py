@@ -28,6 +28,10 @@ def import_cards(json_path: Path = JSON_PATH, db_path: Path = DB_PATH) -> None:
             """
         )
         c.execute("CREATE INDEX IF NOT EXISTS idx_name ON cards(name)")
+        # Identity lookup used by the Dragonshield import (find_by_identity).
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_identity ON cards(set_code, collector_number, lang)"
+        )
         c.execute("DELETE FROM cards")
         for card in cards:
             image_url = ""
