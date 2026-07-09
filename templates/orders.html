@@ -61,9 +61,9 @@
             <td>{{ item[1] }}</td>
             <td>
               {% if item[4] %}
-              <code>{{ item[4] }}</code>
+              <span class="storage-badge">{{ item[4] }}</span>
               {% else %}
-              <span class="text-muted">Nicht im Lager</span>
+              <span class="storage-badge storage-badge--empty">Nicht im Lager</span>
               {% endif %}
             </td>
           </tr>
