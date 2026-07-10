@@ -41,17 +41,19 @@ def normalize_set_code(code: str) -> str:
 # uses ISO-ish codes ("en", "de", …). Unknown values are passed through
 # lower-cased (best effort) rather than guessed away.
 LANGUAGE_ALIASES: Dict[str, str] = {
-    "english": "en", "en": "en",
+    "english": "en", "englisch": "en", "en": "en",
     "german": "de", "deutsch": "de", "de": "de",
-    "french": "fr", "français": "fr", "francais": "fr", "fr": "fr",
-    "italian": "it", "italiano": "it", "it": "it",
-    "spanish": "es", "español": "es", "espanol": "es", "es": "es",
-    "portuguese": "pt", "português": "pt", "portugues": "pt", "pt": "pt",
-    "japanese": "ja", "jp": "ja", "ja": "ja",
-    "korean": "ko", "ko": "ko",
-    "russian": "ru", "ru": "ru",
+    "french": "fr", "französisch": "fr", "franzoesisch": "fr",
+    "français": "fr", "francais": "fr", "fr": "fr",
+    "italian": "it", "italienisch": "it", "italiano": "it", "it": "it",
+    "spanish": "es", "spanisch": "es", "español": "es", "espanol": "es", "es": "es",
+    "portuguese": "pt", "portugiesisch": "pt", "português": "pt", "portugues": "pt", "pt": "pt",
+    "japanese": "ja", "japanisch": "ja", "jp": "ja", "ja": "ja",
+    "korean": "ko", "koreanisch": "ko", "ko": "ko",
+    "russian": "ru", "russisch": "ru", "ru": "ru",
     "chinese simplified": "zhs", "simplified chinese": "zhs", "zhs": "zhs",
     "chinese traditional": "zht", "traditional chinese": "zht", "zht": "zht",
+    "chinesisch": "zhs",
 }
 
 

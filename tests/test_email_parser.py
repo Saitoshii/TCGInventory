@@ -1,13 +1,93 @@
 """Tests for the Cardmarket email parser."""
 
 try:
-    from TCGInventory.email_parser import parse_cardmarket_email, _clean_card_name
+    from TCGInventory.email_parser import (
+        parse_cardmarket_email, _clean_card_name,
+        parse_order_email, parse_position_line, parse_address_block,
+    )
 except ImportError:
     # Fallback for running tests directly
     import sys
     import os
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-    from TCGInventory.email_parser import parse_cardmarket_email, _clean_card_name
+    from TCGInventory.email_parser import (
+        parse_cardmarket_email, _clean_card_name,
+        parse_order_email, parse_position_line, parse_address_block,
+    )
+
+
+# --- WP2a: lossless extraction from the real Cardmarket format --------------
+
+_SAMPLE_ORDER = """Bestellnummer: 1250416803
+Käufer: KohlkopfKlaus
+Status: Bezahlt
+
+Max Mustermann
+Musterstraße 12
+12345 Musterstadt
+Deutschland
+
+Sendungsverfolgung:
+
+1x Rumble Arena (Avatar: The Last Airbender) - C - Englisch - NM 0,03 EUR
+1x Matoya, Archon Elder (FINAL FANTASY) - R - Englisch - NM 0,11 EUR
+1x Ezio Auditore da Firenze (V.1) (Universes Beyond: Assassin's Cre... 3,90 EUR
+
+Gesamtwert: 4,04 EUR
+Gebühren: 0,40 EUR
+Auszahlungsbetrag: 3,64 EUR
+Versandkosten: 1,00 EUR
+Gesamtbetrag: 5,04 EUR
+"""
+
+
+def test_order_header_and_amounts():
+    r = parse_order_email(_SAMPLE_ORDER, "m1", subject="für KohlkopfKlaus: Bitte versenden")
+    assert r["order_number"] == "1250416803"
+    assert r["buyer_name"] == "KohlkopfKlaus"
+    assert r["amounts"]["gesamtwert"] == 4.04
+    assert r["amounts"]["versandkosten"] == 1.00
+    assert r["amounts"]["gesamtbetrag"] == 5.04
+
+
+def test_address_block_between_anchors():
+    lines, raw = parse_address_block(_SAMPLE_ORDER)
+    assert lines == ["Max Mustermann", "Musterstraße 12", "12345 Musterstadt", "Deutschland"]
+    assert "Max Mustermann" in raw and "Sendungsverfolgung" not in raw
+
+
+def test_address_block_english_anchors():
+    body = "Status: Paid\n\nJohn Doe\n1 Main St\nUSA\n\nShipment tracking: xyz\n"
+    lines, _ = parse_address_block(body)
+    assert lines == ["John Doe", "1 Main St", "USA"]
+
+
+def test_position_comma_in_name():
+    it = parse_position_line("1x Matoya, Archon Elder (FINAL FANTASY) - R - Englisch - NM 0,11 EUR")
+    assert it["name"] == "Matoya, Archon Elder"
+    assert it["set_name"] == "FINAL FANTASY"
+    assert it["language"] == "en" and it["condition"] == "NM"
+    assert it["uncertain"] is False
+
+
+def test_position_truncated_is_uncertain():
+    it = parse_position_line("1x Ezio Auditore da Firenze (V.1) (Universes Beyond: Assassin's Cre... 3,90 EUR")
+    assert it["name"] == "Ezio Auditore da Firenze"
+    assert it["variant"] == "V.1"
+    assert it["uncertain"] is True
+
+
+def test_position_set_is_last_parenthesis():
+    it = parse_position_line("1x Rumble Arena (Avatar: The Last Airbender) - C - Englisch - NM 0,03 EUR")
+    assert it["name"] == "Rumble Arena"
+    assert it["set_name"] == "Avatar: The Last Airbender"
+    assert it["rarity"] == "C"
+
+
+def test_order_email_items_count():
+    r = parse_order_email(_SAMPLE_ORDER, "m1")
+    assert len(r["items"]) == 3
+    assert r["items"][2]["uncertain"] is True
 
 
 def test_parse_buyer_from_subject():
