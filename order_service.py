@@ -16,7 +16,8 @@ from TCGInventory.gmail_auth import (
     get_email_subject,
     get_email_date
 )
-from TCGInventory.email_parser import parse_cardmarket_email
+from TCGInventory.email_parser import parse_cardmarket_email, parse_order_email
+from TCGInventory.card_scanner import resolve_set_code
 
 # Constants
 SECONDS_PER_MINUTE = 60
@@ -127,9 +128,9 @@ class OrderIngestionService:
                     print(f"Could not extract body from message {message_id}")
                     continue
                 
-                # Parse the email with subject and date
-                parsed = parse_cardmarket_email(email_body, message_id, subject=email_subject, email_date=email_date)
-                
+                # Parse the email with subject and date (lossless WP2a extraction)
+                parsed = parse_order_email(email_body, message_id, subject=email_subject, email_date=email_date)
+
                 if not parsed['items']:
                     print(f"No items found in message {message_id}")
                     # Still mark as processed to avoid reprocessing
@@ -169,8 +170,8 @@ class OrderIngestionService:
         try:
             with sqlite3.connect(DB_FILE) as conn:
                 cursor = conn.cursor()
-                
-                # Check if this message was already processed
+
+                # Idempotency: never insert the same message/order twice.
                 cursor.execute(
                     "SELECT id FROM orders WHERE email_message_id = ?",
                     (parsed_order['message_id'],)
@@ -178,99 +179,126 @@ class OrderIngestionService:
                 if cursor.fetchone():
                     print(f"Order {parsed_order['message_id']} already exists")
                     return False
-                
-                # Insert order with email_date
+
+                amounts = parsed_order.get('amounts', {})
                 email_date = parsed_order.get('email_date') or datetime.now().isoformat()
                 cursor.execute(
                     """
-                    INSERT INTO orders (buyer_name, email_message_id, date_received, email_date, status)
-                    VALUES (?, ?, ?, ?, 'open')
+                    INSERT INTO orders (buyer_name, email_message_id, date_received, email_date,
+                                        status, order_number, address, address_raw,
+                                        amount_gesamtwert, amount_gebuehren, amount_auszahlung,
+                                        amount_versand, amount_gesamt)
+                    VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         parsed_order['buyer_name'],
                         parsed_order['message_id'],
                         datetime.now().isoformat(),
-                        email_date
+                        email_date,
+                        parsed_order.get('order_number', ''),
+                        parsed_order.get('address_raw', ''),
+                        parsed_order.get('address_raw', ''),
+                        amounts.get('gesamtwert'),
+                        amounts.get('gebuehren'),
+                        amounts.get('auszahlungsbetrag'),
+                        amounts.get('versandkosten'),
+                        amounts.get('gesamtbetrag'),
                     )
                 )
-                
+
                 order_id = cursor.lastrowid
-                
-                # Insert order items
+
                 for item in parsed_order['items']:
-                    # Try to find matching card in inventory for image and location
-                    image_url, storage_code = self._find_card_info(
-                        cursor, item['card_name']
-                    )
-                    
+                    match = self._match_item(cursor, item)
                     cursor.execute(
                         """
-                        INSERT INTO order_items (order_id, card_name, quantity, image_url, storage_code)
-                        VALUES (?, ?, ?, ?, ?)
+                        INSERT INTO order_items
+                            (order_id, card_name, quantity, image_url, storage_code,
+                             card_id, match_status, set_name, set_code, language,
+                             condition, foil, uncertain, unit_price, variant)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             order_id,
-                            item['card_name'],
+                            item['name'],
                             item['quantity'],
-                            image_url,
-                            storage_code
+                            match['image_url'],
+                            match['storage_code'],
+                            match['card_id'],
+                            match['match_status'],
+                            item.get('set_name'),
+                            match['set_code'],
+                            item.get('language'),
+                            item.get('condition'),
+                            1 if item.get('foil') else 0,
+                            1 if item.get('uncertain') else 0,
+                            item.get('unit_price'),
+                            item.get('variant'),
                         )
                     )
-                
+
                 conn.commit()
                 return True
-                
+
         except sqlite3.Error as e:
             print(f"Database error saving order: {e}")
             return False
-    
-    def _find_card_info(self, cursor, card_name):
+
+    def _match_item(self, cursor, item):
+        """Match a parsed position against inventory by identity (WP1b/WP2a).
+
+        Matches on ``name + set_code + language`` (foil if known). Exactly one
+        available match -> ``matched`` with the card's storage/image. Zero,
+        several, or an ``uncertain`` line -> ``ambiguous``/``unresolved`` with a
+        fallback image only; the panel then offers manual candidate selection.
+        No silent ``LIMIT 1``, no ``LIKE`` substring auto-match.
+
+        Returns dict: card_id, match_status, storage_code, image_url, set_code.
         """
-        Find image URL and storage location for a card.
-        
-        First checks the user's inventory for both image and storage location.
-        If no image is found, falls back to default-cards.db for image_url.
-        
-        Args:
-            cursor: Database cursor (for user's inventory)
-            card_name: Name of the card to search for
-            
-        Returns:
-            Tuple of (image_url, storage_code)
-        """
-        # Search for exact match in user's inventory first
-        cursor.execute(
-            "SELECT image_url, storage_code FROM cards WHERE LOWER(name) = LOWER(?) LIMIT 1",
-            (card_name,)
-        )
-        result = cursor.fetchone()
-        
-        if result:
-            image_url, storage_code = result[0], result[1]
-            # If we have an image from inventory, use it
-            if image_url:
-                return image_url, storage_code
-            # Otherwise, try to get image from default-cards.db but keep storage_code
-            fallback_image = self._get_image_from_default_db(card_name)
-            return fallback_image, storage_code
-        
-        # Try partial match in inventory
-        cursor.execute(
-            "SELECT image_url, storage_code FROM cards WHERE LOWER(name) LIKE LOWER(?) LIMIT 1",
-            (f"%{card_name}%",)
-        )
-        result = cursor.fetchone()
-        
-        if result:
-            image_url, storage_code = result[0], result[1]
-            if image_url:
-                return image_url, storage_code
-            fallback_image = self._get_image_from_default_db(card_name)
-            return fallback_image, storage_code
-        
-        # Not in inventory - try to get image from default-cards.db
-        image_url = self._get_image_from_default_db(card_name)
-        return image_url, None
+        name = item['name']
+        set_code, confidence = resolve_set_code(item.get('set_name'))
+        language = item.get('language')
+        uncertain = bool(item.get('uncertain'))
+
+        result = {
+            "card_id": None,
+            "match_status": "unresolved",
+            "storage_code": None,
+            "image_url": None,
+            "set_code": set_code,
+        }
+
+        # Only auto-match when the line is clean AND the set resolved confidently.
+        if not uncertain and set_code and confidence == "high":
+            query = (
+                "SELECT id, storage_code, image_url FROM cards "
+                "WHERE LOWER(name) = LOWER(?) AND LOWER(set_code) = LOWER(?) "
+            )
+            params = [name, set_code]
+            if language:
+                query += "AND LOWER(language) = LOWER(?) "
+                params.append(language)
+            query += "AND status = 'verfügbar' AND quantity > 0"
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+
+            if len(rows) == 1:
+                result.update(
+                    card_id=rows[0][0], match_status="matched",
+                    storage_code=rows[0][1],
+                    image_url=rows[0][2] or self._get_image_from_default_db(name),
+                )
+                return result
+            if len(rows) > 1:
+                result["match_status"] = "ambiguous"
+            else:
+                result["match_status"] = "unresolved"
+        else:
+            result["match_status"] = "ambiguous" if uncertain else "unresolved"
+
+        # Fallback image for display only (does not imply a match).
+        result["image_url"] = self._get_image_from_default_db(name)
+        return result
     
     def _get_image_from_default_db(self, card_name):
         """
