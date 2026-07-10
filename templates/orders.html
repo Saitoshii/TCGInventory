@@ -45,10 +45,24 @@
       <!-- Address (prefilled, editable, confirmed by user) -->
       <div class="col-lg-4">
         <form method="post" action="{{ url_for('update_order_address', order_id=order.id) }}">
-          <label class="form-label">Lieferadresse (bestätigen / korrigieren)</label>
+          <label class="form-label">
+            Lieferadresse (bestätigen / korrigieren)
+            {% if order.address_confirmed %}<span class="status-badge status-badge--verfuegbar">bestätigt</span>
+            {% else %}<span class="status-badge status-badge--reserviert">nicht bestätigt</span>{% endif %}
+          </label>
           <textarea name="address" class="form-control" rows="4" placeholder="Adresse aus der Mail…">{{ order.address }}</textarea>
           <button class="btn btn-outline-primary btn-sm mt-2" type="submit">Adresse speichern</button>
         </form>
+        <div class="mt-2">
+          {% if order.address_confirmed %}
+          <a class="btn btn-outline-info btn-sm" href="{{ url_for('shipping_note_pdf', order_id=order.id) }}" target="_blank" rel="noopener">
+            🖨️ Beileger drucken
+          </a>
+          {% else %}
+          <button class="btn btn-outline-info btn-sm" type="button" disabled title="Adresse zuerst bestätigen">🖨️ Beileger drucken</button>
+          <div class="text-muted small mt-1">Adresse zuerst speichern/bestätigen, dann ist der Beileger druckbar.</div>
+          {% endif %}
+        </div>
         {% if order.amounts.gesamt is not none or order.amounts.gesamtwert is not none %}
         <div class="text-muted small mt-3">
           Warenwert €{{ '%.2f'|format(order.amounts.gesamtwert or 0) }} ·

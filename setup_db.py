@@ -153,6 +153,9 @@ def initialize_database() -> None:
             "order_number": "TEXT",
             "address": "TEXT",
             "address_raw": "TEXT",
+            # WP2b: set to 1 once the user has confirmed/saved the address in the
+            # panel; the shipping note is only printed for a confirmed address.
+            "address_confirmed": "INTEGER DEFAULT 0",
             "amount_gesamtwert": "REAL",
             "amount_gebuehren": "REAL",
             "amount_auszahlung": "REAL",
