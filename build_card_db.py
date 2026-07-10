@@ -20,6 +20,7 @@ def import_cards(json_path: Path = JSON_PATH, db_path: Path = DB_PATH) -> None:
                 id TEXT PRIMARY KEY,
                 name TEXT,
                 set_code TEXT,
+                set_name TEXT,
                 lang TEXT,
                 collector_number TEXT,
                 cardmarket_id TEXT,
@@ -32,18 +33,21 @@ def import_cards(json_path: Path = JSON_PATH, db_path: Path = DB_PATH) -> None:
         c.execute(
             "CREATE INDEX IF NOT EXISTS idx_identity ON cards(set_code, collector_number, lang)"
         )
+        # Set-name -> set_code resolution used by the order matching (WP2a).
+        c.execute("CREATE INDEX IF NOT EXISTS idx_set_name ON cards(set_name)")
         c.execute("DELETE FROM cards")
         for card in cards:
             image_url = ""
             if isinstance(card.get("image_uris"), dict):
                 image_url = card["image_uris"].get("normal") or card["image_uris"].get("small") or ""
             c.execute(
-                """INSERT OR REPLACE INTO cards (id, name, set_code, lang, collector_number, cardmarket_id, image_url)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                """INSERT OR REPLACE INTO cards (id, name, set_code, set_name, lang, collector_number, cardmarket_id, image_url)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     card.get("id"),
                     card.get("name"),
                     card.get("set"),
+                    card.get("set_name", ""),
                     card.get("lang"),
                     card.get("collector_number", ""),
                     str(card.get("cardmarket_id", "")),

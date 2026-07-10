@@ -263,6 +263,77 @@ def find_variant(name: str, set_code: str, collector_number: str | None = None) 
     return None
 
 
+# Cardmarket set name -> Scryfall set code. Small, extensible alias table for
+# names that don't resolve directly (or to short-circuit common ones). Keys are
+# lower-cased. The local Scryfall data (set_name column) is consulted too.
+SET_NAME_ALIASES: Dict[str, str] = {
+    "final fantasy": "fin",
+    "assassin's creed": "acr",
+    "universes beyond: assassin's creed": "acr",
+    "avatar: the last airbender": "tla",
+    "magic: the gathering—final fantasy": "fin",
+}
+
+
+def _lookup_set_code_in_db(set_name: str, truncated: bool) -> Optional[str]:
+    """Resolve a set name to a code via the local Scryfall DB's set_name column.
+
+    Returns a code only when it is unambiguous (exactly one matching set_code).
+    Gracefully returns ``None`` if the column is missing (older DB build).
+    """
+    if not _DB_CONN:
+        return None
+    try:
+        if truncated:
+            stem = set_name.rstrip("… .").rstrip(".")
+            cur = _DB_CONN.execute(
+                "SELECT DISTINCT set_code FROM cards WHERE lower(set_name) LIKE lower(?)",
+                (stem + "%",),
+            )
+        else:
+            cur = _DB_CONN.execute(
+                "SELECT DISTINCT set_code FROM cards WHERE lower(set_name) = lower(?)",
+                (set_name,),
+            )
+        codes = [r[0] for r in cur.fetchall() if r[0]]
+    except sqlite3.Error:
+        return None
+    if len(codes) == 1:
+        return codes[0]
+    return None
+
+
+def resolve_set_code(set_name: str | None) -> Tuple[Optional[str], str]:
+    """Resolve a Cardmarket set name to a Scryfall ``set_code``.
+
+    Returns ``(set_code, confidence)`` where confidence is ``"high"``,
+    ``"low"`` or ``"none"``. Truncated (``...``) or unresolvable set names yield
+    low/none confidence — never a guess. Resolution order: alias table, then the
+    local Scryfall ``set_name`` data.
+    """
+    if not set_name:
+        return None, "none"
+    key = set_name.strip().lower()
+    truncated = "..." in key or "…" in key
+    stem = key.rstrip("… .").rstrip(".")
+
+    if not truncated and key in SET_NAME_ALIASES:
+        return SET_NAME_ALIASES[key], "high"
+
+    _load_card_database()
+    code = _lookup_set_code_in_db(set_name, truncated)
+    if code:
+        return code, ("low" if truncated else "high")
+
+    # Truncated name: accept a unique alias prefix match, but only low confidence.
+    if truncated and stem:
+        prefix_hits = {c for name, c in SET_NAME_ALIASES.items() if name.startswith(stem)}
+        if len(prefix_hits) == 1:
+            return prefix_hits.pop(), "low"
+
+    return None, ("low" if truncated else "none")
+
+
 def _choose_by_language(rows: List[Dict], language: str | None) -> Dict:
     """Pick the best row for a language: exact match, else English, else the
     first (deterministic). Rows must expose a ``lang`` key.
