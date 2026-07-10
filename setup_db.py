@@ -148,6 +148,20 @@ def initialize_database() -> None:
         order_columns = [row[1] for row in cursor.fetchall()]
         if "email_date" not in order_columns:
             cursor.execute("ALTER TABLE orders ADD COLUMN email_date TEXT")
+        # WP2a: order number, confirmed address (raw + editable) and amounts.
+        order_new_cols = {
+            "order_number": "TEXT",
+            "address": "TEXT",
+            "address_raw": "TEXT",
+            "amount_gesamtwert": "REAL",
+            "amount_gebuehren": "REAL",
+            "amount_auszahlung": "REAL",
+            "amount_versand": "REAL",
+            "amount_gesamt": "REAL",
+        }
+        for col, coltype in order_new_cols.items():
+            if col not in order_columns:
+                cursor.execute(f"ALTER TABLE orders ADD COLUMN {col} {coltype}")
 
         # Tabelle 5: Order items (cards in orders)
         cursor.execute(
@@ -163,6 +177,26 @@ def initialize_database() -> None:
             )
             """
         )
+
+        # WP2a: link the resolved inventory card (FK) and record the match state
+        # plus the structured position fields extracted from the email.
+        cursor.execute("PRAGMA table_info(order_items)")
+        item_columns = [row[1] for row in cursor.fetchall()]
+        item_new_cols = {
+            "card_id": "INTEGER",
+            "match_status": "TEXT DEFAULT 'unresolved'",
+            "set_name": "TEXT",
+            "set_code": "TEXT",
+            "language": "TEXT",
+            "condition": "TEXT",
+            "foil": "INTEGER DEFAULT 0",
+            "uncertain": "INTEGER DEFAULT 0",
+            "unit_price": "REAL",
+            "variant": "TEXT",
+        }
+        for col, coltype in item_new_cols.items():
+            if col not in item_columns:
+                cursor.execute(f"ALTER TABLE order_items ADD COLUMN {col} {coltype}")
 
         # Tabelle 6: Audit log for tracking changes
         cursor.execute(
