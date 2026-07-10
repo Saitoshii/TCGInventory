@@ -1,7 +1,9 @@
 """Parser for Cardmarket 'Bitte versenden' emails."""
 
 import re
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
+
+from TCGInventory.dragonshield import normalize_language
 
 # Blacklist of common email signatures and greetings that should not be used as buyer names
 # All comparisons are case-insensitive (lowercase)
@@ -260,6 +262,232 @@ def _clean_card_name(name: str) -> str:
     name = re.sub(r'\s*[\(\[].*(Near Mint|Excellent|Good|Light Played|Played|Heavily Played|Damaged).*[\)\]]', '', name, flags=re.IGNORECASE)
     
     return name.strip()
+
+
+# ===========================================================================
+# WP2a — lossless extraction (order header, address block, positions).
+# This supersedes the lossy _clean_card_name pipeline for order ingestion:
+# set / language / condition are KEPT (structured), never stripped away.
+# ===========================================================================
+
+# Amounts to pull from the order header, mapped to canonical keys.
+_AMOUNT_LABELS = {
+    "gesamtwert": "gesamtwert",
+    "gebühren": "gebuehren",
+    "gebuehren": "gebuehren",
+    "auszahlungsbetrag": "auszahlungsbetrag",
+    "versandkosten": "versandkosten",
+    "gesamtbetrag": "gesamtbetrag",
+}
+
+# Anchors delimiting the address block (German primary, English fallback).
+_ADDR_START_ANCHORS = [r"Status:\s*Bezahlt", r"Status:\s*Paid"]
+_ADDR_END_ANCHORS = [r"Sendungsverfolgung\s*:", r"Shipment\s+tracking\s*:"]
+
+
+def _parse_amount(text: str) -> Optional[float]:
+    """Parse a monetary amount like '3,90' or '1.234,56' into a float."""
+    if not text:
+        return None
+    t = text.strip().replace(" ", "")
+    # German style: thousands '.', decimal ','
+    if "," in t and "." in t:
+        t = t.replace(".", "").replace(",", ".")
+    elif "," in t:
+        t = t.replace(",", ".")
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
+def parse_order_header(email_body: str) -> Dict:
+    """Extract order number, buyer handle, status and the monetary amounts."""
+    header: Dict = {"order_number": "", "buyer_handle": "", "status": "", "amounts": {}}
+
+    m = re.search(r"Bestellnummer\s*:?\s*(\S+)", email_body, re.IGNORECASE) \
+        or re.search(r"Order\s+number\s*:?\s*(\S+)", email_body, re.IGNORECASE)
+    if m:
+        header["order_number"] = m.group(1).strip()
+
+    m = re.search(r"K[äa]ufer\s*:?\s*([^\n]+)", email_body, re.IGNORECASE) \
+        or re.search(r"Buyer\s*:?\s*([^\n]+)", email_body, re.IGNORECASE)
+    if m:
+        header["buyer_handle"] = m.group(1).strip()
+
+    m = re.search(r"Status\s*:?\s*([^\n]+)", email_body, re.IGNORECASE)
+    if m:
+        header["status"] = m.group(1).strip()
+
+    for label, key in _AMOUNT_LABELS.items():
+        m = re.search(
+            rf"{label}\s*:?\s*([\d.,]+)\s*(?:EUR|€)", email_body, re.IGNORECASE
+        )
+        if m:
+            header["amounts"][key] = _parse_amount(m.group(1))
+
+    return header
+
+
+def parse_address_block(email_body: str) -> Tuple[List[str], str]:
+    """Return the address as (non-empty lines, raw block).
+
+    Positional extraction: everything between the ``Status: Bezahlt`` and
+    ``Sendungsverfolgung:`` anchors (English fallbacks allowed). The address is
+    intentionally not hard-parsed into fields — the user confirms it later.
+    """
+    lines = email_body.splitlines()
+    start_idx = end_idx = None
+
+    for i, line in enumerate(lines):
+        if start_idx is None and any(
+            re.search(a, line, re.IGNORECASE) for a in _ADDR_START_ANCHORS
+        ):
+            start_idx = i
+            continue
+        if start_idx is not None and any(
+            re.search(a, line, re.IGNORECASE) for a in _ADDR_END_ANCHORS
+        ):
+            end_idx = i
+            break
+
+    if start_idx is None or end_idx is None or end_idx <= start_idx + 1:
+        return [], ""
+
+    block = lines[start_idx + 1:end_idx]
+    non_empty = [ln.strip() for ln in block if ln.strip()]
+    raw = "\n".join(non_empty)
+    return non_empty, raw
+
+
+def parse_position_line(line: str) -> Optional[Dict]:
+    """Parse a single Cardmarket position line into structured fields.
+
+    Example: ``1x Rumble Arena (Avatar: The Last Airbender) - C - Englisch - NM 0,03 EUR``
+    -> qty=1, name='Rumble Arena', set_name='Avatar: The Last Airbender',
+       rarity='C', language='en', condition='NM', uncertain=False.
+
+    With several parenthesis groups the set is the LAST one; earlier groups
+    (e.g. ``(V.1)``) are treated as variants, not the set. A line containing an
+    ellipsis / an unclosed set parenthesis is flagged ``uncertain`` so it goes to
+    manual candidate selection instead of being auto-matched.
+    """
+    m = re.match(r"^\s*(\d+)\s*[xX×]\s*(.+)$", line)
+    if not m:
+        return None
+    qty = int(m.group(1))
+    rest = m.group(2).strip()
+    raw = line.strip()
+
+    # Strip a trailing price ("3,90 EUR" / "1,00 €") off the end.
+    unit_price = None
+    pm = re.search(r"\s+([\d.,]+)\s*(?:EUR|€)\s*$", rest)
+    if pm:
+        unit_price = _parse_amount(pm.group(1))
+        rest = rest[: pm.start()].strip()
+
+    uncertain = "..." in rest or "…" in rest
+
+    name = rest
+    set_name = None
+    variant = None
+    rarity = language = condition = None
+
+    li = rest.rfind("(")
+    if li != -1:
+        before = rest[:li].strip()
+        after = rest[li + 1:]
+        ri = after.find(")")
+        if ri == -1:
+            # Unclosed set parenthesis -> truncated, uncertain.
+            set_name = after.strip().rstrip(".").strip() or None
+            suffix = ""
+            uncertain = True
+        else:
+            set_name = after[:ri].strip() or None
+            suffix = after[ri + 1:].strip()
+
+        # A leading variant group like "(V.1)" stays with the name text.
+        vm = re.search(r"\(([^)]*)\)\s*$", before)
+        if vm:
+            variant = vm.group(1).strip()
+            before = before[: vm.start()].strip()
+        name = before
+
+        # Parse the "- C - Englisch - NM" suffix (all parts optional).
+        if suffix:
+            parts = [p.strip() for p in suffix.split("-") if p.strip()]
+            if len(parts) >= 1:
+                rarity = parts[0]
+            if len(parts) >= 2:
+                language = normalize_language(parts[1])
+            if len(parts) >= 3:
+                condition = parts[2]
+
+    if set_name and ("..." in set_name or "…" in set_name):
+        uncertain = True
+    if name and ("..." in name or "…" in name):
+        uncertain = True
+
+    name = name.strip(" -")
+    if not name or not re.search(r"[A-Za-z]", name):
+        return None
+
+    return {
+        "quantity": qty,
+        "name": name,
+        "set_name": set_name,
+        "variant": variant,
+        "rarity": rarity,
+        "language": language,
+        "condition": condition,
+        "unit_price": unit_price,
+        "uncertain": uncertain,
+        "raw": raw,
+    }
+
+
+def parse_positions(email_body: str) -> List[Dict]:
+    """Extract all structured position lines from an order email."""
+    items: List[Dict] = []
+    for line in email_body.splitlines():
+        if not re.match(r"^\s*\d+\s*[xX×]\s*\S", line):
+            continue
+        parsed = parse_position_line(line)
+        if parsed:
+            items.append(parsed)
+    return items
+
+
+def parse_order_email(
+    email_body: str, message_id: str, subject: str = "", email_date: str = None
+) -> Dict:
+    """Full lossless extraction of a Cardmarket order email.
+
+    Returns order number, buyer, status, amounts, the address block (lines + raw)
+    and the structured positions. Nothing is guessed: truncated / ambiguous data
+    is flagged for confirmation downstream.
+    """
+    header = parse_order_header(email_body)
+    address_lines, address_raw = parse_address_block(email_body)
+    items = parse_positions(email_body)
+
+    # Buyer: prefer the reliable handle from subject/header, then body fallback.
+    buyer = header.get("buyer_handle", "")
+    if not buyer:
+        buyer = parse_cardmarket_email(email_body, message_id, subject).get("buyer_name", "")
+
+    return {
+        "order_number": header.get("order_number", ""),
+        "buyer_name": buyer or "Unknown Buyer",
+        "status": header.get("status", ""),
+        "amounts": header.get("amounts", {}),
+        "address_lines": address_lines,
+        "address_raw": address_raw,
+        "items": items,
+        "message_id": message_id,
+        "email_date": email_date,
+    }
 
 
 def extract_items_table(email_body: str) -> List[Dict]:
