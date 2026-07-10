@@ -1568,11 +1568,15 @@ def list_orders():
     cutoff_date = (datetime.now() - timedelta(days=ORDER_CUTOFF_DAYS)).isoformat()
     
     with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
         c = conn.cursor()
         c.execute(
             """
-            SELECT o.id, o.buyer_name, COALESCE(o.email_date, o.date_received) as display_date, o.status 
-            FROM orders o 
+            SELECT o.id, o.buyer_name, COALESCE(o.email_date, o.date_received) AS display_date,
+                   o.status, o.order_number, o.address,
+                   o.amount_gesamtwert, o.amount_gebuehren, o.amount_auszahlung,
+                   o.amount_versand, o.amount_gesamt
+            FROM orders o
             WHERE o.status = 'open'
               AND COALESCE(o.email_date, o.date_received) >= ?
             ORDER BY COALESCE(o.email_date, o.date_received) DESC
@@ -1580,35 +1584,51 @@ def list_orders():
             (cutoff_date,)
         )
         orders = c.fetchall()
-        
-        # Get items for each order
+
         order_details = []
         for order in orders:
-            order_id = order[0]
+            order_id = order["id"]
             c.execute(
                 """
-                SELECT id, card_name, quantity, image_url, storage_code
+                SELECT id, card_name, quantity, image_url, storage_code, card_id,
+                       match_status, set_name, set_code, language, condition, foil,
+                       uncertain, variant
                 FROM order_items
                 WHERE order_id = ?
                 ORDER BY card_name
                 """,
                 (order_id,)
             )
-            items = c.fetchall()
+            items = []
+            for it in c.fetchall():
+                item = dict(it)
+                # For unresolved / ambiguous positions, offer inventory candidates
+                # for manual selection (never auto-decided).
+                item["candidates"] = []
+                if not item["card_id"]:
+                    item["candidates"] = _order_item_candidates(c, item["card_name"])
+                items.append(item)
+
             order_details.append({
-                'id': order[0],
-                'buyer_name': order[1],
-                # display_date is from COALESCE(email_date, date_received) in the query above
-                # This ensures we show the actual email date when available, falling back to insertion time
-                'display_date': order[2],
-                'status': order[3],
-                'items': items
+                "id": order["id"],
+                "buyer_name": order["buyer_name"],
+                "display_date": order["display_date"],
+                "status": order["status"],
+                "order_number": order["order_number"],
+                "address": order["address"] or "",
+                "amounts": {
+                    "gesamtwert": order["amount_gesamtwert"],
+                    "gebuehren": order["amount_gebuehren"],
+                    "auszahlung": order["amount_auszahlung"],
+                    "versand": order["amount_versand"],
+                    "gesamt": order["amount_gesamt"],
+                },
+                "items": items,
             })
-    
-    # Get service status
+
     service = get_order_service()
     polling_enabled = service.is_enabled()
-    
+
     return render_template(
         "orders.html",
         orders=order_details,
@@ -1616,85 +1636,125 @@ def list_orders():
     )
 
 
+def _order_item_candidates(cursor, card_name):
+    """Return available inventory cards that could match an order position.
+
+    Used only to present a manual choice for unresolved/ambiguous positions —
+    never to auto-decide. Exact name matches first; if none, a name substring
+    search provides suggestions (the user picks).
+    """
+    cols = ("id, name, set_code, language, foil, condition, collector_number, "
+            "storage_code, image_url, quantity")
+    cursor.execute(
+        f"SELECT {cols} FROM cards WHERE LOWER(name) = LOWER(?) "
+        "AND status = 'verfügbar' AND quantity > 0 ORDER BY set_code, language",
+        (card_name,),
+    )
+    rows = [dict(r) for r in cursor.fetchall()]
+    if not rows:
+        cursor.execute(
+            f"SELECT {cols} FROM cards WHERE LOWER(name) LIKE LOWER(?) "
+            "AND status = 'verfügbar' AND quantity > 0 ORDER BY name, set_code LIMIT 12",
+            (f"%{card_name}%",),
+        )
+        rows = [dict(r) for r in cursor.fetchall()]
+    return rows
+
+
+@app.route("/orders/items/<int:item_id>/assign", methods=["POST"])
+@login_required
+def assign_order_item(item_id: int):
+    """Manually link an order position to a chosen inventory card (candidate)."""
+    card_id = request.form.get("card_id")
+    if not card_id or not card_id.isdigit():
+        flash("Keine Karte ausgewählt", "error")
+        return redirect(url_for("list_orders"))
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute("SELECT storage_code, image_url FROM cards WHERE id = ?", (int(card_id),))
+        card = c.fetchone()
+        if not card:
+            flash("Karte nicht gefunden", "error")
+            return redirect(url_for("list_orders"))
+        c.execute(
+            "UPDATE order_items SET card_id = ?, match_status = 'matched', "
+            "storage_code = ?, image_url = COALESCE(image_url, ?) WHERE id = ?",
+            (int(card_id), card[0], card[1], item_id),
+        )
+        conn.commit()
+    flash("Position der Karte zugeordnet.")
+    return redirect(url_for("list_orders"))
+
+
+@app.route("/orders/<int:order_id>/address", methods=["POST"])
+@login_required
+def update_order_address(order_id: int):
+    """Save the user-confirmed / corrected shipping address for an order."""
+    address = request.form.get("address", "").strip()
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute("UPDATE orders SET address = ? WHERE id = ?", (address, order_id))
+        conn.commit()
+    flash("Adresse gespeichert.")
+    return redirect(url_for("list_orders"))
+
+
 @app.route("/orders/<int:order_id>/mark_sold", methods=["POST"])
 @login_required
 def mark_order_sold(order_id: int):
-    """Mark an order as sold/completed and remove cards from inventory."""
+    """Mark an order as shipped/sold: decrement exactly the linked card_id(s).
+
+    Idempotent — only an ``open`` order is processed, so a second click does not
+    decrement inventory again. Positions without a linked card_id are reported,
+    not guessed.
+    """
     user = session.get('user', 'system')
-    
+
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
-        
-        # Get all items in this order
+        c.execute("SELECT status FROM orders WHERE id = ?", (order_id,))
+        row = c.fetchone()
+        if not row:
+            flash("Bestellung nicht gefunden", "error")
+            return redirect(url_for("list_orders"))
+        if row[0] == 'sold':
+            flash("Bestellung ist bereits als verkauft markiert – kein erneuter Abzug.", "warning")
+            return redirect(url_for("list_orders"))
+
         c.execute(
-            """
-            SELECT card_name, quantity
-            FROM order_items
-            WHERE order_id = ?
-            """,
-            (order_id,)
+            "SELECT card_id, quantity, card_name FROM order_items WHERE order_id = ?",
+            (order_id,),
         )
-        order_items = c.fetchall()
-        
-        # For each item, find matching cards in inventory and sell them
-        cards_sold = 0
-        cards_not_found = []
-        
-        for card_name, quantity in order_items:
-            remaining_to_sell = quantity
-            
-            # Keep selling until we've sold the required quantity or run out of stock
-            while remaining_to_sell > 0:
-                # Re-query each time to get current inventory state
-                c.execute(
-                    """
-                    SELECT id, quantity
-                    FROM cards
-                    WHERE LOWER(name) = LOWER(?)
-                    AND status = 'verfügbar'
-                    AND quantity > 0
-                    ORDER BY id
-                    LIMIT 1
-                    """,
-                    (card_name,)
-                )
-                card = c.fetchone()
-                
-                if not card:
-                    # No more cards available in inventory
-                    break
-                
-                card_id = card[0]
-                # Sell one card at a time using existing sell_card logic
-                # This ensures audit logging and proper archiving when quantity reaches 0
-                if sell_card(card_id, user):
-                    cards_sold += 1
-                    remaining_to_sell -= 1
-                else:
-                    # sell_card failed, stop trying this card
-                    break
-            
-            # Track cards that couldn't be found in inventory
-            if remaining_to_sell > 0:
-                cards_not_found.append(f"{card_name} ({remaining_to_sell}x)")
-        
-        # Mark order as sold
+        items = c.fetchall()
+
+    cards_sold = 0
+    not_linked = []
+    for card_id, quantity, card_name in items:
+        if not card_id:
+            not_linked.append(f"{card_name} ({quantity}x)")
+            continue
+        for _ in range(quantity or 0):
+            if sell_card(card_id, user):
+                cards_sold += 1
+
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        # Guard again so concurrent double-submit cannot double-decrement.
         c.execute(
-            """
-            UPDATE orders 
-            SET status = 'sold', date_completed = ?
-            WHERE id = ?
-            """,
-            (datetime.now().isoformat(), order_id)
+            "UPDATE orders SET status = 'sold', date_completed = ? WHERE id = ? AND status = 'open'",
+            (datetime.now().isoformat(), order_id),
         )
         conn.commit()
-    
-    # Provide feedback to user
-    if cards_not_found:
-        flash(f"Order marked as sold. {cards_sold} cards removed from inventory. Not found: {', '.join(cards_not_found)}", "warning")
+
+    if not_linked:
+        flash(
+            f"Als verkauft markiert. {cards_sold} Karte(n) abgezogen. "
+            f"Nicht zugeordnet (bitte prüfen): {', '.join(not_linked)}",
+            "warning",
+        )
     else:
-        flash(f"Order marked as sold and {cards_sold} cards removed from inventory", "success")
-    
+        flash(f"Als verkauft markiert und {cards_sold} Karte(n) abgezogen.", "success")
+
     return redirect(url_for("list_orders"))
 
 

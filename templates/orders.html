@@ -1,95 +1,148 @@
 {% extends "base.html" %}
 {% block content %}
-<h2 class="mb-4">Offene Bestellungen</h2>
-
-<div class="mb-3">
-  <form method="post" action="{{ url_for('sync_orders') }}" style="display: inline-block;">
-    <button type="submit" class="btn btn-primary">Jetzt synchronisieren</button>
-  </form>
-  
-  {% if polling_enabled %}
-  <form method="post" action="{{ url_for('toggle_order_polling') }}" style="display: inline-block;">
-    <input type="hidden" name="action" value="disable">
-    <button type="submit" class="btn btn-warning">Automatische Abfrage deaktivieren</button>
-  </form>
-  <span class="text-muted ms-2">🟢 Automatische Abfrage aktiv (11:00-22:00)</span>
-  {% else %}
-  <form method="post" action="{{ url_for('toggle_order_polling') }}" style="display: inline-block;">
-    <input type="hidden" name="action" value="enable">
-    <button type="submit" class="btn btn-success">Automatische Abfrage aktivieren</button>
-  </form>
-  <span class="text-muted ms-2">🔴 Automatische Abfrage deaktiviert</span>
-  {% endif %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h2 class="page-title mb-0">Offene Bestellungen <small>· {{ orders|length }}</small></h2>
+  <div class="d-flex align-items-center gap-2 flex-wrap">
+    <form method="post" action="{{ url_for('sync_orders') }}">
+      <button type="submit" class="btn btn-primary">Jetzt synchronisieren</button>
+    </form>
+    {% if polling_enabled %}
+    <form method="post" action="{{ url_for('toggle_order_polling') }}">
+      <input type="hidden" name="action" value="disable">
+      <button type="submit" class="btn btn-outline-warning btn-sm">Auto-Abfrage aus</button>
+    </form>
+    <span class="text-muted small">🟢 aktiv (11–22 Uhr)</span>
+    {% else %}
+    <form method="post" action="{{ url_for('toggle_order_polling') }}">
+      <input type="hidden" name="action" value="enable">
+      <button type="submit" class="btn btn-outline-success btn-sm">Auto-Abfrage an</button>
+    </form>
+    <span class="text-muted small">🔴 deaktiviert</span>
+    {% endif %}
+  </div>
 </div>
 
-{% if orders %}
-  {% for order in orders %}
-  <div class="card mb-3">
-    <div class="card-header d-flex justify-content-between align-items-center">
-      <h5 class="mb-0">Bestellung von {{ order['buyer_name'] }}</h5>
-      <div class="d-flex align-items-center">
-        <small class="text-muted me-3">{{ order['display_date'][:19] }}</small>
-        <form method="post" action="{{ url_for('delete_order', order_id=order['id']) }}" class="delete-order-form">
-          <button type="submit" class="btn btn-sm btn-danger" title="Bestellung löschen">
-            <span aria-hidden="true">&times;</span>
-          </button>
+{% if not orders %}
+<div class="empty-state"><span class="ico">📭</span>Keine offenen Bestellungen. „Jetzt synchronisieren", um neue abzurufen.</div>
+{% endif %}
+
+{% for order in orders %}
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div>
+      <strong>{{ order.buyer_name }}</strong>
+      {% if order.order_number %}<span class="text-muted">· Bestellung {{ order.order_number }}</span>{% endif %}
+      <span class="text-muted small ms-2">{{ order.display_date[:19] if order.display_date }}</span>
+    </div>
+    <form method="post" action="{{ url_for('delete_order', order_id=order.id) }}" class="delete-order-form">
+      <button type="submit" class="btn btn-sm btn-outline-danger" title="Bestellung löschen">
+        <span aria-hidden="true">&times;</span>
+      </button>
+    </form>
+  </div>
+  <div class="card-body">
+    <div class="row g-3">
+      <!-- Address (prefilled, editable, confirmed by user) -->
+      <div class="col-lg-4">
+        <form method="post" action="{{ url_for('update_order_address', order_id=order.id) }}">
+          <label class="form-label">Lieferadresse (bestätigen / korrigieren)</label>
+          <textarea name="address" class="form-control" rows="4" placeholder="Adresse aus der Mail…">{{ order.address }}</textarea>
+          <button class="btn btn-outline-primary btn-sm mt-2" type="submit">Adresse speichern</button>
+        </form>
+        {% if order.amounts.gesamt is not none or order.amounts.gesamtwert is not none %}
+        <div class="text-muted small mt-3">
+          Warenwert €{{ '%.2f'|format(order.amounts.gesamtwert or 0) }} ·
+          Versand €{{ '%.2f'|format(order.amounts.versand or 0) }} ·
+          Gesamt €{{ '%.2f'|format(order.amounts.gesamt or 0) }}
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Positions -->
+      <div class="col-lg-8">
+        {% for item in order['items'] %}
+        <div class="card mb-2">
+          <div class="card-body py-2">
+            <div class="d-flex gap-3 align-items-start">
+              <div>
+                {% if item.image_url %}
+                <img src="{{ item.image_url }}" class="clickable-image" data-img="{{ item.image_url }}"
+                     style="width:48px;height:66px;object-fit:cover;border-radius:4px;" alt="{{ item.card_name }}">
+                {% else %}<span class="text-muted">—</span>{% endif %}
+              </div>
+              <div class="flex-grow-1">
+                <div class="d-flex justify-content-between flex-wrap gap-2">
+                  <div>
+                    <strong>{{ item.quantity }}× {{ item.card_name }}</strong>
+                    {% if item.uncertain %}<span class="chip">unsicher</span>{% endif %}
+                    <div class="tcg-card__meta">
+                      {% if item.set_name %}<span>{{ item.set_name }}</span>{% endif %}
+                      {% if item.set_code %}<span class="sep">·</span><span>{{ item.set_code|upper }}</span>{% endif %}
+                      {% if item.language %}<span class="sep">·</span><span>{{ item.language|upper }}</span>{% endif %}
+                      {% if item.condition %}<span class="sep">·</span><span>{{ item.condition }}</span>{% endif %}
+                    </div>
+                  </div>
+                  <div class="text-end">
+                    {% if item.match_status == 'matched' %}
+                    <span class="status-badge status-badge--verfuegbar">Zugeordnet</span>
+                    <div class="mt-1">
+                      {% if item.storage_code %}<span class="storage-badge">{{ item.storage_code }}</span>
+                      {% else %}<span class="storage-badge storage-badge--empty">kein Lagerort</span>{% endif %}
+                    </div>
+                    {% elif item.match_status == 'ambiguous' %}
+                    <span class="status-badge status-badge--reserviert">Mehrdeutig</span>
+                    {% else %}
+                    <span class="status-badge status-badge--archiviert">Kein Treffer</span>
+                    {% endif %}
+                  </div>
+                </div>
+
+                {% if not item.card_id %}
+                  {% if item.candidates %}
+                  <form method="post" action="{{ url_for('assign_order_item', item_id=item.id) }}" class="mt-2">
+                    <div class="tcg-card__meta mb-1">Kandidaten – bitte die richtige Karte wählen:</div>
+                    {% for cand in item.candidates %}
+                    <label class="d-flex align-items-center gap-2 mb-1">
+                      <input type="radio" name="card_id" value="{{ cand.id }}" class="form-check-input">
+                      {% if cand.image_url %}
+                      <img src="{{ cand.image_url }}" class="clickable-image" data-img="{{ cand.image_url }}"
+                           style="width:28px;height:38px;object-fit:cover;border-radius:3px;">
+                      {% endif %}
+                      <span class="small">
+                        {{ cand.name }} · {{ cand.set_code|upper }}{% if cand.language %} · {{ cand.language|upper }}{% endif %}{% if cand.foil %} · <span class="foil-star-inline" title="Foil">★</span>{% endif %}
+                        {% if cand.storage_code %} · <span class="storage-badge">{{ cand.storage_code }}</span>{% endif %}
+                        (Bestand {{ cand.quantity }})
+                      </span>
+                    </label>
+                    {% endfor %}
+                    <button class="btn btn-sm btn-outline-primary mt-1" type="submit">Zuordnen</button>
+                  </form>
+                  {% else %}
+                  <div class="text-muted small mt-2">Keine passende Karte im Bestand gefunden.</div>
+                  {% endif %}
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+
+        <form method="post" action="{{ url_for('mark_order_sold', order_id=order.id) }}" class="mt-2"
+              onsubmit="return confirm('Bestellung als versendet/verkauft markieren? Die zugeordneten Karten werden abgezogen.')">
+          <button type="submit" class="btn btn-success">Versendet / Verkauft</button>
         </form>
       </div>
     </div>
-    <div class="card-body">
-      <table class="table table-sm">
-        <thead>
-          <tr>
-            <th>Anzahl</th>
-            <th>Bild</th>
-            <th>Kartenname</th>
-            <th>Lagerort</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for item in order['items'] %}
-          <tr>
-            <td>{{ item[2] }}x</td>
-            <td>
-              {% if item[3] %}
-              <img src="{{ item[3] }}" style="max-height:60px;" class="img-thumbnail clickable-image" 
-                   data-bs-toggle="modal" data-bs-target="#imgModal" data-img="{{ item[3] }}">
-              {% else %}
-              <span class="text-muted">-</span>
-              {% endif %}
-            </td>
-            <td>{{ item[1] }}</td>
-            <td>
-              {% if item[4] %}
-              <span class="storage-badge">{{ item[4] }}</span>
-              {% else %}
-              <span class="storage-badge storage-badge--empty">Nicht im Lager</span>
-              {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      <form method="post" action="{{ url_for('mark_order_sold', order_id=order['id']) }}" class="mt-2">
-        <button type="submit" class="btn btn-success" 
-                onclick="return confirm('Bestellung als verkauft markieren?')">
-          Verkauft
-        </button>
-      </form>
-    </div>
   </div>
-  {% endfor %}
-{% else %}
-  <div class="alert alert-info">
-    Keine offenen Bestellungen gefunden. Klicken Sie auf "Jetzt synchronisieren", um neue Bestellungen abzurufen.
-  </div>
-{% endif %}
+</div>
+{% endfor %}
 
+<!-- Image Modal -->
 <div class="modal fade" id="imgModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content bg-dark">
       <div class="modal-body p-0">
-        <img id="modal-img" src="" class="img-fluid" alt="Card image">
+        <img id="modal-img" src="" class="img-fluid" alt="Kartenbild">
       </div>
     </div>
   </div>
@@ -98,37 +151,15 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
   const modalImg = document.getElementById('modal-img');
-  const imgModalEl = document.getElementById('imgModal');
-  
-  // Check if Bootstrap is loaded and create modal with error handling
-  let modal = null;
-  if (typeof bootstrap !== 'undefined' && imgModalEl) {
-    try {
-      modal = new bootstrap.Modal(imgModalEl);
-    } catch (e) {
-      console.error('Failed to initialize Bootstrap modal:', e);
-    }
-  }
-
+  const modalEl = document.getElementById('imgModal');
+  let modal = (typeof bootstrap !== 'undefined' && modalEl) ? new bootstrap.Modal(modalEl) : null;
   document.addEventListener('click', (e) => {
     if (e.target.classList.contains('clickable-image')) {
       const src = e.target.getAttribute('data-img');
-      if (src && modalImg) {
-        modalImg.src = src;
-        if (modal) {
-          try {
-            modal.show();
-          } catch (e) {
-            console.error('Failed to show modal:', e);
-          }
-        }
-      }
+      if (src && modalImg) { modalImg.src = src; if (modal) modal.show(); }
     }
   });
-  
-  // Handle delete order confirmation
-  const deleteOrderForms = document.querySelectorAll('.delete-order-form');
-  deleteOrderForms.forEach(form => {
+  document.querySelectorAll('.delete-order-form').forEach(form => {
     form.addEventListener('submit', function(e) {
       if (!confirm('Diese Bestellung wirklich löschen? Dies kann nicht rückgängig gemacht werden.')) {
         e.preventDefault();
