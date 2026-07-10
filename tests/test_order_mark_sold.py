@@ -29,10 +29,12 @@ def test_mark_order_sold_removes_from_inventory(tmp_path, monkeypatch):
     # Add some cards to inventory
     add_card("Lightning Bolt", "LEA", "en", "NM", 10.0, quantity=5)
     add_card("Black Lotus", "LEA", "en", "NM", 1000.0, quantity=2)
-    
-    # Create an order
+
+    # Create an order with items linked to the exact inventory card_ids (WP2a)
     with sqlite3.connect(str(db)) as conn:
         c = conn.cursor()
+        bolt_id = c.execute("SELECT id FROM cards WHERE name='Lightning Bolt'").fetchone()[0]
+        lotus_id = c.execute("SELECT id FROM cards WHERE name='Black Lotus'").fetchone()[0]
         c.execute(
             """
             INSERT INTO orders (buyer_name, email_message_id, date_received, status)
@@ -41,21 +43,16 @@ def test_mark_order_sold_removes_from_inventory(tmp_path, monkeypatch):
             ("Test Buyer", "test-msg-123", "2024-01-01T10:00:00", "open")
         )
         order_id = c.lastrowid
-        
-        # Add order items
+
         c.execute(
-            """
-            INSERT INTO order_items (order_id, card_name, quantity, image_url, storage_code)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (order_id, "Lightning Bolt", 2, None, None)
+            "INSERT INTO order_items (order_id, card_name, quantity, card_id, match_status) "
+            "VALUES (?, ?, ?, ?, 'matched')",
+            (order_id, "Lightning Bolt", 2, bolt_id),
         )
         c.execute(
-            """
-            INSERT INTO order_items (order_id, card_name, quantity, image_url, storage_code)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (order_id, "Black Lotus", 1, None, None)
+            "INSERT INTO order_items (order_id, card_name, quantity, card_id, match_status) "
+            "VALUES (?, ?, ?, ?, 'matched')",
+            (order_id, "Black Lotus", 1, lotus_id),
         )
         conn.commit()
 
@@ -99,10 +96,11 @@ def test_mark_order_sold_with_missing_cards(tmp_path, monkeypatch):
 
     # Add only one card to inventory
     add_card("Lightning Bolt", "LEA", "en", "NM", 10.0, quantity=1)
-    
-    # Create an order with a card not in inventory
+
+    # One linked item + one unresolved item (no card_id) that must NOT be sold
     with sqlite3.connect(str(db)) as conn:
         c = conn.cursor()
+        bolt_id = c.execute("SELECT id FROM cards WHERE name='Lightning Bolt'").fetchone()[0]
         c.execute(
             """
             INSERT INTO orders (buyer_name, email_message_id, date_received, status)
@@ -111,21 +109,16 @@ def test_mark_order_sold_with_missing_cards(tmp_path, monkeypatch):
             ("Test Buyer", "test-msg-456", "2024-01-01T10:00:00", "open")
         )
         order_id = c.lastrowid
-        
-        # Add order items
+
         c.execute(
-            """
-            INSERT INTO order_items (order_id, card_name, quantity, image_url, storage_code)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (order_id, "Lightning Bolt", 1, None, None)
+            "INSERT INTO order_items (order_id, card_name, quantity, card_id, match_status) "
+            "VALUES (?, ?, ?, ?, 'matched')",
+            (order_id, "Lightning Bolt", 1, bolt_id),
         )
         c.execute(
-            """
-            INSERT INTO order_items (order_id, card_name, quantity, image_url, storage_code)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (order_id, "Mox Ruby", 1, None, None)
+            "INSERT INTO order_items (order_id, card_name, quantity, card_id, match_status) "
+            "VALUES (?, ?, ?, NULL, 'unresolved')",
+            (order_id, "Mox Ruby", 1),
         )
         conn.commit()
 
@@ -159,8 +152,8 @@ def test_mark_order_sold_with_missing_cards(tmp_path, monkeypatch):
         assert status == "sold", f"Expected order status to be 'sold', got {status}"
 
 
-def test_mark_order_sold_case_insensitive(tmp_path, monkeypatch):
-    """Test that card name matching is case-insensitive."""
+def test_mark_order_sold_ignores_unlinked_items(tmp_path, monkeypatch):
+    """WP2a: a position without a linked card_id must NOT be sold (never guessed)."""
     db = tmp_path / "db.sqlite"
     monkeypatch.setattr(web, "DB_FILE", str(db))
     monkeypatch.setattr(sys.modules['TCGInventory'], 'DB_FILE', str(db))
@@ -168,10 +161,9 @@ def test_mark_order_sold_case_insensitive(tmp_path, monkeypatch):
     monkeypatch.setattr(sys.modules['TCGInventory.lager_manager'], 'DB_FILE', str(db))
     initialize_database()
 
-    # Add card with specific casing
     add_card("Lightning Bolt", "LEA", "en", "NM", 10.0, quantity=3)
-    
-    # Create an order with different casing
+
+    # Order item is NOT linked to a card_id -> must be left untouched.
     with sqlite3.connect(str(db)) as conn:
         c = conn.cursor()
         c.execute(
@@ -182,29 +174,25 @@ def test_mark_order_sold_case_insensitive(tmp_path, monkeypatch):
             ("Test Buyer", "test-msg-789", "2024-01-01T10:00:00", "open")
         )
         order_id = c.lastrowid
-        
-        # Add order item with different casing
         c.execute(
-            """
-            INSERT INTO order_items (order_id, card_name, quantity, image_url, storage_code)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (order_id, "LIGHTNING BOLT", 2, None, None)
+            "INSERT INTO order_items (order_id, card_name, quantity, card_id, match_status) "
+            "VALUES (?, ?, ?, NULL, 'unresolved')",
+            (order_id, "Lightning Bolt", 2),
         )
         conn.commit()
 
-    # Mark order as sold via web route
     app = web.app
     app.config['TESTING'] = True
     with app.test_client() as client:
         with client.session_transaction() as sess:
             sess['user'] = 'test'
         resp = client.post(f"/orders/{order_id}/mark_sold")
-        assert resp.status_code == 302  # Redirect
+        assert resp.status_code == 302
 
-    # Verify inventory was updated despite casing difference
     with sqlite3.connect(str(db)) as conn:
         c = conn.cursor()
-        c.execute("SELECT quantity FROM cards WHERE name = 'Lightning Bolt'")
-        qty = c.fetchone()[0]
-        assert qty == 1, f"Expected Lightning Bolt quantity to be 1, got {qty}"
+        # Inventory untouched because the position was never linked.
+        qty = c.execute("SELECT quantity FROM cards WHERE name = 'Lightning Bolt'").fetchone()[0]
+        assert qty == 3, f"Unlinked item must not decrement inventory, got {qty}"
+        status = c.execute("SELECT status FROM orders WHERE id = ?", (order_id,)).fetchone()[0]
+        assert status == "sold"
