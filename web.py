@@ -53,6 +53,7 @@ from TCGInventory.auth import (
 )
 from TCGInventory.repo_updater import update_repo
 from TCGInventory.order_service import get_order_service
+from TCGInventory.shipping_note import render_shipping_note
 from pathlib import Path
 from werkzeug.utils import secure_filename
 
@@ -1573,7 +1574,7 @@ def list_orders():
         c.execute(
             """
             SELECT o.id, o.buyer_name, COALESCE(o.email_date, o.date_received) AS display_date,
-                   o.status, o.order_number, o.address,
+                   o.status, o.order_number, o.address, o.address_confirmed,
                    o.amount_gesamtwert, o.amount_gebuehren, o.amount_auszahlung,
                    o.amount_versand, o.amount_gesamt
             FROM orders o
@@ -1616,6 +1617,7 @@ def list_orders():
                 "status": order["status"],
                 "order_number": order["order_number"],
                 "address": order["address"] or "",
+                "address_confirmed": bool(order["address_confirmed"]),
                 "amounts": {
                     "gesamtwert": order["amount_gesamtwert"],
                     "gebuehren": order["amount_gebuehren"],
@@ -1689,14 +1691,73 @@ def assign_order_item(item_id: int):
 @app.route("/orders/<int:order_id>/address", methods=["POST"])
 @login_required
 def update_order_address(order_id: int):
-    """Save the user-confirmed / corrected shipping address for an order."""
+    """Save the user-confirmed / corrected shipping address for an order.
+
+    Saving marks the address as confirmed (``address_confirmed = 1``), which is
+    the precondition for printing the shipping note.
+    """
     address = request.form.get("address", "").strip()
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
-        c.execute("UPDATE orders SET address = ? WHERE id = ?", (address, order_id))
+        c.execute(
+            "UPDATE orders SET address = ?, address_confirmed = 1 WHERE id = ?",
+            (address, order_id),
+        )
         conn.commit()
-    flash("Adresse gespeichert.")
+    flash("Adresse gespeichert und bestätigt.")
     return redirect(url_for("list_orders"))
+
+
+@app.route("/orders/<int:order_id>/shipping_note")
+@login_required
+def shipping_note_pdf(order_id: int):
+    """Generate and serve the A4 shipping note (Beileger) for an order.
+
+    Uses only the *confirmed* address — if the address has not been confirmed
+    yet, the user is told to confirm it first instead of printing the raw one.
+    """
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute(
+            "SELECT order_number, address, address_confirmed FROM orders WHERE id = ?",
+            (order_id,),
+        )
+        order = c.fetchone()
+        if not order:
+            flash("Bestellung nicht gefunden", "error")
+            return redirect(url_for("list_orders"))
+        if not order["address_confirmed"] or not (order["address"] or "").strip():
+            flash(
+                "Bitte zuerst die Lieferadresse bestätigen (Adresse speichern), "
+                "bevor der Beileger gedruckt wird.",
+                "warning",
+            )
+            return redirect(url_for("list_orders"))
+
+        c.execute(
+            "SELECT card_name, quantity, set_code, foil FROM order_items "
+            "WHERE order_id = ? ORDER BY card_name",
+            (order_id,),
+        )
+        positions = [
+            {"quantity": r["quantity"], "name": r["card_name"],
+             "set_code": r["set_code"], "foil": r["foil"]}
+            for r in c.fetchall()
+        ]
+
+    recipient_lines = [ln.strip() for ln in order["address"].splitlines() if ln.strip()]
+    pdf_bytes = render_shipping_note(
+        recipient_lines=recipient_lines,
+        order_number=order["order_number"] or str(order_id),
+        positions=positions,
+    )
+    filename = f"beileger_{order['order_number'] or order_id}.pdf"
+    return Response(
+        pdf_bytes,
+        mimetype="application/pdf",
+        headers={"Content-Disposition": f"inline; filename={filename}"},
+    )
 
 
 @app.route("/orders/<int:order_id>/mark_sold", methods=["POST"])
