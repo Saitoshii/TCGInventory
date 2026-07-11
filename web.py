@@ -1720,7 +1720,8 @@ def shipping_note_pdf(order_id: int):
         conn.row_factory = sqlite3.Row
         c = conn.cursor()
         c.execute(
-            "SELECT order_number, address, address_confirmed FROM orders WHERE id = ?",
+            "SELECT order_number, buyer_name, address, address_confirmed, "
+            "amount_gesamtwert, amount_versand, amount_gesamt FROM orders WHERE id = ?",
             (order_id,),
         )
         order = c.fetchone()
@@ -1736,13 +1737,13 @@ def shipping_note_pdf(order_id: int):
             return redirect(url_for("list_orders"))
 
         c.execute(
-            "SELECT card_name, quantity, set_code, foil FROM order_items "
-            "WHERE order_id = ? ORDER BY card_name",
+            "SELECT card_name, quantity, set_name, condition, unit_price, foil "
+            "FROM order_items WHERE order_id = ? ORDER BY card_name",
             (order_id,),
         )
         positions = [
-            {"quantity": r["quantity"], "name": r["card_name"],
-             "set_code": r["set_code"], "foil": r["foil"]}
+            {"quantity": r["quantity"], "name": r["card_name"], "set_name": r["set_name"],
+             "condition": r["condition"], "unit_price": r["unit_price"], "foil": r["foil"]}
             for r in c.fetchall()
         ]
 
@@ -1751,6 +1752,12 @@ def shipping_note_pdf(order_id: int):
         recipient_lines=recipient_lines,
         order_number=order["order_number"] or str(order_id),
         positions=positions,
+        buyer_name=order["buyer_name"] or "",
+        totals={
+            "subtotal": order["amount_gesamtwert"],
+            "shipping": order["amount_versand"],
+            "total": order["amount_gesamt"],
+        },
     )
     filename = f"beileger_{order['order_number'] or order_id}.pdf"
     return Response(
