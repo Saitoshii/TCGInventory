@@ -1688,6 +1688,27 @@ def assign_order_item(item_id: int):
     return redirect(url_for("list_orders"))
 
 
+@app.route("/orders/items/<int:item_id>/condition", methods=["POST"])
+@login_required
+def update_order_item_condition(item_id: int):
+    """Set the condition (Zustand) of an order position manually.
+
+    The value is validated against the allowed condition codes and then shown on
+    the printed shipping note, which reads ``order_items.condition``.
+    """
+    allowed = {"", "MT", "NM", "EX", "GD", "LP", "PL", "PO"}
+    condition = (request.form.get("condition", "") or "").strip().upper()
+    if condition not in allowed:
+        flash("Ungültiger Zustand", "error")
+        return redirect(url_for("list_orders"))
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute("UPDATE order_items SET condition = ? WHERE id = ?", (condition, item_id))
+        conn.commit()
+    flash("Zustand aktualisiert.")
+    return redirect(url_for("list_orders"))
+
+
 @app.route("/orders/<int:order_id>/address", methods=["POST"])
 @login_required
 def update_order_address(order_id: int):
@@ -1753,11 +1774,10 @@ def shipping_note_pdf(order_id: int):
         order_number=order["order_number"] or str(order_id),
         positions=positions,
         buyer_name=order["buyer_name"] or "",
-        totals={
-            "subtotal": order["amount_gesamtwert"],
-            "shipping": order["amount_versand"],
-            "total": order["amount_gesamt"],
-        },
+        # Subtotal/total are computed from the actual item prices in the note, so
+        # they stay consistent (the mail's "Gesamtwert" is the grand total, not
+        # the item subtotal). Only shipping is taken from the order.
+        totals={"shipping": order["amount_versand"]},
     )
     filename = f"beileger_{order['order_number'] or order_id}.pdf"
     return Response(
