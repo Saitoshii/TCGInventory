@@ -12,6 +12,7 @@ DejaVu fonts, since fpdf2 core fonts are limited to latin-1 (no €).
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Sequence
@@ -86,23 +87,47 @@ def get_shop_config() -> dict:
     ``SHOP_LOGO``.
     """
     name = os.environ.get("SHOP_NAME", "Zur Festung – Cardmarket & Spielewelt")
-    street = os.environ.get("SHOP_STREET", "Musterstraße 12")
-    zip_city = os.environ.get("SHOP_ZIP_CITY", "24937 Flensburg")
-    city = os.environ.get("SHOP_CITY", "Flensburg")
+    street = os.environ.get("SHOP_STREET", "Iltisweg 7")
+    zip_city = os.environ.get("SHOP_ZIP_CITY", "24983 Handewitt")
+    city = os.environ.get("SHOP_CITY", "Handewitt")
+    country = os.environ.get("SHOP_COUNTRY", "Deutschland")
+    # Short brand used in the footer's return address; defaults to the part
+    # before the first en-dash in the full name.
+    short_name = os.environ.get("SHOP_SHORT_NAME", name.split(" – ")[0].strip())
     cardmarket = os.environ.get("SHOP_CARDMARKET", "KartenkammerFM")
     email = os.environ.get("SHOP_EMAIL", "kontakt@zurfestung.de")
     logo_path = os.environ.get("SHOP_LOGO", str(_DEFAULT_LOGO))
     return {
         "name": name,
+        "short_name": short_name,
         "street": street,
         "zip_city": zip_city,
         "city": city,
+        "country": country,
         "cardmarket": cardmarket,
         "email": email,
         "logo_path": logo_path,
         "sender_line": f"{name} · {street} · {zip_city}",
+        "footer_sender_line": f"{short_name} · {street} · {zip_city} · {country}",
         "contact_line": f"Cardmarket: {cardmarket} · {email}",
     }
+
+
+# Valid Cardmarket buyer handle: a single token (no spaces, no sentence).
+_HANDLE_RE = re.compile(r"[\wäöüÄÖÜß.\-]{2,30}$")
+
+
+def _greeting(buyer_name: str) -> str:
+    """Return a safe greeting.
+
+    Only a plausible single-token Cardmarket handle is used by name; anything
+    else (empty, a sentence fragment, whitespace) falls back to a neutral
+    greeting so the note never prints e.g. ``Hallo die Bestellung stornieren.,``.
+    """
+    handle = (buyer_name or "").strip()
+    if handle and " " not in handle and _HANDLE_RE.fullmatch(handle):
+        return f"Hallo {handle},"
+    return "Hallo,"
 
 
 def _eur(value) -> str:
@@ -218,8 +243,7 @@ def render_shipping_note(
     pdf.line(PAGE_MARGIN_MM, SUBJECT_TOP_MM + 8, PAGE_W_MM - PAGE_MARGIN_MM, SUBJECT_TOP_MM + 8)
 
     # --- Greeting + thank-you ---
-    greet = f"Hallo {buyer_name}," if buyer_name else "Hallo,"
-    text(PAGE_MARGIN_MM, GREETING_TOP_MM, greet, _SERIF, "", 11, INK)
+    text(PAGE_MARGIN_MM, GREETING_TOP_MM, _greeting(buyer_name), _SERIF, "", 11, INK)
     text(PAGE_MARGIN_MM, GREETING_TOP_MM + 6,
          "vielen Dank für deine Bestellung – wir freuen uns, dass du bei uns gekauft hast.",
          _SERIF, "", 11, INK, w=CONTENT_W_MM)
@@ -294,8 +318,8 @@ def render_shipping_note(
          _SERIF, "I", 10, GOLD, w=CONTENT_W_MM, align="C")
     text(PAGE_MARGIN_MM, foot_y + 8.5, cfg["contact_line"], _SANS, "", 8.5, GREY,
          w=CONTENT_W_MM, align="C")
-    text(PAGE_MARGIN_MM, foot_y + 12.5, cfg["sender_line"], _SANS, "", 8.5, GREY,
-         w=CONTENT_W_MM, align="C")
+    text(PAGE_MARGIN_MM, foot_y + 12.5, cfg.get("footer_sender_line", cfg["sender_line"]),
+         _SANS, "", 8.5, GREY, w=CONTENT_W_MM, align="C")
 
     # --- Fold / hole marks ---
     pdf.set_draw_color(*HAIRLINE)
