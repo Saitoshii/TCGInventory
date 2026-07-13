@@ -90,6 +90,27 @@ def test_order_email_items_count():
     assert r["items"][2]["uncertain"] is True
 
 
+def test_buyer_prefers_clean_subject_handle():
+    # Body noise ("die Bestellung stornieren") must NOT become the buyer.
+    body = (
+        "Status: Bezahlt\n\nMax\n12345 Ort\n\nSendungsverfolgung:\n\n"
+        "Falls du die Bestellung stornieren möchtest, klicke hier.\n"
+        "1x Sol Ring (Commander) - R - Englisch - NM 2,00 EUR\n"
+    )
+    r = parse_order_email(body, "m9", subject="Bestellung 999 für gaulix: Bitte versenden")
+    assert r["buyer_name"] == "gaulix"
+
+
+def test_buyer_invalid_handle_becomes_empty():
+    from TCGInventory.email_parser import is_valid_buyer_handle
+    assert is_valid_buyer_handle("gaulix")
+    assert not is_valid_buyer_handle("die Bestellung stornieren.")
+    assert not is_valid_buyer_handle("")
+    # No clean handle anywhere -> empty buyer (greeting falls back downstream).
+    r = parse_order_email("Status: Bezahlt\n\nSendungsverfolgung:\n", "m10", subject="")
+    assert r["buyer_name"] == ""
+
+
 def test_parse_buyer_from_subject():
     """Test parsing buyer name from email subject line."""
     email_body = """

@@ -459,6 +459,16 @@ def parse_positions(email_body: str) -> List[Dict]:
     return items
 
 
+# A Cardmarket buyer handle is a single token (letters/digits/_/-/.), not a phrase.
+_BUYER_HANDLE_RE = re.compile(r"[\wäöüÄÖÜß.\-]{2,30}$")
+
+
+def is_valid_buyer_handle(value: str) -> bool:
+    """True if ``value`` looks like a real Cardmarket username (single token)."""
+    v = (value or "").strip()
+    return bool(v) and " " not in v and bool(_BUYER_HANDLE_RE.fullmatch(v))
+
+
 def parse_order_email(
     email_body: str, message_id: str, subject: str = "", email_date: str = None
 ) -> Dict:
@@ -472,14 +482,26 @@ def parse_order_email(
     address_lines, address_raw = parse_address_block(email_body)
     items = parse_positions(email_body)
 
-    # Buyer: prefer the reliable handle from subject/header, then body fallback.
-    buyer = header.get("buyer_handle", "")
-    if not buyer:
-        buyer = parse_cardmarket_email(email_body, message_id, subject).get("buyer_name", "")
+    # Buyer handle: the Cardmarket username is a single token. Prefer the clean
+    # handle from the subject ("… für X: Bitte versenden"), then the "Käufer:"
+    # header, then the body fallback — and only accept a plausible handle so a
+    # sentence fragment (e.g. "die Bestellung stornieren.") is never used.
+    subj_handle = ""
+    if subject:
+        sm = (re.search(r"für\s+([^:\n]+):\s*Bitte\s+versenden", subject, re.IGNORECASE)
+              or re.search(r"for\s+([^:\n]+):\s*Please\s+ship", subject, re.IGNORECASE))
+        if sm:
+            subj_handle = sm.group(1).strip()
+    body_buyer = parse_cardmarket_email(email_body, message_id, subject).get("buyer_name", "")
+    buyer = next(
+        (h for h in (subj_handle, header.get("buyer_handle", ""), body_buyer)
+         if is_valid_buyer_handle(h)),
+        "",
+    )
 
     return {
         "order_number": header.get("order_number", ""),
-        "buyer_name": buyer or "Unknown Buyer",
+        "buyer_name": buyer,
         "status": header.get("status", ""),
         "amounts": header.get("amounts", {}),
         "address_lines": address_lines,

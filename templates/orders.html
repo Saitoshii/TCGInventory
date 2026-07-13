@@ -93,8 +93,16 @@
                       {% if item.set_name %}<span>{{ item.set_name }}</span>{% endif %}
                       {% if item.set_code %}<span class="sep">·</span><span>{{ item.set_code|upper }}</span>{% endif %}
                       {% if item.language %}<span class="sep">·</span><span>{{ item.language|upper }}</span>{% endif %}
-                      {% if item.condition %}<span class="sep">·</span><span>{{ item.condition }}</span>{% endif %}
                     </div>
+                    <form method="post" action="{{ url_for('update_order_item_condition', item_id=item.id) }}"
+                          class="d-flex align-items-center gap-1 mt-1">
+                      <label class="form-label mb-0 small text-muted">Zustand</label>
+                      <select name="condition" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
+                        {% for cond in ['', 'MT', 'NM', 'EX', 'GD', 'LP', 'PL', 'PO'] %}
+                        <option value="{{ cond }}" {% if (item.condition or '')|upper == cond %}selected{% endif %}>{{ cond or '—' }}</option>
+                        {% endfor %}
+                      </select>
+                    </form>
                   </div>
                   <div class="text-end">
                     {% if item.match_status == 'matched' %}

@@ -16,9 +16,50 @@ sys.modules.setdefault("pyzbar.pyzbar", _pyz.pyzbar)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from TCGInventory.shipping_note import (  # noqa: E402
-    render_shipping_note, get_shop_config, _eur,
+    render_shipping_note, get_shop_config, _eur, _greeting,
     ADDRESS_TOP_MM, ADDRESS_LEFT_MM, ADDRESS_WIDTH_MM,
 )
+
+
+def _text(pdf_bytes):
+    from io import BytesIO
+    import importlib
+    pypdf = importlib.import_module("pypdf")
+    return pypdf.PdfReader(BytesIO(pdf_bytes)).pages[0].extract_text()
+
+
+def test_greeting_sanitizes_garbage_buyer():
+    assert _greeting("gaulix") == "Hallo gaulix,"
+    assert _greeting("Obi83") == "Hallo Obi83,"
+    assert _greeting("die Bestellung stornieren.") == "Hallo,"   # sentence -> neutral
+    assert _greeting("") == "Hallo,"
+    assert _greeting("Unknown Buyer") == "Hallo,"                # has space -> neutral
+
+
+def test_config_has_real_sender_address():
+    cfg = get_shop_config()
+    assert cfg["street"] == "Iltisweg 7"
+    assert cfg["zip_city"] == "24983 Handewitt"
+    assert cfg["city"] == "Handewitt"
+    assert cfg["footer_sender_line"].endswith("Deutschland")
+
+
+def test_totals_are_consistent_from_item_prices():
+    pypdf = pytest.importorskip("pypdf")  # noqa: F841
+    pdf = render_shipping_note(
+        recipient_lines=["Jan de Vries", "1234 AB Amsterdam", "NIEDERLANDE"],
+        order_number="1287799674",
+        buyer_name="die Bestellung stornieren.",  # buggy -> must not appear
+        positions=[
+            {"quantity": 1, "name": "Deadly Dispute", "set_name": "FF", "condition": "NM", "unit_price": 0.25},
+            {"quantity": 1, "name": "Nasty End", "set_name": "LOTR", "condition": "EX", "unit_price": 0.02},
+        ],
+        totals={"shipping": 1.55},   # subtotal/total derived from the items
+    )
+    text = _text(pdf)
+    assert "die Bestellung stornieren" not in text
+    assert "Hallo," in text
+    assert "0,27" in text and "1,55" in text and "1,82" in text  # 0,27 + 1,55 = 1,82
 
 _POSITIONS = [
     {"quantity": 1, "name": "Ezio Auditore da Firenze (V.1)",
@@ -141,3 +182,19 @@ def test_shipping_note_after_confirm(tmp_path):
     assert r.status_code == 200
     assert r.headers["Content-Type"].startswith("application/pdf")
     assert r.get_data()[:5] == b"%PDF-"
+
+
+def test_manual_condition_shows_on_note(tmp_path):
+    pytest.importorskip("pypdf")
+    db, oid, client = _setup(tmp_path)
+    with sqlite3.connect(db) as conn:
+        item_id = conn.execute("SELECT id FROM order_items WHERE order_id=?", (oid,)).fetchone()[0]
+    # Manually set the condition in the panel...
+    client.post(f"/orders/items/{item_id}/condition", data={"condition": "LP"})
+    with sqlite3.connect(db) as conn:
+        assert conn.execute("SELECT condition FROM order_items WHERE id=?", (item_id,)).fetchone()[0] == "LP"
+    # ...and it must appear on the printed note.
+    client.post(f"/orders/{oid}/address", data={"address": "Max Mustermann\n01159 Dresden"})
+    text = _text(client.get(f"/orders/{oid}/shipping_note").get_data())
+    assert "LP" in text
+    assert "Matoya, Archon Elder" in text
