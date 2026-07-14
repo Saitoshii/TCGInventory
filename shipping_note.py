@@ -22,6 +22,11 @@ from fpdf import FPDF
 _BASE = Path(__file__).resolve().parent
 _FONT_DIR = _BASE / "static" / "fonts"
 _DEFAULT_LOGO = _BASE / "static" / "img" / "logo.png"
+_DEFAULT_BADGE = _BASE / "static" / "img" / "cardmarket_seal.png"
+
+# Cardmarket "Private Seller" seal in the footer (aspect ratio ~247:285).
+FOOTER_BADGE_HEIGHT_MM = 16
+_BADGE_ASPECT = 247 / 285
 
 # ---------------------------------------------------------------------------
 # Page grid
@@ -97,6 +102,7 @@ def get_shop_config() -> dict:
     cardmarket = os.environ.get("SHOP_CARDMARKET", "KartenkammerFM")
     email = os.environ.get("SHOP_EMAIL", "kontakt@zurfestung.de")
     logo_path = os.environ.get("SHOP_LOGO", str(_DEFAULT_LOGO))
+    badge_path = os.environ.get("SHOP_BADGE", str(_DEFAULT_BADGE))
     return {
         "name": name,
         "short_name": short_name,
@@ -107,6 +113,7 @@ def get_shop_config() -> dict:
         "cardmarket": cardmarket,
         "email": email,
         "logo_path": logo_path,
+        "badge_path": badge_path,
         "sender_line": f"{name} · {street} · {zip_city}",
         "footer_sender_line": f"{short_name} · {street} · {zip_city} · {country}",
         "contact_line": f"Cardmarket: {cardmarket} · {email}",
@@ -177,6 +184,7 @@ def render_shipping_note(
     date: Optional[str] = None,
     config: Optional[dict] = None,
     logo_path: Optional[str] = None,
+    badge_path: Optional[str] = None,
     compress: bool = True,
 ) -> bytes:
     """Render the branded A4 shipping note and return the PDF as bytes.
@@ -308,17 +316,21 @@ def render_shipping_note(
     pdf.line(_TOTALS_LABEL_RIGHT_X - 60, y + 13.5, _PRICE_RIGHT_X, y + 13.5)
     total_row(y + 15, "Gesamt", total, bold=True)
 
-    # --- Footer ---
-    foot_y = PAGE_H_MM - FOOTER_HAIRLINE_FROM_BOTTOM_MM
-    pdf.set_draw_color(*HAIRLINE)
-    pdf.set_line_width(0.2)
-    pdf.line(PAGE_MARGIN_MM, foot_y, PAGE_W_MM - PAGE_MARGIN_MM, foot_y)
-    text(PAGE_MARGIN_MM, foot_y + 2.5,
+    # --- Footer: Cardmarket "Private Seller" seal, thank-you sentence, address ---
+    sentence_y = PAGE_H_MM - 18
+    sender_y = PAGE_H_MM - 12
+    badge = badge_path or cfg.get("badge_path")
+    if badge and Path(badge).exists():
+        try:
+            bw = FOOTER_BADGE_HEIGHT_MM * _BADGE_ASPECT
+            pdf.image(badge, x=(PAGE_W_MM - bw) / 2,
+                      y=sentence_y - FOOTER_BADGE_HEIGHT_MM - 2, h=FOOTER_BADGE_HEIGHT_MM)
+        except Exception:
+            pass
+    text(PAGE_MARGIN_MM, sentence_y,
          "Über eine Bewertung auf Cardmarket freuen wir uns sehr.",
          _SERIF, "I", 10, GOLD, w=CONTENT_W_MM, align="C")
-    text(PAGE_MARGIN_MM, foot_y + 8.5, cfg["contact_line"], _SANS, "", 8.5, GREY,
-         w=CONTENT_W_MM, align="C")
-    text(PAGE_MARGIN_MM, foot_y + 12.5, cfg.get("footer_sender_line", cfg["sender_line"]),
+    text(PAGE_MARGIN_MM, sender_y, cfg.get("footer_sender_line", cfg["sender_line"]),
          _SANS, "", 8.5, GREY, w=CONTENT_W_MM, align="C")
 
     # --- Fold / hole marks ---

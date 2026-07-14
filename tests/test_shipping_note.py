@@ -42,6 +42,22 @@ def test_config_has_real_sender_address():
     assert cfg["zip_city"] == "24983 Handewitt"
     assert cfg["city"] == "Handewitt"
     assert cfg["footer_sender_line"].endswith("Deutschland")
+    assert cfg["badge_path"].endswith("cardmarket_seal.png")
+
+
+def test_footer_has_badge_and_no_contact_line():
+    pytest.importorskip("pypdf")
+    pdf = render_shipping_note(
+        recipient_lines=["Max Mustermann", "01159 Dresden"],
+        order_number="1286648200", buyer_name="gaulix",
+        positions=[{"quantity": 1, "name": "Sol Ring", "set_name": "CMR",
+                    "condition": "NM", "unit_price": 2.0}],
+        totals={"shipping": 1.55},
+    )
+    text = _text(pdf)
+    # v3 footer: seal + thank-you + return address, no e-mail contact line.
+    assert "kontakt@zurfestung.de" not in text
+    assert "Iltisweg 7" in text and "Deutschland" in text
 
 
 def test_totals_are_consistent_from_item_prices():
