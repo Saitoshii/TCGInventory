@@ -15,8 +15,9 @@ sys.modules.setdefault("pyzbar.pyzbar", _pyz.pyzbar)
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
+from datetime import date  # noqa: E402
 from TCGInventory.shipping_note import (  # noqa: E402
-    render_shipping_note, get_shop_config, _eur, _greeting,
+    render_shipping_note, get_shop_config, _eur, _greeting, _format_date, detect_language,
     ADDRESS_TOP_MM, ADDRESS_LEFT_MM, ADDRESS_WIDTH_MM,
 )
 
@@ -71,6 +72,7 @@ def test_totals_are_consistent_from_item_prices():
             {"quantity": 1, "name": "Nasty End", "set_name": "LOTR", "condition": "EX", "unit_price": 0.02},
         ],
         totals={"shipping": 1.55},   # subtotal/total derived from the items
+        lang="de",
     )
     text = _text(pdf)
     assert "die Bestellung stornieren" not in text
@@ -115,16 +117,60 @@ def test_din_constants_unchanged():
     assert ADDRESS_TOP_MM == 45
 
 
-def test_config_defaults_and_env(monkeypatch):
+# --- bilingual (DE / EN) --------------------------------------------------
+
+def test_eur_and_date_per_language():
+    assert _eur(3.90, "de") == "3,90 €" and _eur(3.90, "en") == "€3.90"
+    assert _eur(1234.5, "de") == "1.234,50 €" and _eur(1234.5, "en") == "€1,234.50"
+    assert _format_date(date(2026, 7, 11), "de") == "11.07.2026"
+    assert _format_date(date(2026, 7, 11), "en") == "11 July 2026"
+
+
+def test_language_detection():
+    assert detect_language(["X", "01159 Dresden", "Deutschland"]) == "de"
+    assert detect_language(["X", "12 Rue", "75002 Paris", "FRANCE"]) == "en"
+    assert detect_language(["X", "1000 NL", "Niederlande"]) == "en"
+    assert detect_language(["X", "01159 Dresden"]) == "de"   # no country -> default DE
+
+
+def test_de_note_drops_country_line():
+    pytest.importorskip("pypdf")
+    pdf = render_shipping_note(
+        ["Max Mustermann", "Rudolf-Renner-Str. 36", "01159 Dresden", "Deutschland"],
+        "1286648200", _POSITIONS, buyer_name="gaulix", totals={"shipping": 1.55},
+        date=date(2026, 7, 11),
+    )
+    t = _text(pdf)
+    assert "Bestellung 1286648200" in t and "Hallo gaulix" in t
+    assert "Zwischensumme" in t and "3,90 €" in t          # German label + format
+    assert "DEUTSCHLAND" not in t                          # domestic: no country line
+    assert t.count("Deutschland") == 1                     # only footer carries it
+
+
+def test_en_note_uppercase_country_line():
+    pytest.importorskip("pypdf")
+    pdf = render_shipping_note(
+        ["Marie Dupont", "12 Rue de la Paix", "75002 Paris", "France"],
+        "1286648201", _POSITIONS, buyer_name="mdupont", totals={"shipping": 2.10},
+        date=date(2026, 7, 11),
+    )
+    t = _text(pdf)
+    assert "Order 1286648201" in t and "Hello mdupont" in t
+    assert "Subtotal" in t and "Total" in t
+    assert "€3.90" in t                                    # English number format
+    assert "FRANCE" in t                                   # foreign: uppercase country
+    assert "11 July 2026" in t
+
+
+def test_config_short_sender_and_env(monkeypatch):
     cfg = get_shop_config()
-    assert "Zur Festung" in cfg["name"]
-    assert cfg["sender_line"].startswith(cfg["name"])
-    assert cfg["email"] in cfg["contact_line"]
-    monkeypatch.setenv("SHOP_NAME", "Mein Laden")
-    monkeypatch.setenv("SHOP_EMAIL", "hallo@laden.de")
+    # Sender line uses the SHORT brand so it fits the envelope window; no contact.
+    assert cfg["sender_line"] == "Zur Festung · Iltisweg 7 · 24983 Handewitt"
+    assert "contact_line" not in cfg
+    monkeypatch.setenv("SHOP_STREET", "Neuer Weg 3")
+    monkeypatch.setenv("SHOP_ZIP_CITY", "10000 Berlin")
     cfg2 = get_shop_config()
-    assert cfg2["name"] == "Mein Laden"
-    assert "hallo@laden.de" in cfg2["contact_line"]
+    assert "Neuer Weg 3" in cfg2["sender_line"] and "10000 Berlin" in cfg2["sender_line"]
 
 
 # --- PDF generation ------------------------------------------------------
@@ -214,3 +260,15 @@ def test_manual_condition_shows_on_note(tmp_path):
     text = _text(client.get(f"/orders/{oid}/shipping_note").get_data())
     assert "LP" in text
     assert "Matoya, Archon Elder" in text
+
+
+def test_language_override_switches_note_to_english(tmp_path):
+    pytest.importorskip("pypdf")
+    db, oid, client = _setup(tmp_path)
+    # German recipient -> would auto-detect DE; override to EN.
+    client.post(f"/orders/{oid}/address", data={"address": "Max Mustermann\n01159 Dresden\nDeutschland"})
+    client.post(f"/orders/{oid}/language", data={"language": "en"})
+    with sqlite3.connect(db) as conn:
+        assert conn.execute("SELECT print_language FROM orders WHERE id=?", (oid,)).fetchone()[0] == "en"
+    text = _text(client.get(f"/orders/{oid}/shipping_note").get_data())
+    assert "Order" in text and "Hello" in text          # English texts on the note

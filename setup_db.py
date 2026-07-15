@@ -156,6 +156,9 @@ def initialize_database() -> None:
             # WP2b: set to 1 once the user has confirmed/saved the address in the
             # panel; the shipping note is only printed for a confirmed address.
             "address_confirmed": "INTEGER DEFAULT 0",
+            # WP2c: manual language override for the shipping note ('de'/'en');
+            # NULL means auto-detect from the recipient country.
+            "print_language": "TEXT",
             "amount_gesamtwert": "REAL",
             "amount_gebuehren": "REAL",
             "amount_auszahlung": "REAL",
