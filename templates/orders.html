@@ -53,6 +53,19 @@
           <textarea name="address" class="form-control" rows="4" placeholder="Adresse aus der Mail…">{{ order.address }}</textarea>
           <button class="btn btn-outline-primary btn-sm mt-2" type="submit">Adresse speichern</button>
         </form>
+        <!-- Beileger language: auto-detected from country, manually switchable -->
+        <div class="d-flex align-items-center gap-2 mt-2 flex-wrap">
+          <span class="form-label mb-0 small text-muted">Sprache</span>
+          <div class="btn-group btn-group-sm" role="group">
+            {% for code in ['de', 'en'] %}
+            <form method="post" action="{{ url_for('set_order_language', order_id=order.id) }}">
+              <input type="hidden" name="language" value="{{ code }}">
+              <button type="submit" class="btn btn-sm {% if order.language == code %}btn-primary{% else %}btn-outline-secondary{% endif %}">{{ code|upper }}</button>
+            </form>
+            {% endfor %}
+          </div>
+          <span class="text-muted small">{% if order.language_overridden %}manuell{% else %}automatisch{% endif %}</span>
+        </div>
         <div class="mt-2">
           {% if order.address_confirmed %}
           <a class="btn btn-outline-info btn-sm" href="{{ url_for('shipping_note_pdf', order_id=order.id) }}" target="_blank" rel="noopener">

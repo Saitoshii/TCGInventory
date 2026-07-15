@@ -53,7 +53,7 @@ from TCGInventory.auth import (
 )
 from TCGInventory.repo_updater import update_repo
 from TCGInventory.order_service import get_order_service
-from TCGInventory.shipping_note import render_shipping_note
+from TCGInventory.shipping_note import render_shipping_note, detect_language
 from pathlib import Path
 from werkzeug.utils import secure_filename
 
@@ -1574,7 +1574,7 @@ def list_orders():
         c.execute(
             """
             SELECT o.id, o.buyer_name, COALESCE(o.email_date, o.date_received) AS display_date,
-                   o.status, o.order_number, o.address, o.address_confirmed,
+                   o.status, o.order_number, o.address, o.address_confirmed, o.print_language,
                    o.amount_gesamtwert, o.amount_gebuehren, o.amount_auszahlung,
                    o.amount_versand, o.amount_gesamt
             FROM orders o
@@ -1610,6 +1610,9 @@ def list_orders():
                     item["candidates"] = _order_item_candidates(c, item["card_name"])
                 items.append(item)
 
+            recipient_lines = [ln.strip() for ln in (order["address"] or "").splitlines() if ln.strip()]
+            detected_lang = detect_language(recipient_lines)
+            effective_lang = order["print_language"] or detected_lang
             order_details.append({
                 "id": order["id"],
                 "buyer_name": order["buyer_name"],
@@ -1618,6 +1621,8 @@ def list_orders():
                 "order_number": order["order_number"],
                 "address": order["address"] or "",
                 "address_confirmed": bool(order["address_confirmed"]),
+                "language": effective_lang,
+                "language_overridden": bool(order["print_language"]),
                 "amounts": {
                     "gesamtwert": order["amount_gesamtwert"],
                     "gebuehren": order["amount_gebuehren"],
@@ -1729,6 +1734,22 @@ def update_order_address(order_id: int):
     return redirect(url_for("list_orders"))
 
 
+@app.route("/orders/<int:order_id>/language", methods=["POST"])
+@login_required
+def set_order_language(order_id: int):
+    """Manually override the shipping-note language (de/en) before printing."""
+    lang = (request.form.get("language", "") or "").strip().lower()
+    if lang not in ("de", "en"):
+        flash("Ungültige Sprache", "error")
+        return redirect(url_for("list_orders"))
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute("UPDATE orders SET print_language = ? WHERE id = ?", (lang, order_id))
+        conn.commit()
+    flash(f"Beileger-Sprache auf {lang.upper()} gesetzt.")
+    return redirect(url_for("list_orders"))
+
+
 @app.route("/orders/<int:order_id>/shipping_note")
 @login_required
 def shipping_note_pdf(order_id: int):
@@ -1741,7 +1762,7 @@ def shipping_note_pdf(order_id: int):
         conn.row_factory = sqlite3.Row
         c = conn.cursor()
         c.execute(
-            "SELECT order_number, buyer_name, address, address_confirmed, "
+            "SELECT order_number, buyer_name, address, address_confirmed, print_language, "
             "amount_gesamtwert, amount_versand, amount_gesamt FROM orders WHERE id = ?",
             (order_id,),
         )
@@ -1769,11 +1790,14 @@ def shipping_note_pdf(order_id: int):
         ]
 
     recipient_lines = [ln.strip() for ln in order["address"].splitlines() if ln.strip()]
+    # Language: manual override if set, otherwise auto-detect from the country.
+    lang = order["print_language"] or detect_language(recipient_lines)
     pdf_bytes = render_shipping_note(
         recipient_lines=recipient_lines,
         order_number=order["order_number"] or str(order_id),
         positions=positions,
         buyer_name=order["buyer_name"] or "",
+        lang=lang,
         # Subtotal/total are computed from the actual item prices in the note, so
         # they stay consistent (the mail's "Gesamtwert" is the grand total, not
         # the item subtotal). Only shipping is taken from the order.
