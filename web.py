@@ -54,6 +54,7 @@ from TCGInventory.auth import (
 from TCGInventory.repo_updater import update_repo
 from TCGInventory.order_service import get_order_service
 from TCGInventory.shipping_note import render_shipping_note, detect_language
+from TCGInventory import sales_export
 from pathlib import Path
 from werkzeug.utils import secure_filename
 
@@ -1388,6 +1389,70 @@ def needs_review_clear():
     NEEDS_REVIEW.clear()
     flash("Needs-Review geleert")
     return redirect(url_for("needs_review_view"))
+
+
+# ---------------------------------------------------------------------------
+# Auswertung / Verkaufs-Export (WP3a) — strictly read-only, no bookkeeping.
+# ---------------------------------------------------------------------------
+def _export_period():
+    """Resolve the requested period from the query string."""
+    return sales_export.parse_range(
+        request.args.get("von", ""),
+        request.args.get("bis", ""),
+        request.args.get("zeitraum", ""),
+    )
+
+
+@app.route("/auswertung")
+@login_required
+def sales_export_view():
+    """Sales evaluation / export view with period filter and monthly overview."""
+    start, end = _export_period()
+    orders = sales_export.fetch_orders(DB_FILE, start, end)
+    months = sales_export.monthly_summary(orders)
+    totals = {
+        "count": len(orders),
+        "gesamt": sum(m["gesamt"] for m in months),
+        "gebuehren": sum(m["gebuehren"] for m in months),
+        "auszahlung": sum(m["auszahlung"] for m in months),
+    }
+    return render_template(
+        "sales_export.html",
+        start=start, end=end, months=months, totals=totals,
+        preset=request.args.get("zeitraum", ""),
+    )
+
+
+def _csv_response(payload: bytes, filename: str):
+    return Response(
+        payload,
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.route("/auswertung/bestellungen.csv")
+@login_required
+def sales_export_orders_csv():
+    """CSV: one line per order (main export for the accounting hand-over)."""
+    start, end = _export_period()
+    orders = sales_export.fetch_orders(DB_FILE, start, end)
+    return _csv_response(
+        sales_export.build_orders_csv(orders),
+        sales_export.export_filename("verkaeufe", start, end),
+    )
+
+
+@app.route("/auswertung/positionen.csv")
+@login_required
+def sales_export_positions_csv():
+    """CSV: one line per sold card (own analysis, not for the tax return)."""
+    start, end = _export_period()
+    positions = sales_export.fetch_positions(DB_FILE, start, end)
+    return _csv_response(
+        sales_export.build_positions_csv(positions),
+        sales_export.export_filename("positionen", start, end),
+    )
 
 
 @app.route("/update")
