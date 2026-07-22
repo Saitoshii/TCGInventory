@@ -47,10 +47,11 @@
             <a class="nav-link {% if ep == 'list_orders' %}active{% endif %}" href="{{ url_for('list_orders') }}">Bestellungen</a>
           </li>
           <li class="nav-item dropdown">
-            <a class="nav-link dropdown-toggle {% if ep in ['audit_log_view', 'export_cards', 'sales_export_view', 'upload_database', 'update_view'] %}active{% endif %}"
+            <a class="nav-link dropdown-toggle {% if ep in ['audit_log_view', 'export_cards', 'sales_export_view', 'bookkeeping_view', 'bookkeeping_expense', 'bookkeeping_payments', 'bookkeeping_summary_view', 'upload_database', 'update_view'] %}active{% endif %}"
                href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">System</a>
             <ul class="dropdown-menu">
               <li><a class="dropdown-item" href="{{ url_for('audit_log_view') }}">Audit-Log</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('bookkeeping_view') }}">Buchhaltung</a></li>
               <li><a class="dropdown-item" href="{{ url_for('sales_export_view') }}">Auswertung &amp; Export</a></li>
               <li><a class="dropdown-item" href="{{ url_for('export_cards') }}">Bestand-Export</a></li>
               <li><a class="dropdown-item" href="{{ url_for('upload_database') }}">DB hochladen</a></li>

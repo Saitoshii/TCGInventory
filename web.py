@@ -55,6 +55,7 @@ from TCGInventory.repo_updater import update_repo
 from TCGInventory.order_service import get_order_service
 from TCGInventory.shipping_note import render_shipping_note, detect_language
 from TCGInventory import sales_export
+from TCGInventory import bookkeeping
 from pathlib import Path
 from werkzeug.utils import secure_filename
 
@@ -1452,6 +1453,151 @@ def sales_export_positions_csv():
     return _csv_response(
         sales_export.build_positions_csv(positions),
         sales_export.export_filename("positionen", start, end),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Buchhaltung (WP3b) — Journal ist append-only, Korrektur nur per Storno.
+# ---------------------------------------------------------------------------
+@app.route("/buchhaltung")
+@login_required
+def bookkeeping_view():
+    """Buchungsjournal mit übernehmbaren Bestellungen."""
+    return render_template(
+        "bookkeeping.html",
+        bookings=bookkeeping.list_bookings(),
+        bookable=bookkeeping.bookable_orders(),
+        cent_to_de=bookkeeping.cent_to_de,
+    )
+
+
+@app.route("/buchhaltung/uebernehmen/<int:order_id>", methods=["POST"])
+@login_required
+def bookkeeping_take_order(order_id: int):
+    """Bestellung als Einnahme übernehmen (Warenverkauf/Versand/Gebühren)."""
+    try:
+        ids = bookkeeping.book_order(order_id)
+        flash(f"Bestellung übernommen – {len(ids)} Buchung(en) erstellt.")
+    except (ValueError, sqlite3.IntegrityError) as exc:
+        flash(f"Übernahme nicht möglich: {exc}", "error")
+    return redirect(url_for("bookkeeping_view"))
+
+
+@app.route("/buchhaltung/storno/<int:buchung_id>", methods=["POST"])
+@login_required
+def bookkeeping_storno(buchung_id: int):
+    """Buchung stornieren (erzeugt eine neue, verknüpfte Stornozeile)."""
+    try:
+        bookkeeping.storno_booking(buchung_id, request.form.get("grund", "").strip())
+        flash("Stornobuchung erstellt.")
+    except ValueError as exc:
+        flash(f"Storno nicht möglich: {exc}", "error")
+    return redirect(url_for("bookkeeping_view"))
+
+
+@app.route("/buchhaltung/ausgabe", methods=["GET", "POST"])
+@login_required
+def bookkeeping_expense():
+    """Ausgabe mit Beleg erfassen."""
+    if request.method == "POST":
+        datum = request.form.get("buchungsdatum", "").strip()
+        kategorie = request.form.get("kategorie", "").strip()
+        betrag_cent = bookkeeping.to_cent(request.form.get("betrag", ""))
+        beschreibung = request.form.get("beschreibung", "").strip()
+        if not datum or kategorie not in bookkeeping.KATEGORIEN_AUSGABE or betrag_cent <= 0:
+            flash("Bitte Datum, Kategorie und einen Betrag > 0 angeben.", "error")
+            return redirect(url_for("bookkeeping_expense"))
+
+        beleg_id = None
+        upload = request.files.get("beleg")
+        if upload and upload.filename:
+            try:
+                beleg_id = bookkeeping.save_receipt(
+                    upload.filename, upload.read(), upload.mimetype or "")
+            except ValueError as exc:
+                flash(f"Beleg abgelehnt: {exc}", "error")
+                return redirect(url_for("bookkeeping_expense"))
+
+        bookkeeping.add_booking(datum, "ausgabe", kategorie, betrag_cent,
+                                beschreibung, beleg_id=beleg_id)
+        flash("Ausgabe gebucht.")
+        return redirect(url_for("bookkeeping_view"))
+
+    return render_template("expense_form.html", kategorien=bookkeeping.KATEGORIEN_AUSGABE)
+
+
+@app.route("/buchhaltung/beleg/<int:beleg_id>")
+@login_required
+def bookkeeping_receipt(beleg_id: int):
+    """Belegdatei anzeigen (unverändert ausgeliefert)."""
+    info = bookkeeping.get_receipt(beleg_id)
+    if not info or not Path(info["pfad"]).exists():
+        flash("Beleg nicht gefunden", "error")
+        return redirect(url_for("bookkeeping_view"))
+    return Response(
+        Path(info["pfad"]).read_bytes(),
+        mimetype=info["mime"] or "application/octet-stream",
+        headers={"Content-Disposition": f'inline; filename="{info["original_name"]}"'},
+    )
+
+
+@app.route("/buchhaltung/zahlungseingang", methods=["GET", "POST"])
+@login_required
+def bookkeeping_payments():
+    """Mehreren Bestellungen gemeinsam ein Auszahlungsdatum zuweisen."""
+    if request.method == "POST":
+        datum = request.form.get("datum", "").strip()
+        ids = [int(i) for i in request.form.getlist("order_ids") if i.isdigit()]
+        if not datum or not ids:
+            flash("Bitte Datum und mindestens eine Bestellung wählen.", "error")
+        else:
+            n = bookkeeping.assign_payment_date(ids, datum)
+            flash(f"Auszahlungsdatum gesetzt ({n} Buchung(en)).")
+        return redirect(url_for("bookkeeping_payments"))
+
+    return render_template(
+        "payments.html",
+        orders=bookkeeping.open_payment_orders(),
+        cent_to_de=bookkeeping.cent_to_de,
+    )
+
+
+def _bookkeeping_period():
+    jahr = request.args.get("jahr", "").strip()
+    von = request.args.get("von", "").strip()
+    bis = request.args.get("bis", "").strip()
+    if von and bis:
+        return von, bis
+    if jahr.isdigit():
+        return f"{jahr}-01-01", f"{jahr}-12-31"
+    year = datetime.now().year
+    return f"{year}-01-01", f"{year}-12-31"
+
+
+@app.route("/buchhaltung/auswertung")
+@login_required
+def bookkeeping_summary_view():
+    """Jahresauswertung: Summen je Kategorie als Vorlage für die Anlage EÜR."""
+    start, end = _bookkeeping_period()
+    return render_template(
+        "bookkeeping_summary.html",
+        start=start, end=end,
+        result=bookkeeping.summary(start, end),
+        cent_to_de=bookkeeping.cent_to_de,
+    )
+
+
+@app.route("/buchhaltung/auswertung.csv")
+@login_required
+def bookkeeping_summary_csv():
+    """Jahresauswertung als deutsches CSV."""
+    start, end = _bookkeeping_period()
+    payload = bookkeeping.summary_csv(bookkeeping.summary(start, end), start, end)
+    return Response(
+        payload,
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition":
+                 f'attachment; filename="euer_{start}_bis_{end}.csv"'},
     )
 
 

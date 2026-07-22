@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+<h2 class="page-title">Zahlungseingang zuweisen</h2>
+
+<p class="text-muted small">
+  Cardmarket zahlt gesammelt aus. Wähle alle Bestellungen einer Auszahlung aus und trage das
+  Datum vom Kontoauszug ein — die Jahresauswertung rechnet nach diesem Datum (Zuflussprinzip).
+</p>
+
+{% if orders %}
+<form method="post">
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="row g-2 align-items-end">
+        <div class="col-auto">
+          <label class="form-label">Auszahlungsdatum (Kontoauszug)</label>
+          <input type="date" class="form-control" name="datum" required>
+        </div>
+        <div class="col-auto">
+          <button class="btn btn-primary" type="submit">Ausgewählten zuweisen</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h5 class="mb-0">Noch ohne Auszahlungsdatum</h5></div>
+    <div class="card-body">
+      <table class="table table-sm align-middle mb-0">
+        <thead>
+          <tr><th style="width:36px;"></th><th>Bestelldatum</th><th>Bestellnummer</th>
+              <th>Käufer</th><th class="text-end">Einnahme</th></tr>
+        </thead>
+        <tbody>
+          {% for o in orders %}
+          <tr>
+            <td><input class="form-check-input" type="checkbox" name="order_ids" value="{{ o.id }}"></td>
+            <td>{{ o.datum[:10] if o.datum }}</td>
+            <td>{{ o.order_number }}</td>
+            <td>{{ o.buyer_name }}</td>
+            <td class="text-end">{{ cent_to_de(o.einnahme_cent or 0) }} €</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</form>
+{% else %}
+<div class="empty-state"><span class="ico">✅</span>Allen gebuchten Bestellungen ist ein Auszahlungsdatum zugewiesen.</div>
+{% endif %}
+
+<a class="btn btn-outline-secondary btn-sm mt-3" href="{{ url_for('bookkeeping_view') }}">Zurück zum Journal</a>
+{% endblock %}
