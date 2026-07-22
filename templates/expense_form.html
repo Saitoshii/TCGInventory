@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<h2 class="page-title">Ausgabe erfassen</h2>
+
+<div class="card" style="max-width: 640px;">
+  <div class="card-body">
+    <form method="post" enctype="multipart/form-data">
+      <div class="mb-3">
+        <label class="form-label">Buchungsdatum (Tag des Geldabflusses)</label>
+        <input type="date" class="form-control" name="buchungsdatum" required>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Betrag (€)</label>
+        <input type="text" class="form-control" name="betrag" inputmode="decimal"
+               placeholder="z. B. 12,90" required>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Kategorie</label>
+        <select class="form-select" name="kategorie" required>
+          {% for k in kategorien %}<option value="{{ k }}">{{ k }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Beschreibung</label>
+        <input type="text" class="form-control" name="beschreibung" placeholder="z. B. Kartons, 100 Stück">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Beleg (PDF, JPG oder PNG)</label>
+        <input type="file" class="form-control" name="beleg" accept=".pdf,.jpg,.jpeg,.png">
+        <div class="text-muted small mt-1">
+          Die Datei wird unverändert gespeichert und mit Prüfsumme (SHA-256) abgelegt.
+          Belege werden nicht gelöscht.
+        </div>
+      </div>
+      <button class="btn btn-primary" type="submit">Ausgabe buchen</button>
+      <a class="btn btn-outline-secondary" href="{{ url_for('bookkeeping_view') }}">Abbrechen</a>
+    </form>
+  </div>
+</div>
+
+<p class="text-muted small mt-3">
+  Buchungen sind unveränderlich. Eine falsch erfasste Ausgabe wird per Storno korrigiert.
+</p>
+{% endblock %}

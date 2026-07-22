@@ -221,6 +221,109 @@ def initialize_database() -> None:
             """
         )
 
+        # -------------------------------------------------------------------
+        # Tabelle 7+8: Belege und Buchungsjournal (WP3b).
+        # Das Journal ist APPEND-ONLY: Buchungen werden nie geaendert oder
+        # geloescht, Korrekturen erfolgen ausschliesslich per Stornobuchung.
+        # Das wird unten per Trigger auf DB-Ebene erzwungen.
+        # -------------------------------------------------------------------
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS belege (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                original_name TEXT NOT NULL,
+                gespeichert_als TEXT NOT NULL,
+                mime TEXT,
+                groesse INTEGER,
+                sha256 TEXT NOT NULL,
+                hochgeladen_am TEXT NOT NULL
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS journal (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                lfd_nr INTEGER NOT NULL UNIQUE,
+                erfasst_am TEXT NOT NULL,
+                buchungsdatum TEXT NOT NULL,
+                art TEXT NOT NULL CHECK (art IN ('einnahme', 'ausgabe', 'storno')),
+                kategorie TEXT NOT NULL,
+                betrag_cent INTEGER NOT NULL,
+                beschreibung TEXT,
+                bestellung_id INTEGER,
+                beleg_id INTEGER,
+                storniert_buchung_id INTEGER,
+                storniert_durch INTEGER,
+                zahlungseingang_am TEXT,
+                FOREIGN KEY(bestellung_id) REFERENCES orders(id),
+                FOREIGN KEY(beleg_id) REFERENCES belege(id),
+                FOREIGN KEY(storniert_buchung_id) REFERENCES journal(id)
+            )
+            """
+        )
+        # Eine Bestellung kann je Kategorie nur einmal uebernommen werden
+        # (Stornozeilen sind ausgenommen).
+        cursor.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_journal_bestellung_kategorie "
+            "ON journal(bestellung_id, kategorie) "
+            "WHERE bestellung_id IS NOT NULL AND art <> 'storno'"
+        )
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_journal_datum ON journal(buchungsdatum)")
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_journal_zahlung ON journal(zahlungseingang_am)"
+        )
+
+        # Loeschen ist grundsaetzlich verboten.
+        cursor.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS journal_no_delete
+            BEFORE DELETE ON journal
+            BEGIN
+                SELECT RAISE(ABORT, 'Buchungen duerfen nicht geloescht werden (Storno verwenden)');
+            END
+            """
+        )
+        # Aendern ist verboten — einzige Ausnahme: das einmalige Nachtragen von
+        # zahlungseingang_am bzw. storniert_durch (NULL -> Wert). Alle
+        # finanzrelevanten Felder bleiben unveraenderlich.
+        cursor.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS journal_no_update
+            BEFORE UPDATE ON journal
+            FOR EACH ROW
+            WHEN (
+                OLD.lfd_nr <> NEW.lfd_nr
+                OR OLD.erfasst_am <> NEW.erfasst_am
+                OR OLD.buchungsdatum <> NEW.buchungsdatum
+                OR OLD.art <> NEW.art
+                OR OLD.kategorie <> NEW.kategorie
+                OR OLD.betrag_cent <> NEW.betrag_cent
+                OR IFNULL(OLD.beschreibung, '') <> IFNULL(NEW.beschreibung, '')
+                OR IFNULL(OLD.bestellung_id, -1) <> IFNULL(NEW.bestellung_id, -1)
+                OR IFNULL(OLD.beleg_id, -1) <> IFNULL(NEW.beleg_id, -1)
+                OR IFNULL(OLD.storniert_buchung_id, -1) <> IFNULL(NEW.storniert_buchung_id, -1)
+                OR (OLD.zahlungseingang_am IS NOT NULL
+                    AND IFNULL(NEW.zahlungseingang_am, '') <> OLD.zahlungseingang_am)
+                OR (OLD.storniert_durch IS NOT NULL
+                    AND IFNULL(NEW.storniert_durch, -1) <> OLD.storniert_durch)
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'Buchungen sind unveraenderlich (Storno verwenden)');
+            END
+            """
+        )
+        # Belege werden nicht geloescht.
+        cursor.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS belege_no_delete
+            BEFORE DELETE ON belege
+            BEGIN
+                SELECT RAISE(ABORT, 'Belege duerfen nicht geloescht werden');
+            END
+            """
+        )
+
 
 if __name__ == "__main__":
     initialize_database()

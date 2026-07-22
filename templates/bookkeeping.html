@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h2 class="page-title mb-0">Buchungsjournal</h2>
+  <div class="d-flex gap-2 flex-wrap">
+    <a class="btn btn-primary btn-sm" href="{{ url_for('bookkeeping_expense') }}">＋ Ausgabe erfassen</a>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('bookkeeping_payments') }}">Zahlungseingang zuweisen</a>
+    <a class="btn btn-outline-info btn-sm" href="{{ url_for('bookkeeping_summary_view') }}">Jahresauswertung</a>
+  </div>
+</div>
+
+<p class="text-muted small">
+  Das Journal ist unveränderlich: Buchungen werden nie geändert oder gelöscht.
+  Korrekturen erfolgen ausschließlich über eine Stornobuchung.
+</p>
+
+{% if bookable %}
+<div class="card mb-4">
+  <div class="card-header"><h5 class="mb-0">Versendete Bestellungen – noch nicht übernommen</h5></div>
+  <div class="card-body">
+    <table class="table table-sm align-middle mb-0">
+      <thead>
+        <tr><th>Datum</th><th>Bestellnummer</th><th>Käufer</th>
+            <th class="text-end">Gesamt</th><th class="text-end">Gebühren</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for o in bookable %}
+        <tr>
+          <td>{{ o.datum[:10] if o.datum }}</td>
+          <td>{{ o.order_number }}</td>
+          <td>{{ o.buyer_name }}</td>
+          <td class="text-end">{{ '%.2f'|format(o.amount_gesamt or 0)|replace('.', ',') }} €</td>
+          <td class="text-end">{{ '%.2f'|format(o.amount_gebuehren or 0)|replace('.', ',') }} €</td>
+          <td class="text-end">
+            <form method="post" action="{{ url_for('bookkeeping_take_order', order_id=o.id) }}">
+              <button class="btn btn-sm btn-outline-primary" type="submit">Als Einnahme übernehmen</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-header"><h5 class="mb-0">Buchungen</h5></div>
+  <div class="card-body">
+    {% if bookings %}
+    <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Nr</th><th>Buchungsdatum</th><th>Art</th><th>Kategorie</th>
+          <th class="text-end">Betrag</th><th>Beschreibung</th>
+          <th>Zahlungseingang</th><th>Beleg</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in bookings %}
+        <tr {% if b.storniert_durch %}class="text-muted"{% endif %}>
+          <td>{{ b.lfd_nr }}</td>
+          <td>{{ b.buchungsdatum }}</td>
+          <td>
+            {% if b.art == 'einnahme' %}<span class="status-badge status-badge--verfuegbar">Einnahme</span>
+            {% elif b.art == 'ausgabe' %}<span class="status-badge status-badge--reserviert">Ausgabe</span>
+            {% else %}<span class="status-badge status-badge--archiviert">Storno</span>{% endif %}
+          </td>
+          <td>{{ b.kategorie }}</td>
+          <td class="text-end">{{ cent_to_de(b.betrag_cent) }} €</td>
+          <td>
+            {{ b.beschreibung }}
+            {% if b.storniert_durch %}<span class="chip">storniert</span>{% endif %}
+          </td>
+          <td>{{ b.zahlungseingang_am or '—' }}</td>
+          <td>
+            {% if b.beleg_id %}
+            <a href="{{ url_for('bookkeeping_receipt', beleg_id=b.beleg_id) }}" target="_blank" rel="noopener">Beleg</a>
+            {% else %}—{% endif %}
+          </td>
+          <td class="text-end">
+            {% if b.art != 'storno' and not b.storniert_durch %}
+            <form method="post" action="{{ url_for('bookkeeping_storno', buchung_id=b.id) }}"
+                  onsubmit="return confirm('Diese Buchung stornieren? Es wird eine Stornobuchung erzeugt.')">
+              <button class="btn btn-sm btn-outline-danger" type="submit">Stornieren</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% else %}
+    <div class="empty-state"><span class="ico">📒</span>Noch keine Buchungen erfasst.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
