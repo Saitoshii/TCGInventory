@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block content %}
+{% macro eur(v) -%}{{ '%.2f'|format(v or 0)|replace('.', ',') }} €{%- endmacro %}
+
+<h2 class="page-title">Auswertung &amp; Export</h2>
+
+<!-- Period filter -->
+<div class="card mb-3">
+  <div class="card-body">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-6 col-md-3">
+        <label class="form-label">Von</label>
+        <input type="date" class="form-control" name="von" value="{{ start.isoformat() }}">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Bis</label>
+        <input type="date" class="form-control" name="bis" value="{{ end.isoformat() }}">
+      </div>
+      <div class="col-md-3">
+        <button class="btn btn-primary" type="submit">Zeitraum anwenden</button>
+      </div>
+    </form>
+    <div class="d-flex flex-wrap gap-2 mt-3">
+      <span class="form-label mb-0 align-self-center">Schnellauswahl</span>
+      {% for key, label in [('laufender_monat', 'Laufender Monat'), ('letzter_monat', 'Letzter Monat'),
+                            ('laufendes_jahr', 'Laufendes Jahr'), ('letztes_jahr', 'Letztes Jahr')] %}
+      <a class="btn btn-sm {% if preset == key %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+         href="{{ url_for('sales_export_view', zeitraum=key) }}">{{ label }}</a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- Downloads -->
+<div class="d-flex flex-wrap gap-2 mb-3">
+  <a class="btn btn-outline-info"
+     href="{{ url_for('sales_export_orders_csv', von=start.isoformat(), bis=end.isoformat()) }}">
+    ⬇️ CSV „Bestellungen"
+  </a>
+  <a class="btn btn-outline-secondary"
+     href="{{ url_for('sales_export_positions_csv', von=start.isoformat(), bis=end.isoformat()) }}">
+    ⬇️ CSV „Positionen"
+  </a>
+  <span class="result-count align-self-center">
+    Zeitraum {{ start.strftime('%d.%m.%Y') }} – {{ end.strftime('%d.%m.%Y') }} · {{ totals.count }} Bestellung(en)
+  </span>
+</div>
+
+<!-- Monthly overview -->
+<div class="card">
+  <div class="card-header"><h5 class="mb-0">Monatsübersicht</h5></div>
+  <div class="card-body">
+    {% if months %}
+    <table class="table table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Monat</th>
+          <th class="text-end">Bestellungen</th>
+          <th class="text-end">Gesamtbetrag</th>
+          <th class="text-end">Gebühren</th>
+          <th class="text-end">Auszahlungsbetrag</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in months %}
+        <tr>
+          <td>{{ m.label }}</td>
+          <td class="text-end">{{ m.count }}</td>
+          <td class="text-end">{{ eur(m.gesamt) }}</td>
+          <td class="text-end">{{ eur(m.gebuehren) }}</td>
+          <td class="text-end">{{ eur(m.auszahlung) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr class="fw-bold">
+          <td>Summe</td>
+          <td class="text-end">{{ totals.count }}</td>
+          <td class="text-end">{{ eur(totals.gesamt) }}</td>
+          <td class="text-end">{{ eur(totals.gebuehren) }}</td>
+          <td class="text-end">{{ eur(totals.auszahlung) }}</td>
+        </tr>
+      </tfoot>
+    </table>
+    {% else %}
+    <div class="empty-state"><span class="ico">📄</span>Keine Bestellungen in diesem Zeitraum.</div>
+    {% endif %}
+  </div>
+</div>
+
+<p class="text-muted small mt-3">
+  Der Export dient der Vorbereitung der Buchhaltung. Maßgeblich für die Buchung ist der
+  tatsächliche Zahlungseingang auf dem Konto. Keine Steuerberatung.
+</p>
+{% endblock %}
