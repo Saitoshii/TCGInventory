@@ -134,13 +134,11 @@ def test_mark_order_sold_with_missing_cards(tmp_path, monkeypatch):
     # Verify inventory was updated
     with sqlite3.connect(str(db)) as conn:
         c = conn.cursor()
-        
-        # Lightning Bolt should be archived (quantity 0)
-        c.execute("SELECT quantity, status FROM cards WHERE name = 'Lightning Bolt'")
-        result = c.fetchone()
-        assert result[0] == 0, f"Expected Lightning Bolt quantity to be 0, got {result[0]}"
-        assert result[1] == "archiviert", f"Expected Lightning Bolt to be archived"
-        
+
+        # Last copy sold: the row is removed (no archiving), not kept at qty 0.
+        c.execute("SELECT COUNT(*) FROM cards WHERE name = 'Lightning Bolt'")
+        assert c.fetchone()[0] == 0, "Sold-out card must be removed, not archived"
+
         # Mox Ruby was never in inventory, so no card should exist
         c.execute("SELECT COUNT(*) FROM cards WHERE name = 'Mox Ruby'")
         count = c.fetchone()[0]
