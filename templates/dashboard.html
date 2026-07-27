@@ -75,8 +75,9 @@
         <table class="table table-sm mb-0">
           <thead><tr><th>Typ</th><th>Positionen</th><th>Menge</th></tr></thead>
           <tbody>
+            {% set type_labels = {'card': 'Karten', 'display': 'Displays', 'zubehoer': 'Zubehör', 'sonstiges': 'Sonstiges'} %}
             {% for row in by_type %}
-            <tr><td>{{ row[0]|title }}</td><td>{{ row[1] }}</td><td>{{ row[2] }}</td></tr>
+            <tr><td>{{ type_labels.get(row[0], row[0]|title) }}</td><td>{{ row[1] }}</td><td>{{ row[2] }}</td></tr>
             {% endfor %}
           </tbody>
         </table>

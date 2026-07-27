@@ -23,6 +23,8 @@ from TCGInventory.lager_manager import (
     update_card,
     delete_card,
     sell_card,
+    cleanup_archived,
+    count_archived,
     add_storage_slot,
     add_folder,
     edit_folder,
@@ -915,26 +917,39 @@ def delete_card_route(card_id: int):
 @app.route("/cards/<int:card_id>/sell", methods=["POST"])
 @login_required
 def sell_card_route(card_id: int):
-    """Decrease card quantity by one or archive if none remain."""
+    """Sell one copy. When the last copy is sold the row is removed and its
+    slot freed (no archiving) — the client then reloads the list."""
     card = get_card(card_id)
     if not card:
         return jsonify({"error": "not found"}), 404
-    
+
     user = session.get('user', 'system')
     success = sell_card(card_id, user)
-    
+
     if not success:
         return jsonify({"error": "could not sell"}), 400
-    
-    # Reload card to get updated quantity
+
+    # Reload; if the row is gone, the last copy was sold and removed.
     card = get_card(card_id)
-    qty = card[6] if card else 0
-    
-    if qty > 0:
-        return jsonify({"quantity": qty, "removed": False, "archived": False})
-    else:
-        flash("Card sold and archived")
-        return jsonify({"quantity": 0, "removed": False, "archived": True})
+    if card is None:
+        return jsonify({"quantity": 0, "removed": True, "sold_out": True})
+    return jsonify({"quantity": card[6], "removed": False, "sold_out": False})
+
+
+@app.route("/system/inventar-aufraeumen", methods=["GET", "POST"])
+@login_required
+def inventory_cleanup_view():
+    """One-time housekeeping: remove legacy archived / sold-out rows and free
+    their storage slots. Runs only on explicit confirmation, never automatically."""
+    if request.method == "POST":
+        removed, freed = cleanup_archived(session.get("user", "system"))
+        flash(
+            f"Aufgeräumt: {removed} archivierte Zeile(n) entfernt, "
+            f"{freed} Lagerplatz/-plätze wieder freigegeben.",
+            "success",
+        )
+        return redirect(url_for("inventory_cleanup_view"))
+    return render_template("inventory_cleanup.html", archived_count=count_archived())
 
 
 @app.route("/folders/delete/<int:folder_id>")
@@ -1889,18 +1904,25 @@ def assign_order_item(item_id: int):
         return redirect(url_for("list_orders"))
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
-        c.execute("SELECT storage_code, image_url FROM cards WHERE id = ?", (int(card_id),))
+        c.execute(
+            "SELECT storage_code, image_url, location_hint FROM cards WHERE id = ?",
+            (int(card_id),),
+        )
         card = c.fetchone()
         if not card:
             flash("Karte nicht gefunden", "error")
             return redirect(url_for("list_orders"))
+        # Cards live on a binder slot; products (display/accessory) use the
+        # free-text location instead — fall back to it so the picker sees where
+        # to find the item.
+        where = card[0] or card[2] or ""
         c.execute(
             "UPDATE order_items SET card_id = ?, match_status = 'matched', "
             "storage_code = ?, image_url = COALESCE(image_url, ?) WHERE id = ?",
-            (int(card_id), card[0], card[1], item_id),
+            (int(card_id), where, card[1], item_id),
         )
         conn.commit()
-    flash("Position der Karte zugeordnet.")
+    flash("Position zugeordnet.")
     return redirect(url_for("list_orders"))
 
 

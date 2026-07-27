@@ -108,7 +108,7 @@ def test_sold_decrements_exact_card_and_is_idempotent(tmp_path):
     db, _, _, client = _setup(tmp_path)
     order_id = 1
     client.post(f"/orders/{order_id}/mark_sold")
-    assert _card(db, "Rumble Arena") == (0, "archiviert")   # 1 -> 0 archived
+    assert _card(db, "Rumble Arena") is None                # 1 -> 0 -> removed
     assert _card(db, "Matoya, Archon Elder")[0] == 1        # 2 -> 1
     # second click must not decrement again
     client.post(f"/orders/{order_id}/mark_sold")

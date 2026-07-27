@@ -17,6 +17,9 @@ __all__ = [
     "update_card",
     "delete_card",
     "sell_card",
+    "cleanup_archived",
+    "count_archived",
+    "reconcile_slot_occupancy",
     "get_next_free_slot",
     "add_folder",
     "edit_folder",
@@ -49,8 +52,16 @@ ALLOWED_FIELDS = {
     "location_hint",
 }
 
-# Constants for item types and status values
-ITEM_TYPES = ["card", "display"]
+# Constants for item types and status values.
+# ``card``     – single card, lives on a binder slot (storage_code), identity path.
+# ``display``  – sealed display / booster box.
+# ``zubehoer`` – accessories (sleeves, deck boxes, playmats …).
+# ``sonstiges``– anything else.
+# Non-card items do not need a binder slot; they use a free-text ``location_hint``.
+ITEM_TYPES = ["card", "display", "zubehoer", "sonstiges"]
+# Item types that are physical stock but not single cards (no binder slot,
+# no card identity, sold/added by name + quantity).
+PRODUCT_TYPES = ["display", "zubehoer", "sonstiges"]
 STATUS_VALUES = ["verfügbar", "reserviert", "verkauft", "archiviert"]
 LANGUAGE_VALUES = ["de", "en", "fr", "it", "es", "ja", ""]
 CONDITION_VALUES = ["MT", "NM", "EX", "GD", "LP", "PL", "PO", ""]
@@ -403,11 +414,10 @@ def update_card(card_id, user="system", **kwargs):
         query = f"UPDATE cards SET {', '.join(fields)} WHERE id = ?"
         cursor.execute(query, values)
         
-        # Auto-archive if quantity becomes 0
-        if 'quantity' in kwargs and kwargs['quantity'] == 0:
-            cursor.execute("UPDATE cards SET status = 'archiviert' WHERE id = ?", (card_id,))
-            log_audit(card_id, user, 'auto-archive', 'status', 'verfügbar', 'archiviert', cursor)
-
+    # Note: reaching quantity 0 no longer archives the card. Archiving was
+    # removed (CLAUDE.md — no archiving); a sold-out card is removed via
+    # ``sell_card`` and its slot freed. A manual edit to 0 leaves the row for
+    # the user to delete or restock.
     print(f"📝 Karte mit ID {card_id} wurde aktualisiert.")
 
 # ❌ Funktion: Karte löschen
@@ -421,11 +431,7 @@ def delete_card(card_id):
 
         if result:
             storage_code = result[0]
-            if storage_code:
-                cursor.execute(
-                    "UPDATE storage_slots SET is_occupied = 0 WHERE code = ?",
-                    (storage_code,),
-                )
+            _free_slot_if_unused(cursor, storage_code, card_id)
             cursor.execute("DELETE FROM cards WHERE id = ?", (card_id,))
             if storage_code:
                 print(
@@ -437,18 +443,48 @@ def delete_card(card_id):
             print(f"⚠️ Keine Karte mit ID {card_id} gefunden.")
 
 
+def _free_slot_if_unused(cursor: sqlite3.Cursor, storage_code: str, keep_card_id: int) -> None:
+    """Mark a storage slot as free, but only if no *other* card still sits on it.
+
+    Several cards may share one physical slot (see CLAUDE.md). The occupancy
+    flag is therefore only cleared once the last card leaves the slot — never
+    while another card still references it.
+    """
+    if not storage_code:
+        return
+    cursor.execute(
+        "SELECT COUNT(*) FROM cards WHERE storage_code = ? AND id <> ?",
+        (storage_code, keep_card_id),
+    )
+    if cursor.fetchone()[0] == 0:
+        cursor.execute(
+            "UPDATE storage_slots SET is_occupied = 0 WHERE code = ?",
+            (storage_code,),
+        )
+
+
 def sell_card(card_id: int, user="system") -> bool:
-    """Decrease quantity of a card or archive it when none remain."""
+    """Sell one copy of a card.
+
+    While copies remain, only the quantity is decreased. When the last copy is
+    sold the row is **removed** and its storage slot is freed again, so the next
+    card added to that folder refills the now-empty place (see CLAUDE.md — no
+    archiving, empty slots are reused logically). The sale is recorded in the
+    audit log (including the name), and the sales history lives in the orders
+    data — deleting the inventory row does not lose it.
+    """
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT quantity FROM cards WHERE id = ?", (card_id,))
+        cursor.execute("SELECT quantity, storage_code, name FROM cards WHERE id = ?", (card_id,))
         row = cursor.fetchone()
         if not row:
             print(f"⚠️ Keine Karte mit ID {card_id} gefunden.")
             return False
         qty = row[0] or 0
+        storage_code = row[1]
+        name = row[2]
         new_qty = qty - 1
-        
+
         if new_qty > 0:
             cursor.execute(
                 "UPDATE cards SET quantity = ? WHERE id = ?",
@@ -459,16 +495,71 @@ def sell_card(card_id: int, user="system") -> bool:
             print(f"🛒 Karte verkauft. {new_qty} verbleibend.")
             return True
         else:
-            # Archive when quantity reaches 0
-            cursor.execute(
-                "UPDATE cards SET quantity = 0, status = 'archiviert' WHERE id = ?",
-                (card_id,)
-            )
+            # Last copy sold: log first (card_id still valid), free the slot,
+            # then remove the row. No 'archiviert' status remains.
             log_audit(card_id, user, 'sell', 'quantity', str(qty), '0', cursor)
-            log_audit(card_id, user, 'auto-archive', 'status', 'verfügbar', 'archiviert', cursor)
+            log_audit(card_id, user, 'sell-remove', 'name', name, 'verkauft', cursor)
+            _free_slot_if_unused(cursor, storage_code, card_id)
+            cursor.execute("DELETE FROM cards WHERE id = ?", (card_id,))
             conn.commit()
-            print(f"🛒 Karte verkauft und archiviert (Menge 0).")
+            print("🛒 Karte verkauft, Zeile entfernt und Lagerplatz freigegeben.")
             return True
+
+
+def reconcile_slot_occupancy() -> int:
+    """Recompute every storage slot's occupancy from the current cards.
+
+    A slot is occupied iff at least one card still references it. Returns the
+    number of slots that were freed by the reconciliation. Idempotent and
+    non-destructive — it only flips ``is_occupied`` flags, never deletes.
+    """
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM storage_slots WHERE is_occupied = 1")
+        occupied_before = cursor.fetchone()[0]
+        cursor.execute("UPDATE storage_slots SET is_occupied = 0")
+        cursor.execute(
+            "UPDATE storage_slots SET is_occupied = 1 WHERE code IN "
+            "(SELECT storage_code FROM cards WHERE storage_code IS NOT NULL AND storage_code <> '')"
+        )
+        cursor.execute("SELECT COUNT(*) FROM storage_slots WHERE is_occupied = 1")
+        occupied_after = cursor.fetchone()[0]
+        conn.commit()
+    return max(0, occupied_before - occupied_after)
+
+
+def cleanup_archived(user: str = "system") -> tuple[int, int]:
+    """Remove legacy archived / sold-out card rows and reclaim their slots.
+
+    One-time housekeeping for databases that still carry ``status='archiviert'``
+    (or quantity-0) rows from before archiving was dropped. It deletes those
+    rows and then reconciles slot occupancy so the freed places become
+    available again. Returns ``(removed_rows, freed_slots)``. Deliberately
+    manual — never runs automatically on startup or update.
+    """
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, name FROM cards WHERE status = 'archiviert' OR quantity <= 0"
+        )
+        rows = cursor.fetchall()
+        for card_id, name in rows:
+            log_audit(card_id, user, 'cleanup-remove', 'name', name, 'entfernt', cursor)
+            cursor.execute("DELETE FROM cards WHERE id = ?", (card_id,))
+        conn.commit()
+    freed = reconcile_slot_occupancy()
+    print(f"🧹 {len(rows)} archivierte Zeile(n) entfernt, {freed} Platz/Plätze freigegeben.")
+    return len(rows), freed
+
+
+def count_archived() -> int:
+    """Return how many archived / sold-out card rows currently exist."""
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT COUNT(*) FROM cards WHERE status = 'archiviert' OR quantity <= 0"
+        )
+        return cursor.fetchone()[0]
 
 
 # ---------------------------------------------------------------------------

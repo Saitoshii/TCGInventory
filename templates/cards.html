@@ -62,6 +62,8 @@
             <option value="">Alle</option>
             <option value="card" {% if item_type=='card' %}selected{% endif %}>Karte</option>
             <option value="display" {% if item_type=='display' %}selected{% endif %}>Display</option>
+            <option value="zubehoer" {% if item_type=='zubehoer' %}selected{% endif %}>Zubehör</option>
+            <option value="sonstiges" {% if item_type=='sonstiges' %}selected{% endif %}>Sonstiges</option>
           </select>
         </div>
       </div>
@@ -294,7 +296,7 @@ document.addEventListener('DOMContentLoaded', function() {
       fetch(`/cards/${id}/sell`, { method: 'POST' })
         .then(r => r.json())
         .then(data => {
-          if (data.archived) {
+          if (data.sold_out || data.removed) {
             window.location.reload();
           } else {
             const card = btn.closest('.tcg-card');

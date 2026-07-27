@@ -1,14 +1,17 @@
 {% extends "base.html" %}
 {% block content %}
-<h2 class="mb-4">{{ 'Edit' if card else 'Add' }} Card</h2>
+<h2 class="page-title mb-4">{{ 'Artikel bearbeiten' if card else 'Artikel hinzufügen' }}</h2>
 <form method="post">
   <div class="mb-3">
-    <label class="form-label">Item Type</label>
+    <label class="form-label">Typ</label>
+    {% set type = card[14] if card else 'card' %}
     <select class="form-select" name="item_type" id="item-type-select">
-      {% set type = card[14] if card else 'card' %}
-      <option value="card" {% if type=='card' %}selected{% endif %}>Card</option>
-      <option value="display" {% if type=='display' %}selected{% endif %}>Display Item</option>
+      <option value="card" {% if type=='card' %}selected{% endif %}>Karte</option>
+      <option value="display" {% if type=='display' %}selected{% endif %}>Display</option>
+      <option value="zubehoer" {% if type=='zubehoer' %}selected{% endif %}>Zubehör</option>
+      <option value="sonstiges" {% if type=='sonstiges' %}selected{% endif %}>Sonstiges</option>
     </select>
+    <div class="form-text" id="type-hint"></div>
   </div>
   <div class="mb-3 position-relative">
     <label class="form-label">Name</label>
@@ -16,87 +19,106 @@
     <div id="name-suggestions" class="dropdown-menu w-100"></div>
   </div>
   <img id="preview-image" class="img-thumbnail mb-3{% if not card or not card[12] %} d-none{% endif %}" style="max-width:200px;" src="{{ card[12] if card else '' }}">
-  <div class="mb-3">
-    <label class="form-label">Language</label>
-    <select class="form-select" name="language">
-      {% set lang = card[3] if card else '' %}
-      <option value="">-- none --</option>
-      {% for l in ['de', 'en', 'fr', 'it', 'es', 'ja'] %}
-      <option value="{{ l }}" {% if lang==l %}selected{% endif %}>{{ l.upper() }}</option>
-      {% endfor %}
-    </select>
-  </div>
-  <div class="mb-3">
-    <label class="form-label">Condition</label>
-    <select class="form-select" name="condition">
-      {% set cond = card[4] if card else '' %}
-      <option value="">-- none --</option>
-      {% for c in ['MT', 'NM', 'EX', 'GD', 'LP', 'PL', 'PO'] %}
-      <option value="{{ c }}" {% if cond==c %}selected{% endif %}>{{ c }}</option>
-      {% endfor %}
-    </select>
-  </div>
-  <div class="mb-3">
-    <label class="form-label">Price</label>
-    <input type="number" step="0.01" class="form-control" name="price" value="{{ card[5] if card else '' }}">
-  </div>
-  <div class="mb-3">
-    <label class="form-label">Quantity</label>
-    <input type="number" class="form-control" name="quantity" min="1" value="{{ card[6] if card else 1 }}">
-  </div>
-  <div class="form-check mb-3">
-    <input class="form-check-input" type="checkbox" name="foil" id="foil-check" {% if card and card[13] %}checked{% endif %}>
-    <label class="form-check-label" for="foil-check">Foil</label>
-  </div>
-  <div class="mb-3" id="storage-section">
-    <label class="form-label">Storage Code <span id="storage-required-label">(required for cards)</span></label>
-    <div class="row g-2">
-      <div class="col-auto">
-        <input class="form-control" name="folder_part" readonly value="{{ folder_part }}" placeholder="Ordner">
-      </div>
-      <div class="col-auto">
-        <input class="form-control" name="page" value="{{ page }}" placeholder="Seite">
-      </div>
-      <div class="col-auto">
-        <input class="form-control" name="slot" value="{{ slot }}" placeholder="Platz" min="1" max="9">
-      </div>
+
+  <div class="row g-3">
+    <div class="col-md-4 mb-3">
+      <label class="form-label">Preis (€)</label>
+      <input type="number" step="0.01" class="form-control" name="price" value="{{ card[5] if card else '' }}">
+    </div>
+    <div class="col-md-4 mb-3">
+      <label class="form-label">Menge</label>
+      <input type="number" class="form-control" name="quantity" min="1" value="{{ card[6] if card else 1 }}">
     </div>
   </div>
+
+  <!-- Standort für Displays / Zubehör / Sonstiges (keine Ordnerplätze) -->
   <div class="mb-3 d-none" id="location-hint-section">
-    <label class="form-label">Location Hint (optional for displays)</label>
-    <input class="form-control" name="location_hint" value="{{ card[15] if card else '' }}" placeholder="e.g., Shelf A, Box 3">
+    <label class="form-label">Standort (Regal / Box)</label>
+    <input class="form-control" name="location_hint" value="{{ card[15] if card else '' }}" placeholder="z. B. Regal A, Box 3">
   </div>
-  <div class="mb-3">
-    <label class="form-label">Cardmarket ID</label>
-    <input class="form-control" name="cardmarket_id" value="{{ card[8] if card else '' }}">
+
+  <!-- Nur für Einzelkarten relevante Felder -->
+  <div id="card-only-fields">
+    <div class="row g-3">
+      <div class="col-md-4 mb-3">
+        <label class="form-label">Sprache</label>
+        <select class="form-select" name="language">
+          {% set lang = card[3] if card else '' %}
+          <option value="">– keine –</option>
+          {% for l in ['de', 'en', 'fr', 'it', 'es', 'ja'] %}
+          <option value="{{ l }}" {% if lang==l %}selected{% endif %}>{{ l.upper() }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-4 mb-3">
+        <label class="form-label">Zustand</label>
+        <select class="form-select" name="condition">
+          {% set cond = card[4] if card else '' %}
+          <option value="">– keiner –</option>
+          {% for c in ['MT', 'NM', 'EX', 'GD', 'LP', 'PL', 'PO'] %}
+          <option value="{{ c }}" {% if cond==c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-4 mb-3 d-flex align-items-end">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="foil" id="foil-check" {% if card and card[13] %}checked{% endif %}>
+          <label class="form-check-label" for="foil-check">Foil</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="mb-3" id="storage-section">
+      <label class="form-label">Lagerplatz <small class="text-muted">(Ordner · Seite · Platz)</small></label>
+      <div class="row g-2">
+        <div class="col-auto">
+          <input class="form-control" name="folder_part" readonly value="{{ folder_part }}" placeholder="Ordner">
+        </div>
+        <div class="col-auto">
+          <input class="form-control" name="page" value="{{ page }}" placeholder="Seite">
+        </div>
+        <div class="col-auto">
+          <input class="form-control" name="slot" value="{{ slot }}" placeholder="Platz" min="1" max="9">
+        </div>
+      </div>
+      <div class="form-text">Leer lassen, damit automatisch der nächste freie Platz vergeben wird.</div>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label">Cardmarket-ID</label>
+      <input class="form-control" name="cardmarket_id" value="{{ card[8] if card else '' }}">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Sammlernummer</label>
+      <input class="form-control" name="collector_number" id="collector-number-input" list="collector-number-list" value="{{ card[10] if card else '' }}">
+      <datalist id="collector-number-list"></datalist>
+      <select id="collector-number-select" class="form-select mt-1 d-none"></select>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Scryfall-ID</label>
+      <input class="form-control" name="scryfall_id" value="{{ card[11] if card else '' }}">
+    </div>
+    {% if folders is not none %}
+    <div class="mb-3">
+      <label class="form-label">Ordner (Set)</label>
+      <select name="folder_id" class="form-select">
+        <option value="">– keiner –</option>
+        {% for f in folders %}
+        <option value="{{ f[0] }}" {% if card and card[9]==f[0] %}selected{% endif %}>{{ f[1] }} ({{ '%02d'|format(f[0]) }})</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
   </div>
+
   <div class="mb-3">
-    <label class="form-label">Collector Number</label>
-    <input class="form-control" name="collector_number" id="collector-number-input" list="collector-number-list" value="{{ card[10] if card else '' }}">
-    <datalist id="collector-number-list"></datalist>
-    <select id="collector-number-select" class="form-select mt-1 d-none"></select>
-  </div>
-  <div class="mb-3">
-    <label class="form-label">Scryfall ID</label>
-    <input class="form-control" name="scryfall_id" value="{{ card[11] if card else '' }}">
-  </div>
-  <div class="mb-3">
-    <label class="form-label">Image URL</label>
+    <label class="form-label">Bild-URL</label>
     <input class="form-control" name="image_url" value="{{ card[12] if card else '' }}">
   </div>
-  {% if folders is not none %}
-  <div class="mb-3">
-    <label class="form-label">Folder (Set)</label>
-    <select name="folder_id" class="form-select">
-      <option value="">-- none --</option>
-      {% for f in folders %}
-      <option value="{{ f[0] }}" {% if card and card[9]==f[0] %}selected{% endif %}>{{ f[1] }} ({{ '%02d'|format(f[0]) }})</option>
-      {% endfor %}
-    </select>
-  </div>
-  {% endif %}
+
   <select id="variant-select" class="form-select mb-3 d-none"></select>
-  <button type="submit" class="btn btn-primary">Save</button>
+  <button type="submit" class="btn btn-primary">Speichern</button>
+  <a class="btn btn-outline-secondary" href="{{ url_for('list_cards') }}">Abbrechen</a>
 </form>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -110,32 +132,29 @@ document.addEventListener('DOMContentLoaded', function() {
   const numberList = document.getElementById('collector-number-list');
   const numberSelect = document.getElementById('collector-number-select');
   const itemTypeSelect = document.getElementById('item-type-select');
-  const storageSection = document.getElementById('storage-section');
+  const cardOnlyFields = document.getElementById('card-only-fields');
   const locationHintSection = document.getElementById('location-hint-section');
-  const storageRequiredLabel = document.getElementById('storage-required-label');
+  const typeHint = document.getElementById('type-hint');
   let timeout = null;
 
-  // Toggle storage/location hint based on item type
+  // Cards use binder slots + the identity fields; products (display / accessory
+  // / other) use a free-text location instead and hide the card-only fields.
   function updateItemTypeVisibility() {
     const isCard = itemTypeSelect.value === 'card';
-    if (isCard) {
-      storageSection.classList.remove('d-none');
-      locationHintSection.classList.add('d-none');
-      storageRequiredLabel.textContent = '(required for cards)';
-    } else {
-      storageSection.classList.remove('d-none');
-      locationHintSection.classList.remove('d-none');
-      storageRequiredLabel.textContent = '(optional for displays)';
-    }
+    cardOnlyFields.classList.toggle('d-none', !isCard);
+    locationHintSection.classList.toggle('d-none', isCard);
+    typeHint.textContent = isCard
+      ? 'Einzelkarte – bekommt automatisch einen Ordnerplatz.'
+      : 'Produkt – kein Ordnerplatz, nur ein freier Standort (Regal/Box).';
   }
-  
+
   itemTypeSelect.addEventListener('change', updateItemTypeVisibility);
   updateItemTypeVisibility();
 
   nameInput.addEventListener('input', function() {
     clearTimeout(timeout);
     const query = this.value.trim();
-    if (query.length < 2) {
+    if (query.length < 2 || itemTypeSelect.value !== 'card') {
       suggestions.classList.remove('show');
       return;
     }
@@ -206,6 +225,7 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   function lookupCard() {
+    if (itemTypeSelect.value !== 'card') return;
     const q = nameInput.value.trim();
     if (!q) return;
     fetch(`/api/lookup?name=${encodeURIComponent(q)}`)
@@ -263,7 +283,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  if (nameInput.value.trim() && !numberInput.value) {
+  if (nameInput.value.trim() && numberInput && !numberInput.value) {
     lookupCard();
   }
 
