@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<h2 class="page-title mb-3">Inventar aufräumen</h2>
+
+<div class="card" style="max-width: 680px;">
+  <div class="card-body">
+    <p>
+      Früher wurden ausverkaufte Karten <em>archiviert</em> und ihr Lagerplatz blieb
+      dauerhaft belegt. Das ist abgestellt: ein Verkauf entfernt die Zeile jetzt und gibt
+      den Platz sofort wieder frei, sodass neue Karten die Lücke wieder auffüllen.
+    </p>
+    <p class="mb-3">
+      Diese einmalige Bereinigung entfernt noch vorhandene <strong>archivierte</strong>
+      bzw. auf Menge&nbsp;0 stehende Alt-Zeilen und gibt die dadurch blockierten
+      Lagerplätze frei. Bestellungen, Buchhaltung und das Audit-Log bleiben unberührt.
+    </p>
+
+    {% if archived_count %}
+    <div class="alert alert-warning">
+      Es sind aktuell <strong>{{ archived_count }}</strong> solche Alt-Zeile(n) vorhanden.
+    </div>
+    <form method="post" onsubmit="return confirm('{{ archived_count }} archivierte Zeile(n) entfernen und Plätze freigeben?');">
+      <button class="btn btn-primary" type="submit">Jetzt aufräumen</button>
+      <a class="btn btn-outline-secondary" href="{{ url_for('dashboard') }}">Abbrechen</a>
+    </form>
+    {% else %}
+    <div class="alert alert-success mb-0">
+      ✅ Nichts aufzuräumen – es gibt keine archivierten oder leeren Zeilen.
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
