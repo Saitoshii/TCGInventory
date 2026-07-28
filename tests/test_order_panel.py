@@ -135,15 +135,19 @@ def test_parse_eur_amount():
     assert web.parse_eur_amount("-2,00") is None
 
 
-def test_update_order_shipping_sets_and_clears_amount(tmp_path):
+def test_update_order_amounts_sets_and_clears(tmp_path):
     db, _, _, client = _setup(tmp_path)
-    # Manually set shipping (e.g. for an order imported before shipping parsing).
-    client.post("/orders/1/shipping", data={"versand": "3,95"})
+    # Manually set shipping + fees (e.g. for an order imported before parsing).
+    client.post("/orders/1/amounts", data={"versand": "3,95", "gebuehren": "2,10"})
     with sqlite3.connect(db) as conn:
-        v = conn.execute("SELECT amount_versand FROM orders WHERE id=1").fetchone()[0]
-    assert v == 3.95
-    # An empty value clears it again.
-    client.post("/orders/1/shipping", data={"versand": ""})
+        v, g = conn.execute(
+            "SELECT amount_versand, amount_gebuehren FROM orders WHERE id=1"
+        ).fetchone()
+    assert v == 3.95 and g == 2.10
+    # Empty values clear them again.
+    client.post("/orders/1/amounts", data={"versand": "", "gebuehren": ""})
     with sqlite3.connect(db) as conn:
-        v = conn.execute("SELECT amount_versand FROM orders WHERE id=1").fetchone()[0]
-    assert v is None
+        v, g = conn.execute(
+            "SELECT amount_versand, amount_gebuehren FROM orders WHERE id=1"
+        ).fetchone()
+    assert v is None and g is None

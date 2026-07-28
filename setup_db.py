@@ -262,12 +262,18 @@ def initialize_database() -> None:
             )
             """
         )
-        # Eine Bestellung kann je Kategorie nur einmal uebernommen werden
-        # (Stornozeilen sind ausgenommen).
+        # Eine Bestellung kann je Kategorie nur einmal *aktiv* uebernommen werden.
+        # Ausgenommen sind Stornozeilen UND bereits stornierte (aufgehobene)
+        # Buchungen — so kann eine falsch uebernommene Bestellung per Storno
+        # korrigiert und danach erneut uebernommen werden. Der DROP haengt nur
+        # den Index um (keine Daten betroffen) und ersetzt eine evtl. aeltere,
+        # engere Definition dieses Index.
+        cursor.execute("DROP INDEX IF EXISTS idx_journal_bestellung_kategorie")
         cursor.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_journal_bestellung_kategorie "
             "ON journal(bestellung_id, kategorie) "
-            "WHERE bestellung_id IS NOT NULL AND art <> 'storno'"
+            "WHERE bestellung_id IS NOT NULL AND art <> 'storno' "
+            "AND storniert_durch IS NULL"
         )
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_journal_datum ON journal(buchungsdatum)")
         cursor.execute(
