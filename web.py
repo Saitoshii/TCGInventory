@@ -1994,28 +1994,36 @@ def update_order_address(order_id: int):
     return redirect(url_for("list_orders"))
 
 
-@app.route("/orders/<int:order_id>/shipping", methods=["POST"])
+@app.route("/orders/<int:order_id>/amounts", methods=["POST"])
 @login_required
-def update_order_shipping(order_id: int):
-    """Set the shipping amount (Versand) for an order manually.
+def update_order_amounts(order_id: int):
+    """Set shipping (Versand) and Cardmarket fees (Gebühren) for an order manually.
 
-    The shipping cost is normally parsed from the order mail into
-    ``amount_versand``, which the Beileger prints. This lets the user set or
-    correct it — needed for orders imported before shipping parsing existed, or
-    when a mail format hid it. An empty value clears the field.
+    Both are normally parsed from the order mail into ``amount_versand`` /
+    ``amount_gebuehren``. The Beileger prints the shipping, and the bookkeeping
+    takeover books shipping + fees. This lets the user set or correct them —
+    needed for orders imported before those were parsed, or when a mail format
+    hid them. An empty field clears that value.
     """
-    raw = request.form.get("versand", "")
-    versand = parse_eur_amount(raw)
-    if raw.strip() and versand is None:
-        flash("Ungültiger Versandbetrag (z. B. 3,95).", "error")
-        return redirect(url_for("list_orders"))
+    fields = {
+        "versand": ("amount_versand", "Versand"),
+        "gebuehren": ("amount_gebuehren", "Cardmarket-Gebühren"),
+    }
+    values = {}
+    for name, (column, label) in fields.items():
+        raw = request.form.get(name, "")
+        val = parse_eur_amount(raw)
+        if raw.strip() and val is None:
+            flash(f"Ungültiger Betrag bei {label} (z. B. 3,95).", "error")
+            return redirect(url_for("list_orders"))
+        values[column] = val
     with sqlite3.connect(DB_FILE) as conn:
-        c = conn.cursor()
-        c.execute(
-            "UPDATE orders SET amount_versand = ? WHERE id = ?", (versand, order_id)
+        conn.execute(
+            "UPDATE orders SET amount_versand = ?, amount_gebuehren = ? WHERE id = ?",
+            (values["amount_versand"], values["amount_gebuehren"], order_id),
         )
         conn.commit()
-    flash("Versand gespeichert." if versand is not None else "Versand entfernt.")
+    flash("Beträge gespeichert.")
     return redirect(url_for("list_orders"))
 
 
