@@ -270,19 +270,35 @@ def _clean_card_name(name: str) -> str:
 # set / language / condition are KEPT (structured), never stripped away.
 # ===========================================================================
 
-# Amounts to pull from the order header, mapped to canonical keys.
+# Amounts to pull from the order header, mapped to canonical keys. Cardmarket
+# sends the same order as a German OR an English mail, so both label sets are
+# covered. Each key is used as a regex fragment (``\s+`` tolerates variable
+# spacing); the amount may follow with or without a colon ("Shipping 3,95 EUR").
 _AMOUNT_LABELS = {
+    # German
     "gesamtwert": "gesamtwert",
     "gebühren": "gebuehren",
     "gebuehren": "gebuehren",
     "auszahlungsbetrag": "auszahlungsbetrag",
     "versandkosten": "versandkosten",
     "gesamtbetrag": "gesamtbetrag",
+    # English: "Total sale price" (grand total), "Commission" (fees),
+    # "Net sale price" (payout), "Shipping" (no colon), "Total" (grand total).
+    r"total\s+sale\s+price": "gesamtbetrag",
+    "commission": "gebuehren",
+    r"net\s+sale\s+price": "auszahlungsbetrag",
+    "shipping": "versandkosten",
+    "total": "gesamtbetrag",
 }
 
 # Anchors delimiting the address block (German primary, English fallback).
+# English mails end the block with a plain "Tracking:" line.
 _ADDR_START_ANCHORS = [r"Status:\s*Bezahlt", r"Status:\s*Paid"]
-_ADDR_END_ANCHORS = [r"Sendungsverfolgung\s*:", r"Shipment\s+tracking\s*:"]
+_ADDR_END_ANCHORS = [
+    r"Sendungsverfolgung\s*:",
+    r"Shipment\s+tracking\s*:",
+    r"Tracking\s*:",
+]
 
 
 def _parse_amount(text: str) -> Optional[float]:
@@ -320,8 +336,9 @@ def parse_order_header(email_body: str) -> Dict:
         header["status"] = m.group(1).strip()
 
     for label, key in _AMOUNT_LABELS.items():
+        # \b so a short label like "total" cannot match inside "subtotal".
         m = re.search(
-            rf"{label}\s*:?\s*([\d.,]+)\s*(?:EUR|€)", email_body, re.IGNORECASE
+            rf"\b{label}\s*:?\s*([\d.,]+)\s*(?:EUR|€)", email_body, re.IGNORECASE
         )
         if m:
             header["amounts"][key] = _parse_amount(m.group(1))

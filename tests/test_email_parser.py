@@ -62,6 +62,57 @@ def test_address_block_english_anchors():
     assert lines == ["John Doe", "1 Main St", "USA"]
 
 
+# --- English Cardmarket mail (real "has paid for shipment" format) ----------
+
+_SAMPLE_ORDER_EN = """Hello Flemming,
+BenjaMean85 has paid for shipment 1290558231. Please ship the shipment as soon as possible with the indicated shipment method and CONFIRM SHIPPING on Cardmarket.
+If you do not ship and confirm shipping within 7 days, the buyer will be able to cancel the shipment.
+The Cardmarket team
+
+Shipment 1290558231
+Seller: Zur-Festung
+Buyer: BenjaMean85
+Status: Paid
+Benjamin Beispiel
+Beispielweg 5
+37603 Holzminden
+Germany
+Tracking:
+Total sale price: 45,95 EUR
+Commission: 2,10 EUR
+Net sale price: 43,85 EUR
+Contents:
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+1x Force of Negation (Avatar: The Last Airbender: Eternal) - M - En... 42,00 EUR
+Shipping 3,95 EUR
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Total 45,95 EUR
+"""
+
+
+def test_english_mail_extracts_shipping_and_amounts():
+    r = parse_order_email(_SAMPLE_ORDER_EN, "m-en", subject="")
+    a = r["amounts"]
+    assert a["versandkosten"] == 3.95      # was missing before: "Shipping" (no colon)
+    assert a["gesamtbetrag"] == 45.95      # "Total sale price" / "Total"
+    assert a["gebuehren"] == 2.10          # "Commission"
+    assert a["auszahlungsbetrag"] == 43.85  # "Net sale price"
+
+
+def test_english_mail_extracts_address():
+    lines, raw = parse_address_block(_SAMPLE_ORDER_EN)
+    assert lines == ["Benjamin Beispiel", "Beispielweg 5", "37603 Holzminden", "Germany"]
+    assert "Tracking" not in raw
+
+
+def test_english_mail_buyer_and_item():
+    r = parse_order_email(_SAMPLE_ORDER_EN, "m-en", subject="")
+    assert r["buyer_name"] == "BenjaMean85"
+    assert len(r["items"]) == 1
+    assert r["items"][0]["name"] == "Force of Negation"
+    assert r["items"][0]["unit_price"] == 42.00
+
+
 def test_position_comma_in_name():
     it = parse_position_line("1x Matoya, Archon Elder (FINAL FANTASY) - R - Englisch - NM 0,11 EUR")
     assert it["name"] == "Matoya, Archon Elder"
