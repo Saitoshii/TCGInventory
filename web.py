@@ -110,6 +110,27 @@ def _needs_review_entry(fields: dict, folder_id, reason: str, raw: dict) -> dict
     }
 
 
+def parse_eur_amount(text: str | None) -> float | None:
+    """Parse a user-entered amount like '3,95', '3.95' or '1.234,56' to a float.
+
+    Returns ``None`` for empty input (so a cleared field removes the value) and
+    for anything that is not a non-negative number.
+    """
+    t = (text or "").strip().replace("€", "").replace("EUR", "").replace("eur", "").strip()
+    t = t.replace(" ", "")
+    if not t:
+        return None
+    if "," in t and "." in t:
+        t = t.replace(".", "").replace(",", ".")
+    elif "," in t:
+        t = t.replace(",", ".")
+    try:
+        value = float(t)
+    except ValueError:
+        return None
+    return value if value >= 0 else None
+
+
 def make_storage_code(
     folder_id: str | None, page: str | None, slot: str | None
 ) -> str:
@@ -1970,6 +1991,31 @@ def update_order_address(order_id: int):
         )
         conn.commit()
     flash("Adresse gespeichert und bestätigt.")
+    return redirect(url_for("list_orders"))
+
+
+@app.route("/orders/<int:order_id>/shipping", methods=["POST"])
+@login_required
+def update_order_shipping(order_id: int):
+    """Set the shipping amount (Versand) for an order manually.
+
+    The shipping cost is normally parsed from the order mail into
+    ``amount_versand``, which the Beileger prints. This lets the user set or
+    correct it — needed for orders imported before shipping parsing existed, or
+    when a mail format hid it. An empty value clears the field.
+    """
+    raw = request.form.get("versand", "")
+    versand = parse_eur_amount(raw)
+    if raw.strip() and versand is None:
+        flash("Ungültiger Versandbetrag (z. B. 3,95).", "error")
+        return redirect(url_for("list_orders"))
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute(
+            "UPDATE orders SET amount_versand = ? WHERE id = ?", (versand, order_id)
+        )
+        conn.commit()
+    flash("Versand gespeichert." if versand is not None else "Versand entfernt.")
     return redirect(url_for("list_orders"))
 
 
