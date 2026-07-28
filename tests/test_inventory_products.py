@@ -117,6 +117,37 @@ def test_product_is_offered_as_order_candidate_by_name(tmp_path):
     assert any(r["name"] == "Bloomburrow Booster Box" for r in rows)
 
 
+def test_manual_add_tops_up_identical_card_on_existing_slot(tmp_path):
+    db = _use_db(tmp_path)
+    fid = lager_manager.add_folder("TLA")  # folder name doubles as set_code
+    lager_manager.create_binder(fid, 1)
+
+    web.app.config["TESTING"] = True
+    client = web.app.test_client()
+    with client.session_transaction() as s:
+        s["user"] = "tester"
+
+    form = {
+        "item_type": "card", "name": "Rumble Arena", "folder_id": str(fid),
+        "collector_number": "42", "language": "en", "condition": "NM",
+        "price": "1.0", "quantity": "1", "page": "", "slot": "",
+    }
+    client.post("/cards/add", data=dict(form))
+    # Same identity, even a different condition, must top up (condition ignored).
+    client.post("/cards/add", data=dict(form, condition="LP"))
+
+    with sqlite3.connect(db) as conn:
+        rows = conn.execute(
+            "SELECT quantity, storage_code FROM cards WHERE name = 'Rumble Arena'"
+        ).fetchall()
+        occupied = conn.execute(
+            "SELECT COUNT(*) FROM storage_slots WHERE is_occupied = 1"
+        ).fetchone()[0]
+    assert len(rows) == 1           # one row, not two
+    assert rows[0][0] == 2          # quantity topped up on the existing card
+    assert occupied == 1            # only one slot consumed
+
+
 def test_cleanup_removes_archived_rows_and_frees_slots(tmp_path):
     db = _use_db(tmp_path)
     lager_manager.add_storage_slot("O01-S01-P1")

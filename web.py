@@ -824,7 +824,12 @@ def add_card_view():
         storage_code = make_storage_code(folder_id, page, slot)
         location_hint = request.form.get("location_hint", "")
         
-        success = add_card(
+        # Top up an identical card on its existing slot instead of creating a
+        # new row/place (same rule as the CSV import). Identity =
+        # set_code + collector_number + language + foil in the same folder;
+        # condition/price are deliberately not part of it (see CLAUDE.md).
+        # Products (no set_code/collector_number) always create a new row.
+        success = add_or_increment_card(
             request.form["name"],
             set_code,
             request.form.get("language", ""),
@@ -840,11 +845,12 @@ def add_card_view():
             bool(request.form.get("foil")),
             item_type,
             location_hint,
+            user=session.get("user", "system"),
         )
         if success:
-            flash("Card added")
+            flash("Artikel gespeichert.")
             return redirect(url_for("list_cards"))
-        flash("No free storage slot", "error")
+        flash("Kein freier Lagerplatz.", "error")
     return render_template(
         "card_form.html", card=None, folders=folders, folder_part="", page="", slot=""
     )
