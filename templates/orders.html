@@ -76,8 +76,22 @@
           <div class="text-muted small mt-1">Adresse zuerst speichern/bestätigen, dann ist der Beileger druckbar.</div>
           {% endif %}
         </div>
+        <!-- Shipping: parsed from the mail, editable here (also for older orders
+             imported before shipping parsing existed). The Beileger prints this. -->
+        <form method="post" action="{{ url_for('update_order_shipping', order_id=order.id) }}"
+              class="d-flex align-items-center gap-2 mt-3 flex-wrap">
+          <label class="form-label mb-0 small text-muted">Versand (€)</label>
+          <input type="text" inputmode="decimal" name="versand"
+                 class="form-control form-control-sm" style="max-width:110px;"
+                 value="{{ ('%.2f'|format(order.amounts.versand)|replace('.', ',')) if order.amounts.versand is not none else '' }}"
+                 placeholder="z. B. 3,95">
+          <button class="btn btn-outline-primary btn-sm" type="submit">Speichern</button>
+          {% if order.amounts.versand is none %}
+          <span class="text-muted small">nicht erkannt – bitte eintragen</span>
+          {% endif %}
+        </form>
         {% if order.amounts.gesamt is not none or order.amounts.gesamtwert is not none %}
-        <div class="text-muted small mt-3">
+        <div class="text-muted small mt-2">
           Warenwert €{{ '%.2f'|format(order.amounts.gesamtwert or 0) }} ·
           Versand €{{ '%.2f'|format(order.amounts.versand or 0) }} ·
           Gesamt €{{ '%.2f'|format(order.amounts.gesamt or 0) }}
