@@ -135,6 +135,62 @@ def test_unique_index_blocks_duplicate_at_db_level(tmp_path):
                                 "Dublette", bestellung_id=7)
 
 
+def _add_item(db, order_id, unit_price, qty=1, name="Force of Negation"):
+    with sqlite3.connect(db) as c:
+        c.execute(
+            "INSERT INTO order_items (order_id, card_name, quantity, unit_price, match_status) "
+            "VALUES (?,?,?,?, 'matched')",
+            (order_id, name, qty, unit_price),
+        )
+        c.commit()
+
+
+def test_book_order_uses_item_prices_when_total_missing(tmp_path):
+    """Older order without a parsed header total: Warenverkauf comes from the
+    actual position prices, shipping + fees from the (manually set) fields."""
+    db = _db(tmp_path)
+    _order(db, oid=7, gesamt=None, versand=3.95, gebuehren=2.10)
+    _add_item(db, 7, unit_price=42.00, qty=1)
+    bookkeeping.book_order(7)
+    with sqlite3.connect(db) as c:
+        rows = c.execute(
+            "SELECT kategorie, art, betrag_cent FROM journal WHERE bestellung_id=7 ORDER BY id"
+        ).fetchall()
+    assert ("Warenverkauf", "einnahme", 4200) in rows
+    assert ("Vereinnahmte Versandkosten", "einnahme", 395) in rows
+    assert ("Cardmarket-Gebühren", "ausgabe", 210) in rows
+
+
+def test_book_order_refuses_all_zero(tmp_path):
+    """No amounts and no item prices -> refuse instead of booking 0,00."""
+    db = _db(tmp_path)
+    _order(db, oid=8, number="1002", gesamt=None, versand=None, gebuehren=None)
+    with pytest.raises(ValueError):
+        bookkeeping.book_order(8)
+    with sqlite3.connect(db) as c:
+        n = c.execute("SELECT COUNT(*) FROM journal WHERE bestellung_id=8").fetchone()[0]
+    assert n == 0
+
+
+def test_storno_allows_corrected_rebooking(tmp_path):
+    """A mistaken takeover can be corrected: storno all bookings, then re-book."""
+    db = _db(tmp_path)
+    _order(db, oid=7)
+    ids = bookkeeping.book_order(7)
+    for bid in ids:
+        bookkeeping.storno_booking(bid, "Korrektur")
+    assert bookkeeping.order_already_booked(7) is False
+    assert any(o["id"] == 7 for o in bookkeeping.bookable_orders())
+    new_ids = bookkeeping.book_order(7)          # must not collide with the storno'd rows
+    assert len(new_ids) == 3
+    with sqlite3.connect(db) as c:
+        aktiv = c.execute(
+            "SELECT COUNT(*) FROM journal WHERE bestellung_id=7 AND art<>'storno' "
+            "AND storniert_durch IS NULL"
+        ).fetchone()[0]
+    assert aktiv == 3
+
+
 # --- Zufluss / Auswertung ------------------------------------------------
 
 def test_summary_uses_payment_date_and_lists_pending(tmp_path):

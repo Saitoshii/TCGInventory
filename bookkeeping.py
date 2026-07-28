@@ -179,9 +179,15 @@ def storno_booking(buchung_id: int, grund: str = "", db_file: Optional[str] = No
 # Einnahmen aus Bestellungen (nur Maildaten aus WP2a)
 # ---------------------------------------------------------------------------
 def order_already_booked(order_id: int, db_file: Optional[str] = None) -> bool:
+    """True if the order has an *active* (non-cancelled) booking.
+
+    A booking that has been storno'd (``storniert_durch`` set) no longer counts —
+    so a mistaken takeover can be corrected via Storno and then booked again.
+    """
     with _connect(db_file) as conn:
         row = conn.execute(
-            "SELECT 1 FROM journal WHERE bestellung_id = ? AND art <> 'storno' LIMIT 1",
+            "SELECT 1 FROM journal WHERE bestellung_id = ? AND art <> 'storno' "
+            "AND storniert_durch IS NULL LIMIT 1",
             (order_id,),
         ).fetchone()
     return row is not None
@@ -206,24 +212,42 @@ def book_order(order_id: int, db_file: Optional[str] = None) -> List[int]:
             "amount_versand, amount_gebuehren FROM orders WHERE id = ?",
             (order_id,),
         ).fetchone()
-    if not o:
-        raise ValueError("Bestellung nicht gefunden")
+        if not o:
+            raise ValueError("Bestellung nicht gefunden")
+        items = conn.execute(
+            "SELECT quantity, unit_price FROM order_items WHERE order_id = ?",
+            (order_id,),
+        ).fetchall()
     if order_already_booked(order_id, db_file):
         raise ValueError("Diese Bestellung wurde bereits übernommen")
 
-    # Gesamtbetrag der Mail; amount_gesamt ist der belastbare Wert.
-    gesamt_cent = to_cent(o["amount_gesamt"] if o["amount_gesamt"] is not None
-                          else o["amount_gesamtwert"])
     versand_cent = to_cent(o["amount_versand"])
     gebuehren_cent = to_cent(o["amount_gebuehren"])
-    waren_cent = gesamt_cent - versand_cent
+
+    # Warenverkauf = Gesamtbetrag der Mail minus Versand. Fehlt der Gesamtbetrag
+    # (z. B. bei aelteren, vor dem Versand-Parsing eingelesenen Bestellungen),
+    # wird er aus den tatsaechlichen Positionspreisen der Mail gebildet — beides
+    # sind Cardmarket-Maildaten, keine Dragonshield-Preise.
+    if o["amount_gesamt"] is not None:
+        waren_cent = to_cent(o["amount_gesamt"]) - versand_cent
+    else:
+        waren_cent = sum(to_cent(it["unit_price"]) * int(it["quantity"] or 1)
+                         for it in items)
+
+    if waren_cent <= 0 and versand_cent <= 0 and gebuehren_cent <= 0:
+        raise ValueError(
+            "Keine Beträge hinterlegt – bitte Versand und Cardmarket-Gebühren "
+            "im Bestell-Panel eintragen (und ggf. die Kartenpreise prüfen), "
+            "dann die Bestellung übernehmen."
+        )
 
     datum = str(o["email_date"] or o["date_received"] or "")[:10]
     ref = f"Bestellung {o['order_number'] or order_id} ({o['buyer_name'] or ''})".strip()
 
     ids = []
-    ids.append(add_booking(datum, "einnahme", "Warenverkauf", waren_cent,
-                           ref, bestellung_id=order_id, db_file=db_file))
+    if waren_cent:
+        ids.append(add_booking(datum, "einnahme", "Warenverkauf", waren_cent,
+                               ref, bestellung_id=order_id, db_file=db_file))
     if versand_cent:
         ids.append(add_booking(datum, "einnahme", "Vereinnahmte Versandkosten", versand_cent,
                                ref, bestellung_id=order_id, db_file=db_file))
@@ -394,7 +418,8 @@ def bookable_orders(db_file: Optional[str] = None) -> List[dict]:
             FROM orders o
             WHERE o.status = 'sold' AND o.address_confirmed = 1
               AND NOT EXISTS (SELECT 1 FROM journal j
-                              WHERE j.bestellung_id = o.id AND j.art <> 'storno')
+                              WHERE j.bestellung_id = o.id AND j.art <> 'storno'
+                                AND j.storniert_durch IS NULL)
             ORDER BY datum DESC
             """
         ).fetchall()
