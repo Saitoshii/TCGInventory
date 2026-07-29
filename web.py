@@ -1510,15 +1510,27 @@ def bookkeeping_view():
         bookings=bookkeeping.list_bookings(),
         bookable=bookkeeping.bookable_orders(),
         cent_to_de=bookkeeping.cent_to_de,
+        porto_options=bookkeeping.PORTO_OPTIONS,
     )
 
 
 @app.route("/buchhaltung/uebernehmen/<int:order_id>", methods=["POST"])
 @login_required
 def bookkeeping_take_order(order_id: int):
-    """Bestellung als Einnahme übernehmen (Warenverkauf/Versand/Gebühren)."""
+    """Bestellung als Einnahme übernehmen (Warenverkauf/Versand/Gebühren) und das
+    tatsächlich gezahlte Porto als Ausgabe erfassen.
+
+    Das Porto (der reale Versandaufwand des Shops) kommt aus dem Betragsfeld;
+    ist es leer, wird der Vorschlagspreis der gewählten Porto-Methode genutzt.
+    """
+    porto_betrag = request.form.get("porto_betrag", "").strip()
+    porto_methode = request.form.get("porto_methode", "").strip()
+    porto_cent = bookkeeping.to_cent(porto_betrag) if porto_betrag else 0
+    if not porto_cent and porto_methode:
+        porto_cent = dict(bookkeeping.PORTO_OPTIONS).get(porto_methode, 0)
     try:
-        ids = bookkeeping.book_order(order_id)
+        ids = bookkeeping.book_order(order_id, porto_cent=porto_cent,
+                                     porto_methode=porto_methode)
         flash(f"Bestellung übernommen – {len(ids)} Buchung(en) erstellt.")
     except (ValueError, sqlite3.IntegrityError) as exc:
         flash(f"Übernahme nicht möglich: {exc}", "error")
