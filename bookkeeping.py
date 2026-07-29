@@ -44,6 +44,25 @@ KATEGORIEN_AUSGABE = [
     "Sonstige Ausgaben",
 ]
 
+# Tatsaechliche Portokosten (Ausgabe), die der Shop beim Versand zahlt — NICHT
+# der vom Kunden ueber Cardmarket bezahlte Versand (der bleibt Einnahme aus der
+# Mail). Cardmarket gibt dem Kunden einen festen Versandpreis vor; das echte
+# Porto ist meist guenstiger, und genau dieser reale Wert muss in die Buchhaltung.
+# Die Preise sind Vorschlaege (in Cent) und werden beim Uebernehmen ins
+# Betragsfeld vorbefuellt, dort aber immer ueberschreibbar. Stand gelegentlich
+# pruefen — Deutsche Post / DHL passen ihre Tarife an.
+PORTO_OPTIONS = [
+    ("Standardbrief (bis 20 g)", 95),
+    ("Kompaktbrief (bis 50 g)", 110),
+    ("Großbrief (bis 500 g)", 180),
+    ("Maxibrief (bis 1000 g)", 275),
+    ("Warenpost bis 500 g", 240),
+    ("Einschreiben Einwurf", 320),
+    ("DHL Päckchen S", 399),
+    ("DHL Paket bis 2 kg", 555),
+    ("Warenpost International (EU)", 400),
+]
+
 BELEGE_DIR = Path(__file__).resolve().parent / "data" / "belege"
 ALLOWED_RECEIPT_EXT = {".pdf", ".jpg", ".jpeg", ".png"}
 
@@ -193,14 +212,20 @@ def order_already_booked(order_id: int, db_file: Optional[str] = None) -> bool:
     return row is not None
 
 
-def book_order(order_id: int, db_file: Optional[str] = None) -> List[int]:
+def book_order(order_id: int, porto_cent: int = 0, porto_methode: str = "",
+               db_file: Optional[str] = None) -> List[int]:
     """Eine Bestellung als Einnahme uebernehmen.
 
-    Erzeugt drei getrennte Buchungen aus den gespeicherten Maildaten, damit
-    Brutto und Gebuehren sichtbar bleiben:
-      * ``Warenverkauf`` (Einnahme)          = Gesamtbetrag - Versandkosten
-      * ``Vereinnahmte Versandkosten`` (Einnahme)
+    Erzeugt getrennte Buchungen aus den gespeicherten Maildaten, damit Brutto
+    und Gebuehren sichtbar bleiben:
+      * ``Warenverkauf`` (Einnahme)              = Gesamtbetrag - Versandkosten
+      * ``Vereinnahmte Versandkosten`` (Einnahme) = vom Kunden gezahlter Versand
       * ``Cardmarket-Gebühren`` (Ausgabe)
+
+    ``porto_cent`` ist das **tatsaechlich gezahlte** Porto (Ausgabe), das der
+    Shop beim Versand aufwendet — unabhaengig vom Cardmarket-Versandpreis, den
+    der Kunde zahlt. Ist es > 0, wird zusaetzlich ``Porto/Versand`` (Ausgabe)
+    gebucht; ``porto_methode`` landet als Hinweis in der Beschreibung.
 
     Eine Bestellung kann nur einmal uebernommen werden (zusaetzlich per
     UNIQUE-Index abgesichert).
@@ -254,6 +279,13 @@ def book_order(order_id: int, db_file: Optional[str] = None) -> List[int]:
     if gebuehren_cent:
         ids.append(add_booking(datum, "ausgabe", "Cardmarket-Gebühren", gebuehren_cent,
                                ref, bestellung_id=order_id, db_file=db_file))
+    # Tatsaechlich gezahltes Porto (Ausgabe) — der reale Versandaufwand des Shops.
+    if porto_cent and int(porto_cent) > 0:
+        porto_ref = ref
+        if porto_methode and porto_methode.lower() != "manuell":
+            porto_ref = f"{ref} – Porto: {porto_methode}"
+        ids.append(add_booking(datum, "ausgabe", "Porto/Versand", int(porto_cent),
+                               porto_ref, bestellung_id=order_id, db_file=db_file))
     return ids
 
 

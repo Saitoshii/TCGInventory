@@ -322,3 +322,68 @@ def test_bookkeeping_routes(tmp_path, monkeypatch):
     csv_resp = client.get("/buchhaltung/auswertung.csv?von=2026-01-01&bis=2026-12-31")
     assert csv_resp.status_code == 200
     assert csv_resp.get_data().startswith(b"\xef\xbb\xbf")
+
+
+# --- Tatsächliches Porto (Ausgabe) beim Übernehmen -----------------------
+
+def test_book_order_books_actual_postage_expense(tmp_path):
+    """Das tatsaechlich gezahlte Porto wird zusaetzlich als Ausgabe gebucht;
+    der vom Kunden gezahlte Versand bleibt getrennt als Einnahme."""
+    db = _db(tmp_path)
+    _order(db)  # versand (Kunde) = 1,55
+    ids = bookkeeping.book_order(7, porto_cent=180, porto_methode="Großbrief (bis 500 g)")
+    assert len(ids) == 4
+    with sqlite3.connect(db) as c:
+        porto = c.execute(
+            "SELECT art, betrag_cent, beschreibung FROM journal "
+            "WHERE bestellung_id=7 AND kategorie='Porto/Versand'").fetchone()
+        einnahme_versand = c.execute(
+            "SELECT betrag_cent FROM journal WHERE bestellung_id=7 "
+            "AND kategorie='Vereinnahmte Versandkosten'").fetchone()[0]
+    assert porto[0] == "ausgabe" and porto[1] == 180 and "Großbrief" in porto[2]
+    assert einnahme_versand == 155           # Kundenversand unveraendert und getrennt
+
+
+def test_book_order_without_porto_stays_three_bookings(tmp_path):
+    db = _db(tmp_path)
+    _order(db)
+    ids = bookkeeping.book_order(7)           # kein Porto angegeben
+    assert len(ids) == 3
+    with sqlite3.connect(db) as c:
+        n = c.execute("SELECT COUNT(*) FROM journal WHERE bestellung_id=7 "
+                      "AND kategorie='Porto/Versand'").fetchone()[0]
+    assert n == 0
+
+
+def _take_client(db):
+    from TCGInventory import web
+    web.DB_FILE = db
+    web.app.config["TESTING"] = True
+    client = web.app.test_client()
+    with client.session_transaction() as s:
+        s["user"] = "tester"
+    return client
+
+
+def test_take_order_route_books_porto_from_manual_amount(tmp_path):
+    db = _db(tmp_path)
+    _order(db, oid=9, number="1009")
+    client = _take_client(db)
+    client.post("/buchhaltung/uebernehmen/9",
+                data={"porto_methode": "Großbrief (bis 500 g)", "porto_betrag": "1,80"})
+    with sqlite3.connect(db) as c:
+        row = c.execute("SELECT betrag_cent FROM journal WHERE bestellung_id=9 "
+                        "AND kategorie='Porto/Versand'").fetchone()
+    assert row and row[0] == 180
+
+
+def test_take_order_route_uses_suggested_price_when_amount_blank(tmp_path):
+    db = _db(tmp_path)
+    _order(db, oid=10, number="1010")
+    client = _take_client(db)
+    client.post("/buchhaltung/uebernehmen/10",
+                data={"porto_methode": "Standardbrief (bis 20 g)", "porto_betrag": ""})
+    with sqlite3.connect(db) as c:
+        row = c.execute("SELECT betrag_cent FROM journal WHERE bestellung_id=10 "
+                        "AND kategorie='Porto/Versand'").fetchone()
+    assert row and row[0] == 95

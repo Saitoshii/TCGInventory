@@ -18,10 +18,17 @@
 <div class="card mb-4">
   <div class="card-header"><h5 class="mb-0">Versendete Bestellungen – noch nicht übernommen</h5></div>
   <div class="card-body">
+    <p class="text-muted small">
+      Beim Übernehmen das <strong>tatsächlich gezahlte Porto</strong> wählen oder eintragen –
+      also euren realen Versandaufwand, <em>nicht</em> den vom Kunden über Cardmarket gezahlten
+      Versand (der bleibt Einnahme aus der Mail). Der Vorschlagspreis ist überschreibbar.
+    </p>
+    <div class="table-responsive">
     <table class="table table-sm align-middle mb-0">
       <thead>
         <tr><th>Datum</th><th>Bestellnummer</th><th>Käufer</th>
-            <th class="text-end">Gesamt</th><th class="text-end">Gebühren</th><th></th></tr>
+            <th class="text-end">Gesamt</th><th class="text-end">Gebühren</th>
+            <th>Porto (tatsächlich)</th><th></th></tr>
       </thead>
       <tbody>
         {% for o in bookable %}
@@ -31,15 +38,28 @@
           <td>{{ o.buyer_name }}</td>
           <td class="text-end">{{ '%.2f'|format(o.amount_gesamt or 0)|replace('.', ',') }} €</td>
           <td class="text-end">{{ '%.2f'|format(o.amount_gebuehren or 0)|replace('.', ',') }} €</td>
-          <td class="text-end">
-            <form method="post" action="{{ url_for('bookkeeping_take_order', order_id=o.id) }}">
-              <button class="btn btn-sm btn-outline-primary" type="submit">Als Einnahme übernehmen</button>
+          <td colspan="2">
+            <form method="post" action="{{ url_for('bookkeeping_take_order', order_id=o.id) }}"
+                  class="d-flex align-items-center gap-1 flex-wrap">
+              <select class="form-select form-select-sm porto-select" name="porto_methode"
+                      title="Tatsächlich gezahltes Porto (Ausgabe)" style="max-width:210px;">
+                <option value="" data-cent="">Porto wählen …</option>
+                {% for label, cent in porto_options %}
+                <option value="{{ label }}" data-cent="{{ cent }}">{{ label }} ({{ cent_to_de(cent) }} €)</option>
+                {% endfor %}
+                <option value="Manuell" data-cent="">Manuell</option>
+              </select>
+              <input type="text" inputmode="decimal" name="porto_betrag"
+                     class="form-control form-control-sm porto-amount" style="max-width:80px;"
+                     placeholder="€" title="Porto in Euro – überschreibbar">
+              <button class="btn btn-sm btn-outline-primary" type="submit">Übernehmen</button>
             </form>
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
+    </div>
   </div>
 </div>
 {% endif %}
@@ -97,4 +117,23 @@
     {% endif %}
   </div>
 </div>
+
+<script>
+// Porto-Auswahl füllt das Betragsfeld vor (Vorschlag), bleibt aber überschreibbar.
+document.querySelectorAll('.porto-select').forEach(function (sel) {
+  sel.addEventListener('change', function () {
+    var opt = sel.options[sel.selectedIndex];
+    var cent = opt.getAttribute('data-cent');
+    var amount = sel.closest('form').querySelector('.porto-amount');
+    if (cent) {
+      amount.value = (parseInt(cent, 10) / 100).toFixed(2).replace('.', ',');
+    } else if (sel.value === 'Manuell') {
+      amount.value = '';
+      amount.focus();
+    } else {
+      amount.value = '';
+    }
+  });
+});
+</script>
 {% endblock %}
