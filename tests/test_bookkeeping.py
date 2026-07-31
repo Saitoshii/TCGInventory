@@ -387,3 +387,57 @@ def test_take_order_route_uses_suggested_price_when_amount_blank(tmp_path):
         row = c.execute("SELECT betrag_cent FROM journal WHERE bestellung_id=10 "
                         "AND kategorie='Porto/Versand'").fetchone()
     assert row and row[0] == 95
+
+
+# --- Briefmarken-Vorrat (vorab gekauft, keine Doppelbuchung) -------------
+
+def test_buy_stamps_books_once_and_fills_stock(tmp_path):
+    db = _db(tmp_path)
+    bid = bookkeeping.buy_stamps(95, 10, "2026-05-01")
+    with sqlite3.connect(db) as c:
+        booking = c.execute("SELECT kategorie, art, betrag_cent FROM journal WHERE id=?",
+                            (bid,)).fetchone()
+        anzahl = c.execute("SELECT anzahl FROM briefmarken WHERE wert_cent=95").fetchone()[0]
+    assert booking == ("Porto/Versand", "ausgabe", 950)   # 10 × 0,95 = 9,50, einmal gebucht
+    assert anzahl == 10
+    bookkeeping.buy_stamps(95, 5, "2026-05-02")           # gleicher Wert summiert sich
+    with sqlite3.connect(db) as c:
+        assert c.execute("SELECT anzahl FROM briefmarken WHERE wert_cent=95").fetchone()[0] == 15
+
+
+def test_use_stamp_decrements_and_never_negative(tmp_path):
+    db = _db(tmp_path)
+    bookkeeping.buy_stamps(125, 1, "2026-05-01")
+    assert bookkeeping.use_stamp(125) is True
+    assert bookkeeping.use_stamp(125) is False            # kein Vorrat mehr
+    with sqlite3.connect(db) as c:
+        assert c.execute("SELECT anzahl FROM briefmarken WHERE wert_cent=125").fetchone()[0] == 0
+
+
+def test_take_order_from_stock_deducts_without_extra_booking(tmp_path):
+    db = _db(tmp_path)
+    _order(db, oid=11, number="1011")
+    bookkeeping.buy_stamps(95, 3, "2026-05-01")
+    client = _take_client(db)
+    client.post("/buchhaltung/uebernehmen/11", data={"porto_methode": "vorrat:95"})
+    with sqlite3.connect(db) as c:
+        porto_on_order = c.execute(
+            "SELECT COUNT(*) FROM journal WHERE bestellung_id=11 AND kategorie='Porto/Versand'"
+        ).fetchone()[0]
+        bestand = c.execute("SELECT anzahl FROM briefmarken WHERE wert_cent=95").fetchone()[0]
+        order_bookings = c.execute(
+            "SELECT COUNT(*) FROM journal WHERE bestellung_id=11").fetchone()[0]
+    assert porto_on_order == 0        # keine Doppelbuchung an der Bestellung
+    assert bestand == 2               # eine Marke abgezogen
+    assert order_bookings == 3        # Warenverkauf + Versand + Gebühren
+
+
+def test_stamps_route_buys_and_shows_stock(tmp_path):
+    db = _db(tmp_path)
+    client = _take_client(db)
+    client.post("/buchhaltung/briefmarken",
+                data={"wert": "0,95", "anzahl": "10", "buchungsdatum": "2026-05-01"})
+    page = client.get("/buchhaltung/briefmarken").get_data(as_text=True)
+    assert "0,95" in page
+    with sqlite3.connect(db) as c:
+        assert c.execute("SELECT anzahl FROM briefmarken WHERE wert_cent=95").fetchone()[0] == 10

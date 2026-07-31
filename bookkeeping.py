@@ -353,6 +353,59 @@ def get_receipt(beleg_id: int, db_file: Optional[str] = None) -> Optional[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Briefmarken-Vorrat (vorab gekaufte Marken)
+# ---------------------------------------------------------------------------
+def list_briefmarken(only_stock: bool = False, db_file: Optional[str] = None) -> List[dict]:
+    """Briefmarken-Bestand je Wert (aufsteigend). ``only_stock`` blendet leere aus."""
+    with _connect(db_file) as conn:
+        q = "SELECT wert_cent, anzahl FROM briefmarken"
+        if only_stock:
+            q += " WHERE anzahl > 0"
+        q += " ORDER BY wert_cent"
+        rows = conn.execute(q).fetchall()
+    return [dict(r) for r in rows]
+
+
+def buy_stamps(wert_cent: int, anzahl: int, buchungsdatum: str,
+               beleg_id: Optional[int] = None, db_file: Optional[str] = None) -> int:
+    """Briefmarken im Voraus kaufen.
+
+    Bucht **eine** Ausgabe ``Porto/Versand`` (Wert × Anzahl) — moeglichst mit
+    Beleg — und legt die Marken in den Bestand. So werden die Portokosten genau
+    einmal (beim Kauf) erfasst; beim Versand wird nur der Bestand reduziert, es
+    entsteht keine Doppelbuchung.
+    """
+    wert_cent = int(wert_cent)
+    anzahl = int(anzahl)
+    if wert_cent <= 0 or anzahl <= 0:
+        raise ValueError("Wert und Anzahl müssen größer als 0 sein.")
+    betrag = wert_cent * anzahl
+    beschr = f"Briefmarkenkauf {anzahl}× {cent_to_de(wert_cent)} €"
+    booking_id = add_booking(buchungsdatum, "ausgabe", "Porto/Versand", betrag,
+                             beschr, beleg_id=beleg_id, db_file=db_file)
+    with _connect(db_file) as conn:
+        conn.execute(
+            "INSERT INTO briefmarken (wert_cent, anzahl) VALUES (?, ?) "
+            "ON CONFLICT(wert_cent) DO UPDATE SET anzahl = anzahl + excluded.anzahl",
+            (wert_cent, anzahl),
+        )
+        conn.commit()
+    return booking_id
+
+
+def use_stamp(wert_cent: int, db_file: Optional[str] = None) -> bool:
+    """Eine Marke des Werts aus dem Vorrat abziehen (keine neue Buchung — schon
+    beim Kauf bezahlt). Gibt ``True`` zurueck, wenn eine Marke da war."""
+    with _connect(db_file) as conn:
+        cur = conn.execute(
+            "UPDATE briefmarken SET anzahl = anzahl - 1 WHERE wert_cent = ? AND anzahl > 0",
+            (int(wert_cent),),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
 # Lesen / Auswertung
 # ---------------------------------------------------------------------------
 def list_bookings(db_file: Optional[str] = None, limit: int = 500) -> List[dict]:

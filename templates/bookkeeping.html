@@ -4,6 +4,7 @@
   <h2 class="page-title mb-0">Buchungsjournal</h2>
   <div class="d-flex gap-2 flex-wrap">
     <a class="btn btn-primary btn-sm" href="{{ url_for('bookkeeping_expense') }}">＋ Ausgabe erfassen</a>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('bookkeeping_stamps') }}">Briefmarken</a>
     <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('bookkeeping_payments') }}">Zahlungseingang zuweisen</a>
     <a class="btn btn-outline-info btn-sm" href="{{ url_for('bookkeeping_summary_view') }}">Jahresauswertung</a>
   </div>
@@ -42,12 +43,21 @@
             <form method="post" action="{{ url_for('bookkeeping_take_order', order_id=o.id) }}"
                   class="d-flex align-items-center gap-1 flex-wrap">
               <select class="form-select form-select-sm porto-select" name="porto_methode"
-                      title="Tatsächlich gezahltes Porto (Ausgabe)" style="max-width:210px;">
+                      title="Tatsächlich gezahltes Porto (Ausgabe)" style="max-width:230px;">
                 <option value="" data-cent="">Porto wählen …</option>
-                {% for label, cent in porto_options %}
-                <option value="{{ label }}" data-cent="{{ cent }}">{{ label }} ({{ cent_to_de(cent) }} €)</option>
-                {% endfor %}
-                <option value="Manuell" data-cent="">Manuell</option>
+                {% if briefmarken %}
+                <optgroup label="Aus Vorrat (schon bezahlt)">
+                  {% for m in briefmarken %}
+                  <option value="vorrat:{{ m.wert_cent }}" data-cent="">Vorrat: {{ cent_to_de(m.wert_cent) }} € (Bestand {{ m.anzahl }})</option>
+                  {% endfor %}
+                </optgroup>
+                {% endif %}
+                <optgroup label="Frisch bezahlt">
+                  {% for label, cent in porto_options %}
+                  <option value="{{ label }}" data-cent="{{ cent }}">{{ label }} ({{ cent_to_de(cent) }} €)</option>
+                  {% endfor %}
+                  <option value="Manuell" data-cent="">Manuell</option>
+                </optgroup>
               </select>
               <input type="text" inputmode="decimal" name="porto_betrag"
                      class="form-control form-control-sm porto-amount" style="max-width:80px;"
