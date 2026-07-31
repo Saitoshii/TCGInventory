@@ -110,27 +110,6 @@ def _needs_review_entry(fields: dict, folder_id, reason: str, raw: dict) -> dict
     }
 
 
-def parse_eur_amount(text: str | None) -> float | None:
-    """Parse a user-entered amount like '3,95', '3.95' or '1.234,56' to a float.
-
-    Returns ``None`` for empty input (so a cleared field removes the value) and
-    for anything that is not a non-negative number.
-    """
-    t = (text or "").strip().replace("€", "").replace("EUR", "").replace("eur", "").strip()
-    t = t.replace(" ", "")
-    if not t:
-        return None
-    if "," in t and "." in t:
-        t = t.replace(".", "").replace(",", ".")
-    elif "," in t:
-        t = t.replace(",", ".")
-    try:
-        value = float(t)
-    except ValueError:
-        return None
-    return value if value >= 0 else None
-
-
 def make_storage_code(
     folder_id: str | None, page: str | None, slot: str | None
 ) -> str:
@@ -2003,39 +1982,6 @@ def update_order_address(order_id: int):
         )
         conn.commit()
     flash("Adresse gespeichert und bestätigt.")
-    return redirect(url_for("list_orders"))
-
-
-@app.route("/orders/<int:order_id>/amounts", methods=["POST"])
-@login_required
-def update_order_amounts(order_id: int):
-    """Set shipping (Versand) and Cardmarket fees (Gebühren) for an order manually.
-
-    Both are normally parsed from the order mail into ``amount_versand`` /
-    ``amount_gebuehren``. The Beileger prints the shipping, and the bookkeeping
-    takeover books shipping + fees. This lets the user set or correct them —
-    needed for orders imported before those were parsed, or when a mail format
-    hid them. An empty field clears that value.
-    """
-    fields = {
-        "versand": ("amount_versand", "Versand"),
-        "gebuehren": ("amount_gebuehren", "Cardmarket-Gebühren"),
-    }
-    values = {}
-    for name, (column, label) in fields.items():
-        raw = request.form.get(name, "")
-        val = parse_eur_amount(raw)
-        if raw.strip() and val is None:
-            flash(f"Ungültiger Betrag bei {label} (z. B. 3,95).", "error")
-            return redirect(url_for("list_orders"))
-        values[column] = val
-    with sqlite3.connect(DB_FILE) as conn:
-        conn.execute(
-            "UPDATE orders SET amount_versand = ?, amount_gebuehren = ? WHERE id = ?",
-            (values["amount_versand"], values["amount_gebuehren"], order_id),
-        )
-        conn.commit()
-    flash("Beträge gespeichert.")
     return redirect(url_for("list_orders"))
 
 
