@@ -280,6 +280,18 @@ def initialize_database() -> None:
             "CREATE INDEX IF NOT EXISTS idx_journal_zahlung ON journal(zahlungseingang_am)"
         )
 
+        # Briefmarken-Vorrat: vorab gekaufte Marken je Wert. Der Kauf wird EINMAL
+        # als Ausgabe im Journal gebucht (mit Beleg); beim Versand wird hier nur
+        # der Bestand reduziert, damit die Portokosten nicht doppelt anfallen.
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS briefmarken (
+                wert_cent INTEGER PRIMARY KEY,
+                anzahl INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+
         # Loeschen ist grundsaetzlich verboten.
         cursor.execute(
             """

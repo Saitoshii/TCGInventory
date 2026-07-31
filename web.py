@@ -110,27 +110,6 @@ def _needs_review_entry(fields: dict, folder_id, reason: str, raw: dict) -> dict
     }
 
 
-def parse_eur_amount(text: str | None) -> float | None:
-    """Parse a user-entered amount like '3,95', '3.95' or '1.234,56' to a float.
-
-    Returns ``None`` for empty input (so a cleared field removes the value) and
-    for anything that is not a non-negative number.
-    """
-    t = (text or "").strip().replace("€", "").replace("EUR", "").replace("eur", "").strip()
-    t = t.replace(" ", "")
-    if not t:
-        return None
-    if "," in t and "." in t:
-        t = t.replace(".", "").replace(",", ".")
-    elif "," in t:
-        t = t.replace(",", ".")
-    try:
-        value = float(t)
-    except ValueError:
-        return None
-    return value if value >= 0 else None
-
-
 def make_storage_code(
     folder_id: str | None, page: str | None, slot: str | None
 ) -> str:
@@ -1511,6 +1490,7 @@ def bookkeeping_view():
         bookable=bookkeeping.bookable_orders(),
         cent_to_de=bookkeeping.cent_to_de,
         porto_options=bookkeeping.PORTO_OPTIONS,
+        briefmarken=bookkeeping.list_briefmarken(only_stock=True),
     )
 
 
@@ -1518,23 +1498,80 @@ def bookkeeping_view():
 @login_required
 def bookkeeping_take_order(order_id: int):
     """Bestellung als Einnahme übernehmen (Warenverkauf/Versand/Gebühren) und das
-    tatsächlich gezahlte Porto als Ausgabe erfassen.
+    tatsächlich gezahlte Porto erfassen.
 
-    Das Porto (der reale Versandaufwand des Shops) kommt aus dem Betragsfeld;
-    ist es leer, wird der Vorschlagspreis der gewählten Porto-Methode genutzt.
+    Porto-Varianten aus dem Formular:
+      * ``vorrat:<wert_cent>`` – eine vorab gekaufte Briefmarke aus dem Bestand
+        verwenden: der Bestand wird reduziert, es entsteht KEINE neue Buchung
+        (schon beim Kauf bezahlt).
+      * sonst – frisch bezahltes Porto: Betrag aus dem Feld, sonst der
+        Vorschlagspreis der gewählten Methode; wird als Ausgabe gebucht.
     """
-    porto_betrag = request.form.get("porto_betrag", "").strip()
     porto_methode = request.form.get("porto_methode", "").strip()
-    porto_cent = bookkeeping.to_cent(porto_betrag) if porto_betrag else 0
-    if not porto_cent and porto_methode:
-        porto_cent = dict(bookkeeping.PORTO_OPTIONS).get(porto_methode, 0)
+    porto_betrag = request.form.get("porto_betrag", "").strip()
+
+    vorrat_wert = None
+    if porto_methode.startswith("vorrat:"):
+        rest = porto_methode.split(":", 1)[1]
+        vorrat_wert = int(rest) if rest.isdigit() else None
+
     try:
-        ids = bookkeeping.book_order(order_id, porto_cent=porto_cent,
-                                     porto_methode=porto_methode)
-        flash(f"Bestellung übernommen – {len(ids)} Buchung(en) erstellt.")
+        if vorrat_wert:
+            ids = bookkeeping.book_order(order_id)   # keine Porto-Ausgabe
+            if bookkeeping.use_stamp(vorrat_wert):
+                flash(f"Bestellung übernommen – {len(ids)} Buchung(en); "
+                      f"Briefmarke {bookkeeping.cent_to_de(vorrat_wert)} € aus dem Vorrat abgezogen.")
+            else:
+                flash(f"Bestellung übernommen – {len(ids)} Buchung(en). Achtung: kein Vorrat "
+                      f"für {bookkeeping.cent_to_de(vorrat_wert)} € – bitte Porto prüfen.", "warning")
+        else:
+            porto_cent = bookkeeping.to_cent(porto_betrag) if porto_betrag else 0
+            if not porto_cent and porto_methode:
+                porto_cent = dict(bookkeeping.PORTO_OPTIONS).get(porto_methode, 0)
+            ids = bookkeeping.book_order(order_id, porto_cent=porto_cent,
+                                         porto_methode=porto_methode)
+            flash(f"Bestellung übernommen – {len(ids)} Buchung(en) erstellt.")
     except (ValueError, sqlite3.IntegrityError) as exc:
         flash(f"Übernahme nicht möglich: {exc}", "error")
     return redirect(url_for("bookkeeping_view"))
+
+
+@app.route("/buchhaltung/briefmarken", methods=["GET", "POST"])
+@login_required
+def bookkeeping_stamps():
+    """Briefmarken vorab kaufen: bucht einmal als Ausgabe (mit Beleg) und legt
+    die Marken in den Bestand. Beim Übernehmen einer Bestellung wird der Bestand
+    nur noch reduziert (keine Doppelbuchung)."""
+    if request.method == "POST":
+        wert_cent = bookkeeping.to_cent(request.form.get("wert", ""))
+        try:
+            anzahl = int(request.form.get("anzahl", "0") or 0)
+        except ValueError:
+            anzahl = 0
+        datum = request.form.get("buchungsdatum", "").strip()
+        if wert_cent <= 0 or anzahl <= 0 or not datum:
+            flash("Bitte Wert, Anzahl (> 0) und Datum angeben.", "error")
+            return redirect(url_for("bookkeeping_stamps"))
+
+        beleg_id = None
+        upload = request.files.get("beleg")
+        if upload and upload.filename:
+            try:
+                beleg_id = bookkeeping.save_receipt(
+                    upload.filename, upload.read(), upload.mimetype or "")
+            except ValueError as exc:
+                flash(f"Beleg abgelehnt: {exc}", "error")
+                return redirect(url_for("bookkeeping_stamps"))
+
+        bookkeeping.buy_stamps(wert_cent, anzahl, datum, beleg_id=beleg_id)
+        flash(f"{anzahl}× {bookkeeping.cent_to_de(wert_cent)} € Briefmarken gekauft und gebucht.")
+        return redirect(url_for("bookkeeping_stamps"))
+
+    return render_template(
+        "stamps.html",
+        bestand=bookkeeping.list_briefmarken(),
+        cent_to_de=bookkeeping.cent_to_de,
+    )
 
 
 @app.route("/buchhaltung/storno/<int:buchung_id>", methods=["POST"])
@@ -2003,39 +2040,6 @@ def update_order_address(order_id: int):
         )
         conn.commit()
     flash("Adresse gespeichert und bestätigt.")
-    return redirect(url_for("list_orders"))
-
-
-@app.route("/orders/<int:order_id>/amounts", methods=["POST"])
-@login_required
-def update_order_amounts(order_id: int):
-    """Set shipping (Versand) and Cardmarket fees (Gebühren) for an order manually.
-
-    Both are normally parsed from the order mail into ``amount_versand`` /
-    ``amount_gebuehren``. The Beileger prints the shipping, and the bookkeeping
-    takeover books shipping + fees. This lets the user set or correct them —
-    needed for orders imported before those were parsed, or when a mail format
-    hid them. An empty field clears that value.
-    """
-    fields = {
-        "versand": ("amount_versand", "Versand"),
-        "gebuehren": ("amount_gebuehren", "Cardmarket-Gebühren"),
-    }
-    values = {}
-    for name, (column, label) in fields.items():
-        raw = request.form.get(name, "")
-        val = parse_eur_amount(raw)
-        if raw.strip() and val is None:
-            flash(f"Ungültiger Betrag bei {label} (z. B. 3,95).", "error")
-            return redirect(url_for("list_orders"))
-        values[column] = val
-    with sqlite3.connect(DB_FILE) as conn:
-        conn.execute(
-            "UPDATE orders SET amount_versand = ?, amount_gebuehren = ? WHERE id = ?",
-            (values["amount_versand"], values["amount_gebuehren"], order_id),
-        )
-        conn.commit()
-    flash("Beträge gespeichert.")
     return redirect(url_for("list_orders"))
 
 

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h2 class="page-title mb-0">Briefmarken-Vorrat</h2>
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('bookkeeping_view') }}">Zurück zum Journal</a>
+</div>
+
+<p class="text-muted small">
+  Vorab gekaufte Briefmarken werden hier <strong>einmal</strong> als Ausgabe „Porto/Versand"
+  gebucht (mit Beleg) und in den Bestand gelegt. Beim Übernehmen einer Bestellung wählst du
+  „aus Vorrat" – dann wird nur der Bestand reduziert, es entsteht keine zweite Buchung.
+</p>
+
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><h5 class="mb-0">Briefmarken kaufen</h5></div>
+      <div class="card-body">
+        <form method="post" enctype="multipart/form-data">
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label">Wert (€)</label>
+              <input type="text" inputmode="decimal" class="form-control" name="wert"
+                     placeholder="z. B. 0,95" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label">Anzahl</label>
+              <input type="number" min="1" class="form-control" name="anzahl" placeholder="z. B. 10" required>
+            </div>
+          </div>
+          <div class="mb-3 mt-2">
+            <label class="form-label">Kaufdatum</label>
+            <input type="date" class="form-control" name="buchungsdatum" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Beleg (PDF, JPG oder PNG)</label>
+            <input type="file" class="form-control" name="beleg" accept=".pdf,.jpg,.jpeg,.png">
+            <div class="text-muted small mt-1">
+              Wird unverändert mit Prüfsumme gespeichert und nicht gelöscht.
+            </div>
+          </div>
+          <button class="btn btn-primary" type="submit">Kaufen &amp; buchen</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header"><h5 class="mb-0">Aktueller Bestand</h5></div>
+      <div class="card-body">
+        <table class="table table-sm align-middle mb-0">
+          <thead><tr><th>Wert</th><th class="text-end">Bestand</th></tr></thead>
+          <tbody>
+            {% for m in bestand %}
+            <tr>
+              <td>{{ cent_to_de(m.wert_cent) }} €</td>
+              <td class="text-end">
+                {% if m.anzahl > 0 %}<span class="status-badge status-badge--verfuegbar">{{ m.anzahl }}</span>
+                {% else %}<span class="text-muted">0</span>{% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="2" class="text-muted">Noch keine Briefmarken erfasst.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
