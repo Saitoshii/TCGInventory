@@ -29,16 +29,16 @@ def _db(tmp_path):
 
 
 def _order(db, oid=7, number="1001", gesamt=7.21, versand=1.55, gebuehren=0.40,
-           status="sold", confirmed=1, datum="2026-03-05T10:00:00"):
+           status="sold", confirmed=1, datum="2026-03-05T10:00:00", auszahlung=None):
     with sqlite3.connect(db) as c:
         c.execute(
             "INSERT INTO orders (id, buyer_name, email_message_id, date_received, email_date,"
             " status, order_number, address, address_confirmed,"
-            " amount_gesamt, amount_versand, amount_gebuehren)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            " amount_gesamt, amount_versand, amount_gebuehren, amount_auszahlung)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (oid, "gaulix", f"m{oid}", datum, datum, status, number,
              "Max Müller\n01159 Dresden\nDeutschland", confirmed,
-             gesamt, versand, gebuehren),
+             gesamt, versand, gebuehren, auszahlung),
         )
         c.commit()
     return oid
@@ -295,7 +295,7 @@ def test_bookkeeping_routes(tmp_path, monkeypatch):
         s["user"] = "tester"
 
     page = client.get("/buchhaltung").get_data(as_text=True)
-    assert "Buchungsjournal" in page and "1001" in page          # übernehmbare Bestellung
+    assert "Buchhaltung" in page and "1001" in page              # übernehmbare Bestellung
 
     client.post("/buchhaltung/uebernehmen/7")
     with sqlite3.connect(db) as c:
@@ -441,3 +441,49 @@ def test_stamps_route_buys_and_shows_stock(tmp_path):
     assert "0,95" in page
     with sqlite3.connect(db) as c:
         assert c.execute("SELECT anzahl FROM briefmarken WHERE wert_cent=95").fetchone()[0] == 10
+
+
+# --- Gruppierung + Kontrolle gegen die Cardmarket-Auszahlung --------------
+
+def test_journal_by_order_groups_and_reconciles(tmp_path):
+    db = _db(tmp_path)
+    # Auszahlung = Waren + Versand - Gebuehr = (7,21-1,55) + 1,55 - 0,40 = 6,81
+    _order(db, oid=7, auszahlung=6.81)
+    bookkeeping.book_order(7)
+    bookkeeping.add_booking("2026-05-01", "ausgabe", "Verpackungsmaterial", 500, "Kartons")
+
+    grouped = bookkeeping.journal_by_order()
+    assert len(grouped["orders"]) == 1
+    g = grouped["orders"][0]
+    assert g["netto_cent"] == g["auszahlung_cent"] == 681
+    assert g["reconcile_ok"] is True
+    assert any(b["kategorie"] == "Verpackungsmaterial" for b in grouped["sonstige"])
+
+
+def test_journal_by_order_flags_mismatch(tmp_path):
+    db = _db(tmp_path)
+    # Gebuehr fehlt beim Buchen -> Summe passt nicht zur Auszahlung
+    _order(db, oid=7, gebuehren=None, auszahlung=6.81)
+    bookkeeping.book_order(7)
+    g = bookkeeping.journal_by_order()["orders"][0]
+    assert g["has_auszahlung"] is True
+    assert g["reconcile_ok"] is False       # Warnung: Gebuehr fehlt
+
+
+def test_take_order_corrects_amounts_before_booking(tmp_path):
+    """Verrutschte Betraege (wie Bestellung 94) beim Uebernehmen korrigieren:
+    Versand 1,25->1,55 und Gebuehr 0,04->0,02, dann stimmt die Auszahlung."""
+    db = _db(tmp_path)
+    _order(db, oid=94, number="1291026619", gesamt=1.59, versand=1.25,
+           gebuehren=0.04, auszahlung=1.57)
+    client = _take_client(db)
+    client.post("/buchhaltung/uebernehmen/94",
+                data={"versand": "1,55", "gebuehren": "0,02", "porto_methode": ""})
+    with sqlite3.connect(db) as c:
+        rows = dict((k, v) for k, v in c.execute(
+            "SELECT kategorie, betrag_cent FROM journal WHERE bestellung_id=94"))
+    assert rows["Warenverkauf"] == 4          # 1,59 - 1,55
+    assert rows["Vereinnahmte Versandkosten"] == 155
+    assert rows["Cardmarket-Gebühren"] == 2
+    g = bookkeeping.journal_by_order()["orders"][0]
+    assert g["reconcile_ok"] is True          # 4 + 155 - 2 == 157

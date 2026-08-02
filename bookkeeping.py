@@ -416,6 +416,69 @@ def list_bookings(db_file: Optional[str] = None, limit: int = 500) -> List[dict]
     return [dict(r) for r in rows]
 
 
+def journal_by_order(db_file: Optional[str] = None) -> dict:
+    """Buchungen nach Bestellung gruppiert, plus ``sonstige`` (ohne Bestellung).
+
+    Je Bestellung gibt es eine Zusammenfassung und eine Kontrolle: die Summe
+    ``Warenverkauf + Versand - Cardmarket-Gebühren`` (nur aktive Buchungen)
+    sollte der Cardmarket-Auszahlung (``amount_auszahlung`` = Net sale price)
+    entsprechen. Weicht sie ab, ist die Bestellung fehlerhaft gebucht.
+    """
+    with _connect(db_file) as conn:
+        rows = [dict(r) for r in conn.execute(
+            "SELECT * FROM journal ORDER BY lfd_nr").fetchall()]
+        omap = {r["id"]: dict(r) for r in conn.execute(
+            "SELECT id, order_number, buyer_name, amount_auszahlung, "
+            "COALESCE(email_date, date_received) AS datum FROM orders").fetchall()}
+
+    groups: Dict[int, dict] = {}
+    sonstige: List[dict] = []
+    for b in rows:
+        oid = b["bestellung_id"]
+        if oid is None:
+            sonstige.append(b)
+            continue
+        g = groups.get(oid)
+        if g is None:
+            om = omap.get(oid, {})
+            g = groups[oid] = {
+                "order_id": oid,
+                "order_number": om.get("order_number"),
+                "buyer_name": om.get("buyer_name"),
+                "datum": (om.get("datum") or "")[:10],
+                "auszahlung_cent": to_cent(om.get("amount_auszahlung")),
+                "bookings": [],
+                "warenverkauf_cent": 0, "versand_cent": 0,
+                "gebuehren_cent": 0, "porto_cent": 0,
+            }
+        g["bookings"].append(b)
+        if b["art"] != "storno" and b["storniert_durch"] is None:
+            k = b["kategorie"]
+            if k == "Warenverkauf":
+                g["warenverkauf_cent"] += b["betrag_cent"]
+            elif k == "Vereinnahmte Versandkosten":
+                g["versand_cent"] += b["betrag_cent"]
+            elif k == "Cardmarket-Gebühren":
+                g["gebuehren_cent"] += b["betrag_cent"]
+            elif k == "Porto/Versand":
+                g["porto_cent"] += b["betrag_cent"]
+
+    orders: List[dict] = []
+    for g in groups.values():
+        netto = g["warenverkauf_cent"] + g["versand_cent"] - g["gebuehren_cent"]
+        g["netto_cent"] = netto
+        g["ergebnis_cent"] = netto - g["porto_cent"]
+        g["einnahmen_cent"] = g["warenverkauf_cent"] + g["versand_cent"]
+        g["ausgaben_cent"] = g["gebuehren_cent"] + g["porto_cent"]
+        aus = g["auszahlung_cent"]
+        g["has_auszahlung"] = aus > 0
+        g["reconcile_diff_cent"] = netto - aus
+        g["reconcile_ok"] = (not g["has_auszahlung"]) or abs(netto - aus) <= 1
+        orders.append(g)
+    orders.sort(key=lambda x: (x["datum"] or "", x["order_id"]), reverse=True)
+    return {"orders": orders, "sonstige": sonstige}
+
+
 def _effective_date(row) -> Optional[str]:
     """Stichtag fuer die EUER-Auswertung (Zufluss-/Abflussprinzip).
 
@@ -499,7 +562,8 @@ def bookable_orders(db_file: Optional[str] = None) -> List[dict]:
             """
             SELECT o.id, o.order_number, o.buyer_name,
                    COALESCE(o.email_date, o.date_received) AS datum,
-                   o.amount_gesamt, o.amount_versand, o.amount_gebuehren
+                   o.amount_gesamt, o.amount_versand, o.amount_gebuehren,
+                   o.amount_auszahlung
             FROM orders o
             WHERE o.status = 'sold' AND o.address_confirmed = 1
               AND NOT EXISTS (SELECT 1 FROM journal j
