@@ -432,6 +432,51 @@ def test_take_order_from_stock_deducts_without_extra_booking(tmp_path):
     assert order_bookings == 3        # Warenverkauf + Versand + Gebühren
 
 
+def test_stamp_returned_to_stock_on_storno_when_requested(tmp_path):
+    db = _db(tmp_path)
+    _order(db, oid=11, number="1011")
+    bookkeeping.buy_stamps(95, 2, "2026-05-01")     # Bestand 2
+    client = _take_client(db)
+    client.post("/buchhaltung/uebernehmen/11", data={"porto_methode": "vorrat:95"})
+    with sqlite3.connect(db) as c:
+        assert c.execute("SELECT anzahl FROM briefmarken WHERE wert_cent=95").fetchone()[0] == 1
+        assert c.execute("SELECT porto_briefmarke_cent FROM orders WHERE id=11").fetchone()[0] == 95
+        bid = c.execute("SELECT id FROM journal WHERE bestellung_id=11 AND kategorie='Warenverkauf'").fetchone()[0]
+
+    # Storno mit Häkchen -> Marke zurück in den Vorrat, Vermerk gelöscht
+    client.post(f"/buchhaltung/storno/{bid}", data={"order_id": "11", "briefmarke_zurueck": "1"})
+    with sqlite3.connect(db) as c:
+        assert c.execute("SELECT anzahl FROM briefmarken WHERE wert_cent=95").fetchone()[0] == 2
+        assert c.execute("SELECT porto_briefmarke_cent FROM orders WHERE id=11").fetchone()[0] is None
+
+
+def test_stamp_not_returned_when_unchecked(tmp_path):
+    db = _db(tmp_path)
+    _order(db, oid=12, number="1012")
+    bookkeeping.buy_stamps(125, 1, "2026-05-01")
+    client = _take_client(db)
+    client.post("/buchhaltung/uebernehmen/12", data={"porto_methode": "vorrat:125"})
+    with sqlite3.connect(db) as c:
+        bid = c.execute("SELECT id FROM journal WHERE bestellung_id=12 AND kategorie='Warenverkauf'").fetchone()[0]
+    # Storno ohne Häkchen -> Marke bleibt draußen
+    client.post(f"/buchhaltung/storno/{bid}", data={"order_id": "12"})
+    with sqlite3.connect(db) as c:
+        assert c.execute("SELECT anzahl FROM briefmarken WHERE wert_cent=125").fetchone()[0] == 0
+        assert c.execute("SELECT porto_briefmarke_cent FROM orders WHERE id=12").fetchone()[0] == 125
+
+
+def test_return_order_stamp_only_once(tmp_path):
+    db = _db(tmp_path)
+    _order(db, oid=13)
+    bookkeeping.buy_stamps(95, 1, "2026-05-01")
+    bookkeeping.use_stamp(95)
+    bookkeeping.set_order_stamp(13, 95)
+    assert bookkeeping.return_order_stamp(13) == 95     # zurückgelegt
+    assert bookkeeping.return_order_stamp(13) is None   # kein zweites Mal
+    with sqlite3.connect(db) as c:
+        assert c.execute("SELECT anzahl FROM briefmarken WHERE wert_cent=95").fetchone()[0] == 1
+
+
 def test_stamps_route_buys_and_shows_stock(tmp_path):
     db = _db(tmp_path)
     client = _take_client(db)
