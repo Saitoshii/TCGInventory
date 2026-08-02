@@ -1484,9 +1484,11 @@ def sales_export_positions_csv():
 @login_required
 def bookkeeping_view():
     """Buchungsjournal mit übernehmbaren Bestellungen."""
+    grouped = bookkeeping.journal_by_order()
     return render_template(
         "bookkeeping.html",
-        bookings=bookkeeping.list_bookings(),
+        order_groups=grouped["orders"],
+        other_bookings=grouped["sonstige"],
         bookable=bookkeeping.bookable_orders(),
         cent_to_de=bookkeeping.cent_to_de,
         porto_options=bookkeeping.PORTO_OPTIONS,
@@ -1500,6 +1502,11 @@ def bookkeeping_take_order(order_id: int):
     """Bestellung als Einnahme übernehmen (Warenverkauf/Versand/Gebühren) und das
     tatsächlich gezahlte Porto erfassen.
 
+    Vorab können die Cardmarket-Beträge Versand/Gebühr korrigiert werden (leer =
+    unverändert) — nötig, um vor dem Parsing eingelesene oder verrutschte
+    Bestellungen richtigzustellen; Kontrolle: Warenverkauf + Versand − Gebühr
+    muss die Cardmarket-Auszahlung (Net sale price) ergeben.
+
     Porto-Varianten aus dem Formular:
       * ``vorrat:<wert_cent>`` – eine vorab gekaufte Briefmarke aus dem Bestand
         verwenden: der Bestand wird reduziert, es entsteht KEINE neue Buchung
@@ -1507,6 +1514,19 @@ def bookkeeping_take_order(order_id: int):
       * sonst – frisch bezahltes Porto: Betrag aus dem Feld, sonst der
         Vorschlagspreis der gewählten Methode; wird als Ausgabe gebucht.
     """
+    # Optionale Korrektur der Cardmarket-Beträge vor dem Buchen (Euro-Felder).
+    updates = {}
+    for name, column in (("versand", "amount_versand"), ("gebuehren", "amount_gebuehren")):
+        raw = request.form.get(name, "").strip()
+        if raw != "":
+            updates[column] = bookkeeping.to_cent(raw) / 100.0
+    if updates:
+        sets = ", ".join(f"{c} = ?" for c in updates)
+        with sqlite3.connect(DB_FILE) as conn:
+            conn.execute(f"UPDATE orders SET {sets} WHERE id = ?",
+                         (*updates.values(), order_id))
+            conn.commit()
+
     porto_methode = request.form.get("porto_methode", "").strip()
     porto_betrag = request.form.get("porto_betrag", "").strip()
 

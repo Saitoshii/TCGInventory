@@ -1,18 +1,51 @@
 {% extends "base.html" %}
+{% macro booking_rows(items) %}
+  {% for b in items %}
+  <tr {% if b.storniert_durch or b.art == 'storno' %}class="text-muted"{% endif %}>
+    <td>{{ b.lfd_nr }}</td>
+    <td>{{ b.buchungsdatum }}</td>
+    <td>
+      {% if b.art == 'einnahme' %}<span class="status-badge status-badge--verfuegbar">Einnahme</span>
+      {% elif b.art == 'ausgabe' %}<span class="status-badge status-badge--reserviert">Ausgabe</span>
+      {% else %}<span class="status-badge status-badge--archiviert">Storno</span>{% endif %}
+    </td>
+    <td>{{ b.kategorie }}</td>
+    <td class="text-end">{{ cent_to_de(b.betrag_cent) }} €</td>
+    <td>
+      {{ b.beschreibung }}
+      {% if b.storniert_durch %}<span class="chip">storniert</span>{% endif %}
+    </td>
+    <td>
+      {% if b.beleg_id %}
+      <a href="{{ url_for('bookkeeping_receipt', beleg_id=b.beleg_id) }}" target="_blank" rel="noopener">Beleg</a>
+      {% else %}—{% endif %}
+    </td>
+    <td class="text-end">
+      {% if b.art != 'storno' and not b.storniert_durch %}
+      <form method="post" action="{{ url_for('bookkeeping_storno', buchung_id=b.id) }}"
+            onsubmit="return confirm('Diese Buchung stornieren? Es wird eine Stornobuchung erzeugt.')">
+        <button class="btn btn-sm btn-outline-danger" type="submit">Stornieren</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+{% endmacro %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <h2 class="page-title mb-0">Buchungsjournal</h2>
+  <h2 class="page-title mb-0">Buchhaltung</h2>
   <div class="d-flex gap-2 flex-wrap">
     <a class="btn btn-primary btn-sm" href="{{ url_for('bookkeeping_expense') }}">＋ Ausgabe erfassen</a>
     <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('bookkeeping_stamps') }}">Briefmarken</a>
-    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('bookkeeping_payments') }}">Zahlungseingang zuweisen</a>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('bookkeeping_payments') }}">Zahlungseingang</a>
     <a class="btn btn-outline-info btn-sm" href="{{ url_for('bookkeeping_summary_view') }}">Jahresauswertung</a>
   </div>
 </div>
 
 <p class="text-muted small">
-  Das Journal ist unveränderlich: Buchungen werden nie geändert oder gelöscht.
-  Korrekturen erfolgen ausschließlich über eine Stornobuchung.
+  Das Journal ist unveränderlich – Korrekturen nur per Storno. Kontrolle je Bestellung:
+  <strong>Warenverkauf + Versand − Cardmarket-Gebühr</strong> muss die Cardmarket-Auszahlung
+  (Net sale price) ergeben.
 </p>
 
 {% if bookable %}
@@ -20,116 +53,136 @@
   <div class="card-header"><h5 class="mb-0">Versendete Bestellungen – noch nicht übernommen</h5></div>
   <div class="card-body">
     <p class="text-muted small">
-      Beim Übernehmen das <strong>tatsächlich gezahlte Porto</strong> wählen oder eintragen –
-      also euren realen Versandaufwand, <em>nicht</em> den vom Kunden über Cardmarket gezahlten
-      Versand (der bleibt Einnahme aus der Mail). Der Vorschlagspreis ist überschreibbar.
+      Versand &amp; Gebühr sind aus der Mail vorbefüllt – bei Bedarf hier korrigieren.
+      Beim Porto den <strong>tatsächlichen</strong> Versandaufwand wählen (aus dem Briefmarken-Vorrat
+      oder frisch bezahlt), nicht den vom Kunden gezahlten Versand.
     </p>
-    <div class="table-responsive">
-    <table class="table table-sm align-middle mb-0">
-      <thead>
-        <tr><th>Datum</th><th>Bestellnummer</th><th>Käufer</th>
-            <th class="text-end">Gesamt</th><th class="text-end">Gebühren</th>
-            <th>Porto (tatsächlich)</th><th></th></tr>
-      </thead>
-      <tbody>
-        {% for o in bookable %}
-        <tr>
-          <td>{{ o.datum[:10] if o.datum }}</td>
-          <td>{{ o.order_number }}</td>
-          <td>{{ o.buyer_name }}</td>
-          <td class="text-end">{{ '%.2f'|format(o.amount_gesamt or 0)|replace('.', ',') }} €</td>
-          <td class="text-end">{{ '%.2f'|format(o.amount_gebuehren or 0)|replace('.', ',') }} €</td>
-          <td colspan="2">
-            <form method="post" action="{{ url_for('bookkeeping_take_order', order_id=o.id) }}"
-                  class="d-flex align-items-center gap-1 flex-wrap">
-              <select class="form-select form-select-sm porto-select" name="porto_methode"
-                      title="Tatsächlich gezahltes Porto (Ausgabe)" style="max-width:230px;">
-                <option value="" data-cent="">Porto wählen …</option>
-                {% if briefmarken %}
-                <optgroup label="Aus Vorrat (schon bezahlt)">
-                  {% for m in briefmarken %}
-                  <option value="vorrat:{{ m.wert_cent }}" data-cent="">Vorrat: {{ cent_to_de(m.wert_cent) }} € (Bestand {{ m.anzahl }})</option>
-                  {% endfor %}
-                </optgroup>
-                {% endif %}
-                <optgroup label="Frisch bezahlt">
-                  {% for label, cent in porto_options %}
-                  <option value="{{ label }}" data-cent="{{ cent }}">{{ label }} ({{ cent_to_de(cent) }} €)</option>
-                  {% endfor %}
-                  <option value="Manuell" data-cent="">Manuell</option>
-                </optgroup>
-              </select>
-              <input type="text" inputmode="decimal" name="porto_betrag"
-                     class="form-control form-control-sm porto-amount" style="max-width:80px;"
-                     placeholder="€" title="Porto in Euro – überschreibbar">
-              <button class="btn btn-sm btn-outline-primary" type="submit">Übernehmen</button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    </div>
+    {% for o in bookable %}
+    <form method="post" action="{{ url_for('bookkeeping_take_order', order_id=o.id) }}"
+          class="border rounded p-2 mb-2">
+      <div class="d-flex justify-content-between flex-wrap gap-2">
+        <div>
+          <strong>{{ o.order_number }}</strong> · {{ o.buyer_name }}
+          <span class="text-muted small">{{ o.datum[:10] if o.datum }}</span>
+        </div>
+        {% if o.amount_auszahlung %}
+        <div class="text-muted small">Netto-Auszahlung (Mail): <strong>{{ '%.2f'|format(o.amount_auszahlung)|replace('.', ',') }} €</strong></div>
+        {% endif %}
+      </div>
+      <div class="row g-2 mt-1 align-items-end">
+        <div class="col-auto">
+          <label class="form-label mb-0 small text-muted">Versand (€)</label>
+          <input type="text" inputmode="decimal" name="versand" class="form-control form-control-sm" style="max-width:100px;"
+                 value="{{ ('%.2f'|format(o.amount_versand)|replace('.', ',')) if o.amount_versand is not none else '' }}"
+                 placeholder="z. B. 3,95">
+        </div>
+        <div class="col-auto">
+          <label class="form-label mb-0 small text-muted">Cardmarket-Gebühr (€)</label>
+          <input type="text" inputmode="decimal" name="gebuehren" class="form-control form-control-sm" style="max-width:110px;"
+                 value="{{ ('%.2f'|format(o.amount_gebuehren)|replace('.', ',')) if o.amount_gebuehren is not none else '' }}"
+                 placeholder="z. B. 2,10">
+        </div>
+        <div class="col-auto">
+          <label class="form-label mb-0 small text-muted">Porto (tatsächlich)</label>
+          <div class="d-flex gap-1">
+            <select class="form-select form-select-sm porto-select" name="porto_methode" style="max-width:220px;">
+              <option value="" data-cent="">Porto wählen …</option>
+              {% if briefmarken %}
+              <optgroup label="Aus Vorrat (schon bezahlt)">
+                {% for m in briefmarken %}
+                <option value="vorrat:{{ m.wert_cent }}" data-cent="">Vorrat: {{ cent_to_de(m.wert_cent) }} € (Bestand {{ m.anzahl }})</option>
+                {% endfor %}
+              </optgroup>
+              {% endif %}
+              <optgroup label="Frisch bezahlt">
+                {% for label, cent in porto_options %}
+                <option value="{{ label }}" data-cent="{{ cent }}">{{ label }} ({{ cent_to_de(cent) }} €)</option>
+                {% endfor %}
+                <option value="Manuell" data-cent="">Manuell</option>
+              </optgroup>
+            </select>
+            <input type="text" inputmode="decimal" name="porto_betrag" class="form-control form-control-sm porto-amount"
+                   style="max-width:80px;" placeholder="€">
+          </div>
+        </div>
+        <div class="col-auto">
+          <button class="btn btn-sm btn-primary" type="submit">Übernehmen</button>
+        </div>
+      </div>
+    </form>
+    {% endfor %}
   </div>
 </div>
 {% endif %}
 
-<div class="card">
-  <div class="card-header"><h5 class="mb-0">Buchungen</h5></div>
+<div class="card mb-4">
+  <div class="card-header"><h5 class="mb-0">Bestellungen (gebucht)</h5></div>
   <div class="card-body">
-    {% if bookings %}
+    {% if order_groups %}
+    {% for g in order_groups %}
+    <details class="border rounded mb-2">
+      <summary class="p-2 d-flex justify-content-between align-items-center flex-wrap gap-2" style="cursor:pointer;">
+        <span>
+          {% if g.has_auszahlung and not g.reconcile_ok %}
+          <span class="status-badge status-badge--verkauft" title="Summe passt nicht zur Auszahlung">⚠ prüfen</span>
+          {% elif g.has_auszahlung %}
+          <span class="status-badge status-badge--verfuegbar" title="stimmt mit der Auszahlung überein">✓</span>
+          {% endif %}
+          <strong>{{ g.order_number or ('#' ~ g.order_id) }}</strong> · {{ g.buyer_name }}
+          <span class="text-muted small">{{ g.datum }}</span>
+        </span>
+        <span class="small">
+          Einnahmen {{ cent_to_de(g.einnahmen_cent) }} € ·
+          Ausgaben {{ cent_to_de(g.ausgaben_cent) }} € ·
+          Auszahlung {{ cent_to_de(g.netto_cent) }} € ·
+          <strong>Ergebnis {{ cent_to_de(g.ergebnis_cent) }} €</strong>
+        </span>
+      </summary>
+      <div class="p-2 pt-0">
+        {% if g.has_auszahlung and not g.reconcile_ok %}
+        <div class="alert alert-warning py-1 px-2 small mb-2">
+          Kontrolle: Warenverkauf + Versand − Gebühr = {{ cent_to_de(g.netto_cent) }} €, laut Mail sollten es
+          {{ cent_to_de(g.auszahlung_cent) }} € sein (Differenz {{ cent_to_de(g.reconcile_diff_cent) }} €).
+          Bitte die Buchungen stornieren und die Bestellung mit korrekten Beträgen erneut übernehmen.
+        </div>
+        {% endif %}
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>Nr</th><th>Datum</th><th>Art</th><th>Kategorie</th>
+                <th class="text-end">Betrag</th><th>Beschreibung</th><th>Beleg</th><th></th></tr></thead>
+            <tbody>{{ booking_rows(g.bookings) }}</tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+    {% endfor %}
+    {% else %}
+    <div class="empty-state"><span class="ico">📒</span>Noch keine Bestellung übernommen.</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h5 class="mb-0">Sonstige Buchungen</h5>
+    <span class="text-muted small">Ausgaben ohne Bestellung – z. B. Briefmarkenkauf, Verpackung</span>
+  </div>
+  <div class="card-body">
+    {% if other_bookings %}
     <div class="table-responsive">
-    <table class="table table-sm align-middle mb-0">
-      <thead>
-        <tr>
-          <th>Nr</th><th>Buchungsdatum</th><th>Art</th><th>Kategorie</th>
-          <th class="text-end">Betrag</th><th>Beschreibung</th>
-          <th>Zahlungseingang</th><th>Beleg</th><th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for b in bookings %}
-        <tr {% if b.storniert_durch %}class="text-muted"{% endif %}>
-          <td>{{ b.lfd_nr }}</td>
-          <td>{{ b.buchungsdatum }}</td>
-          <td>
-            {% if b.art == 'einnahme' %}<span class="status-badge status-badge--verfuegbar">Einnahme</span>
-            {% elif b.art == 'ausgabe' %}<span class="status-badge status-badge--reserviert">Ausgabe</span>
-            {% else %}<span class="status-badge status-badge--archiviert">Storno</span>{% endif %}
-          </td>
-          <td>{{ b.kategorie }}</td>
-          <td class="text-end">{{ cent_to_de(b.betrag_cent) }} €</td>
-          <td>
-            {{ b.beschreibung }}
-            {% if b.storniert_durch %}<span class="chip">storniert</span>{% endif %}
-          </td>
-          <td>{{ b.zahlungseingang_am or '—' }}</td>
-          <td>
-            {% if b.beleg_id %}
-            <a href="{{ url_for('bookkeeping_receipt', beleg_id=b.beleg_id) }}" target="_blank" rel="noopener">Beleg</a>
-            {% else %}—{% endif %}
-          </td>
-          <td class="text-end">
-            {% if b.art != 'storno' and not b.storniert_durch %}
-            <form method="post" action="{{ url_for('bookkeeping_storno', buchung_id=b.id) }}"
-                  onsubmit="return confirm('Diese Buchung stornieren? Es wird eine Stornobuchung erzeugt.')">
-              <button class="btn btn-sm btn-outline-danger" type="submit">Stornieren</button>
-            </form>
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+      <table class="table table-sm align-middle mb-0">
+        <thead><tr><th>Nr</th><th>Datum</th><th>Art</th><th>Kategorie</th>
+            <th class="text-end">Betrag</th><th>Beschreibung</th><th>Beleg</th><th></th></tr></thead>
+        <tbody>{{ booking_rows(other_bookings|sort(attribute='lfd_nr', reverse=true)) }}</tbody>
+      </table>
     </div>
     {% else %}
-    <div class="empty-state"><span class="ico">📒</span>Noch keine Buchungen erfasst.</div>
+    <div class="empty-state"><span class="ico">🧾</span>Keine sonstigen Buchungen.</div>
     {% endif %}
   </div>
 </div>
 
 <script>
-// Porto-Auswahl füllt das Betragsfeld vor (Vorschlag), bleibt aber überschreibbar.
+// Porto-Auswahl füllt das Betragsfeld vor (Vorschlag), bleibt überschreibbar.
 document.querySelectorAll('.porto-select').forEach(function (sel) {
   sel.addEventListener('change', function () {
     var opt = sel.options[sel.selectedIndex];
@@ -138,8 +191,7 @@ document.querySelectorAll('.porto-select').forEach(function (sel) {
     if (cent) {
       amount.value = (parseInt(cent, 10) / 100).toFixed(2).replace('.', ',');
     } else if (sel.value === 'Manuell') {
-      amount.value = '';
-      amount.focus();
+      amount.value = ''; amount.focus();
     } else {
       amount.value = '';
     }
