@@ -1595,6 +1595,25 @@ def bookkeeping_stamps():
     )
 
 
+@app.route("/buchhaltung/briefmarken/bestand", methods=["POST"])
+@login_required
+def bookkeeping_stamp_stock():
+    """Bestand eines Werts direkt korrigieren (physische Inventur) – z. B. um eine
+    krumme Zahl nach einem alten Storno geradezuziehen. Buchungen bleiben davon
+    unberührt (nur der Vorrats-Zähler)."""
+    wert_cent = bookkeeping.to_cent(request.form.get("wert", ""))
+    try:
+        anzahl = int(request.form.get("anzahl", "") or 0)
+    except ValueError:
+        anzahl = -1
+    if wert_cent <= 0 or anzahl < 0:
+        flash("Bitte einen gültigen Wert und eine Anzahl ≥ 0 angeben.", "error")
+        return redirect(url_for("bookkeeping_stamps"))
+    bookkeeping.set_stock(wert_cent, anzahl)
+    flash(f"Bestand {bookkeeping.cent_to_de(wert_cent)} € auf {anzahl} gesetzt.")
+    return redirect(url_for("bookkeeping_stamps"))
+
+
 @app.route("/buchhaltung/storno/<int:buchung_id>", methods=["POST"])
 @login_required
 def bookkeeping_storno(buchung_id: int):
@@ -1610,6 +1629,11 @@ def bookkeeping_storno(buchung_id: int):
             wert = bookkeeping.return_order_stamp(int(oid))
             if wert:
                 msg += f" Briefmarke {bookkeeping.cent_to_de(wert)} € in den Vorrat zurückgelegt."
+        if request.form.get("briefmarken_entfernen"):
+            info = bookkeeping.reverse_stamp_purchase(buchung_id)
+            if info:
+                msg += (f" {info['anzahl']}× {bookkeeping.cent_to_de(info['wert_cent'])} € "
+                        "aus dem Vorrat entfernt.")
         flash(msg)
     except ValueError as exc:
         flash(f"Storno nicht möglich: {exc}", "error")

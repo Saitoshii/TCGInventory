@@ -294,6 +294,18 @@ def initialize_database() -> None:
             )
             """
         )
+        # Merkt sich je Kauf-Buchung Wert und Anzahl der eingebuchten Marken,
+        # damit ein Storno des Kaufs die Marken wieder aus dem Vorrat nimmt.
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS briefmarken_kauf (
+                buchung_id INTEGER PRIMARY KEY,
+                wert_cent INTEGER NOT NULL,
+                anzahl INTEGER NOT NULL,
+                storniert INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
 
         # Loeschen ist grundsaetzlich verboten.
         cursor.execute(

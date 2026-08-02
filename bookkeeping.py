@@ -389,8 +389,53 @@ def buy_stamps(wert_cent: int, anzahl: int, buchungsdatum: str,
             "ON CONFLICT(wert_cent) DO UPDATE SET anzahl = anzahl + excluded.anzahl",
             (wert_cent, anzahl),
         )
+        conn.execute(
+            "INSERT OR REPLACE INTO briefmarken_kauf (buchung_id, wert_cent, anzahl, storniert) "
+            "VALUES (?, ?, ?, 0)",
+            (booking_id, wert_cent, anzahl),
+        )
         conn.commit()
     return booking_id
+
+
+def stamp_purchases(db_file: Optional[str] = None) -> Dict[int, dict]:
+    """Kauf-Buchung-ID -> {wert_cent, anzahl, storniert} (fuer die Anzeige)."""
+    with _connect(db_file) as conn:
+        rows = conn.execute("SELECT * FROM briefmarken_kauf").fetchall()
+    return {r["buchung_id"]: dict(r) for r in rows}
+
+
+def reverse_stamp_purchase(buchung_id: int, db_file: Optional[str] = None) -> Optional[dict]:
+    """Beim Storno eines Briefmarkenkaufs die eingebuchten Marken wieder aus dem
+    Vorrat nehmen (nicht unter 0). Gibt {wert_cent, anzahl} zurueck oder ``None``,
+    wenn die Buchung kein (offener) Kauf war."""
+    with _connect(db_file) as conn:
+        row = conn.execute(
+            "SELECT wert_cent, anzahl, storniert FROM briefmarken_kauf WHERE buchung_id = ?",
+            (buchung_id,),
+        ).fetchone()
+        if not row or row["storniert"]:
+            return None
+        conn.execute(
+            "UPDATE briefmarken SET anzahl = MAX(0, anzahl - ?) WHERE wert_cent = ?",
+            (row["anzahl"], row["wert_cent"]),
+        )
+        conn.execute("UPDATE briefmarken_kauf SET storniert = 1 WHERE buchung_id = ?", (buchung_id,))
+        conn.commit()
+        return {"wert_cent": row["wert_cent"], "anzahl": row["anzahl"]}
+
+
+def set_stock(wert_cent: int, anzahl: int, db_file: Optional[str] = None) -> None:
+    """Bestand eines Werts direkt setzen (physische Inventurkorrektur)."""
+    wert_cent = int(wert_cent)
+    anzahl = max(0, int(anzahl))
+    with _connect(db_file) as conn:
+        conn.execute(
+            "INSERT INTO briefmarken (wert_cent, anzahl) VALUES (?, ?) "
+            "ON CONFLICT(wert_cent) DO UPDATE SET anzahl = excluded.anzahl",
+            (wert_cent, anzahl),
+        )
+        conn.commit()
 
 
 def use_stamp(wert_cent: int, db_file: Optional[str] = None) -> bool:
@@ -469,10 +514,13 @@ def journal_by_order(db_file: Optional[str] = None) -> dict:
         omap = {r["id"]: dict(r) for r in conn.execute(
             "SELECT id, order_number, buyer_name, amount_auszahlung, porto_briefmarke_cent, "
             "COALESCE(email_date, date_received) AS datum FROM orders").fetchall()}
+        kaufmap = {r["buchung_id"]: dict(r) for r in conn.execute(
+            "SELECT buchung_id, wert_cent, anzahl, storniert FROM briefmarken_kauf").fetchall()}
 
     groups: Dict[int, dict] = {}
     sonstige: List[dict] = []
     for b in rows:
+        b["kauf"] = kaufmap.get(b["id"])
         oid = b["bestellung_id"]
         if oid is None:
             sonstige.append(b)

@@ -488,6 +488,40 @@ def test_stamps_route_buys_and_shows_stock(tmp_path):
         assert c.execute("SELECT anzahl FROM briefmarken WHERE wert_cent=95").fetchone()[0] == 10
 
 
+def test_storno_of_stamp_purchase_removes_from_stock(tmp_path):
+    db = _db(tmp_path)
+    bid = bookkeeping.buy_stamps(95, 10, "2026-05-01")
+    with sqlite3.connect(db) as c:
+        assert c.execute("SELECT anzahl FROM briefmarken WHERE wert_cent=95").fetchone()[0] == 10
+    client = _take_client(db)
+    client.post(f"/buchhaltung/storno/{bid}", data={"briefmarken_entfernen": "1"})
+    with sqlite3.connect(db) as c:
+        assert c.execute("SELECT anzahl FROM briefmarken WHERE wert_cent=95").fetchone()[0] == 0
+        assert c.execute("SELECT storniert FROM briefmarken_kauf WHERE buchung_id=?", (bid,)).fetchone()[0] == 1
+
+
+def test_reverse_stamp_purchase_never_negative_and_once(tmp_path):
+    db = _db(tmp_path)
+    bid = bookkeeping.buy_stamps(95, 10, "2026-05-01")
+    bookkeeping.use_stamp(95)                 # 3 verbraucht -> Bestand 7
+    bookkeeping.use_stamp(95)
+    bookkeeping.use_stamp(95)
+    info = bookkeeping.reverse_stamp_purchase(bid)
+    assert info == {"wert_cent": 95, "anzahl": 10}
+    with sqlite3.connect(db) as c:
+        assert c.execute("SELECT anzahl FROM briefmarken WHERE wert_cent=95").fetchone()[0] == 0  # nicht negativ
+    assert bookkeeping.reverse_stamp_purchase(bid) is None       # kein zweites Mal
+
+
+def test_stock_correction_route(tmp_path):
+    db = _db(tmp_path)
+    bookkeeping.buy_stamps(95, 10, "2026-05-01")
+    client = _take_client(db)
+    client.post("/buchhaltung/briefmarken/bestand", data={"wert": "0,95", "anzahl": "3"})
+    with sqlite3.connect(db) as c:
+        assert c.execute("SELECT anzahl FROM briefmarken WHERE wert_cent=95").fetchone()[0] == 3
+
+
 # --- Gruppierung + Kontrolle gegen die Cardmarket-Auszahlung --------------
 
 def test_journal_by_order_groups_and_reconciles(tmp_path):
