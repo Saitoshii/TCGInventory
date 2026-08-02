@@ -405,6 +405,45 @@ def use_stamp(wert_cent: int, db_file: Optional[str] = None) -> bool:
         return cur.rowcount > 0
 
 
+def set_order_stamp(order_id: int, wert_cent: int, db_file: Optional[str] = None) -> None:
+    """Vermerken, dass eine Bestellung eine Vorrats-Briefmarke dieses Werts nutzt
+    (fuer eine spaetere Rueckgabe beim Storno)."""
+    with _connect(db_file) as conn:
+        conn.execute("UPDATE orders SET porto_briefmarke_cent = ? WHERE id = ?",
+                     (int(wert_cent), order_id))
+        conn.commit()
+
+
+def order_stamp(order_id: int, db_file: Optional[str] = None) -> Optional[int]:
+    """Wert der von der Bestellung genutzten Vorrats-Briefmarke (oder ``None``)."""
+    with _connect(db_file) as conn:
+        row = conn.execute(
+            "SELECT porto_briefmarke_cent FROM orders WHERE id = ?", (order_id,)
+        ).fetchone()
+    return row["porto_briefmarke_cent"] if row and row["porto_briefmarke_cent"] else None
+
+
+def return_order_stamp(order_id: int, db_file: Optional[str] = None) -> Optional[int]:
+    """Die von der Bestellung genutzte Vorrats-Briefmarke zurueck in den Vorrat
+    legen (+1) und den Vermerk loeschen. Gibt den Wert zurueck oder ``None``,
+    wenn keine (mehr) hinterlegt war."""
+    with _connect(db_file) as conn:
+        row = conn.execute(
+            "SELECT porto_briefmarke_cent FROM orders WHERE id = ?", (order_id,)
+        ).fetchone()
+        wert = row["porto_briefmarke_cent"] if row else None
+        if not wert:
+            return None
+        conn.execute(
+            "INSERT INTO briefmarken (wert_cent, anzahl) VALUES (?, 1) "
+            "ON CONFLICT(wert_cent) DO UPDATE SET anzahl = anzahl + 1",
+            (int(wert),),
+        )
+        conn.execute("UPDATE orders SET porto_briefmarke_cent = NULL WHERE id = ?", (order_id,))
+        conn.commit()
+        return int(wert)
+
+
 # ---------------------------------------------------------------------------
 # Lesen / Auswertung
 # ---------------------------------------------------------------------------
@@ -428,7 +467,7 @@ def journal_by_order(db_file: Optional[str] = None) -> dict:
         rows = [dict(r) for r in conn.execute(
             "SELECT * FROM journal ORDER BY lfd_nr").fetchall()]
         omap = {r["id"]: dict(r) for r in conn.execute(
-            "SELECT id, order_number, buyer_name, amount_auszahlung, "
+            "SELECT id, order_number, buyer_name, amount_auszahlung, porto_briefmarke_cent, "
             "COALESCE(email_date, date_received) AS datum FROM orders").fetchall()}
 
     groups: Dict[int, dict] = {}
@@ -447,6 +486,7 @@ def journal_by_order(db_file: Optional[str] = None) -> dict:
                 "buyer_name": om.get("buyer_name"),
                 "datum": (om.get("datum") or "")[:10],
                 "auszahlung_cent": to_cent(om.get("amount_auszahlung")),
+                "stamp_cent": om.get("porto_briefmarke_cent"),
                 "bookings": [],
                 "warenverkauf_cent": 0, "versand_cent": 0,
                 "gebuehren_cent": 0, "porto_cent": 0,

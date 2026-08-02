@@ -1539,6 +1539,7 @@ def bookkeeping_take_order(order_id: int):
         if vorrat_wert:
             ids = bookkeeping.book_order(order_id)   # keine Porto-Ausgabe
             if bookkeeping.use_stamp(vorrat_wert):
+                bookkeeping.set_order_stamp(order_id, vorrat_wert)   # für Rückgabe beim Storno
                 flash(f"Bestellung übernommen – {len(ids)} Buchung(en); "
                       f"Briefmarke {bookkeeping.cent_to_de(vorrat_wert)} € aus dem Vorrat abgezogen.")
             else:
@@ -1597,10 +1598,19 @@ def bookkeeping_stamps():
 @app.route("/buchhaltung/storno/<int:buchung_id>", methods=["POST"])
 @login_required
 def bookkeeping_storno(buchung_id: int):
-    """Buchung stornieren (erzeugt eine neue, verknüpfte Stornozeile)."""
+    """Buchung stornieren (erzeugt eine neue, verknüpfte Stornozeile).
+
+    Nutzte die Bestellung eine Vorrats-Briefmarke und ist das Häkchen gesetzt,
+    wird die Marke wieder in den Vorrat gelegt (einmalig je Bestellung)."""
     try:
         bookkeeping.storno_booking(buchung_id, request.form.get("grund", "").strip())
-        flash("Stornobuchung erstellt.")
+        msg = "Stornobuchung erstellt."
+        oid = request.form.get("order_id", "")
+        if request.form.get("briefmarke_zurueck") and oid.isdigit():
+            wert = bookkeeping.return_order_stamp(int(oid))
+            if wert:
+                msg += f" Briefmarke {bookkeeping.cent_to_de(wert)} € in den Vorrat zurückgelegt."
+        flash(msg)
     except ValueError as exc:
         flash(f"Storno nicht möglich: {exc}", "error")
     return redirect(url_for("bookkeeping_view"))

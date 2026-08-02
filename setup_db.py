@@ -164,6 +164,9 @@ def initialize_database() -> None:
             "amount_auszahlung": "REAL",
             "amount_versand": "REAL",
             "amount_gesamt": "REAL",
+            # Wert (in Cent) der beim Übernehmen genutzten Vorrats-Briefmarke,
+            # damit sie beim Storno wieder in den Vorrat zurück kann. NULL = keine.
+            "porto_briefmarke_cent": "INTEGER",
         }
         for col, coltype in order_new_cols.items():
             if col not in order_columns:
