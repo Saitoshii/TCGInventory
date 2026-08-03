@@ -31,6 +31,12 @@
           <label class="form-check-label small" for="ret{{ b.id }}">Marke {{ cent_to_de(stamp_cent) }} € zurücklegen</label>
         </div>
         {% endif %}
+        {% if b.kauf and not b.kauf.storniert %}
+        <div class="form-check form-check-inline me-1">
+          <input class="form-check-input" type="checkbox" name="briefmarken_entfernen" value="1" checked id="rem{{ b.id }}">
+          <label class="form-check-label small" for="rem{{ b.id }}">{{ b.kauf.anzahl }}× {{ cent_to_de(b.kauf.wert_cent) }} € aus Vorrat entfernen</label>
+        </div>
+        {% endif %}
         <button class="btn btn-sm btn-outline-danger" type="submit">Stornieren</button>
       </form>
       {% endif %}

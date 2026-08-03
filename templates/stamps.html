@@ -49,15 +49,23 @@
     <div class="card h-100">
       <div class="card-header"><h5 class="mb-0">Aktueller Bestand</h5></div>
       <div class="card-body">
+        <p class="text-muted small">
+          Bestand direkt korrigieren (physische Inventur) – ohne Auswirkung auf Buchungen.
+          Nützlich, um eine krumme Zahl nach einem alten Storno geradezuziehen.
+        </p>
         <table class="table table-sm align-middle mb-0">
-          <thead><tr><th>Wert</th><th class="text-end">Bestand</th></tr></thead>
+          <thead><tr><th>Wert</th><th style="width:190px;">Bestand</th></tr></thead>
           <tbody>
             {% for m in bestand %}
             <tr>
               <td>{{ cent_to_de(m.wert_cent) }} €</td>
-              <td class="text-end">
-                {% if m.anzahl > 0 %}<span class="status-badge status-badge--verfuegbar">{{ m.anzahl }}</span>
-                {% else %}<span class="text-muted">0</span>{% endif %}
+              <td>
+                <form method="post" action="{{ url_for('bookkeeping_stamp_stock') }}" class="d-flex gap-1">
+                  <input type="hidden" name="wert" value="{{ '%.2f'|format(m.wert_cent/100)|replace('.', ',') }}">
+                  <input type="number" min="0" name="anzahl" value="{{ m.anzahl }}"
+                         class="form-control form-control-sm" style="max-width:90px;">
+                  <button class="btn btn-outline-primary btn-sm" type="submit">Setzen</button>
+                </form>
               </td>
             </tr>
             {% else %}
@@ -65,6 +73,20 @@
             {% endfor %}
           </tbody>
         </table>
+        <hr>
+        <form method="post" action="{{ url_for('bookkeeping_stamp_stock') }}" class="d-flex gap-1 align-items-end flex-wrap">
+          <div>
+            <label class="form-label mb-0 small text-muted">Wert (€)</label>
+            <input type="text" inputmode="decimal" name="wert" class="form-control form-control-sm"
+                   style="max-width:100px;" placeholder="0,95">
+          </div>
+          <div>
+            <label class="form-label mb-0 small text-muted">Bestand</label>
+            <input type="number" min="0" name="anzahl" class="form-control form-control-sm"
+                   style="max-width:90px;" placeholder="0">
+          </div>
+          <button class="btn btn-outline-primary btn-sm" type="submit">Bestand setzen</button>
+        </form>
       </div>
     </div>
   </div>
