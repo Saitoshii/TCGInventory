@@ -123,3 +123,21 @@ def test_address_update(tmp_path):
     with sqlite3.connect(db) as conn:
         addr = conn.execute("SELECT address FROM orders WHERE id=1").fetchone()[0]
     assert "Neue Adresse 5" in addr
+
+
+def test_order_number_can_be_added_later(tmp_path):
+    """Altbestellung ohne Nummer: nachtragbar, ungültige Eingabe wird abgelehnt."""
+    db, _, _, client = _setup(tmp_path)
+    with sqlite3.connect(db) as conn:
+        conn.execute("UPDATE orders SET order_number = '' WHERE id = 1")
+        conn.commit()
+    body = client.get("/orders").get_data(as_text=True)
+    assert "Bestellnummer fehlt" in body          # Nachtrage-Feld nur bei fehlender Nummer
+
+    client.post("/orders/1/number", data={"order_number": "1291026619"})
+    with sqlite3.connect(db) as conn:
+        assert conn.execute("SELECT order_number FROM orders WHERE id=1").fetchone()[0] == "1291026619"
+
+    client.post("/orders/1/number", data={"order_number": "!! ungültig !!"})
+    with sqlite3.connect(db) as conn:
+        assert conn.execute("SELECT order_number FROM orders WHERE id=1").fetchone()[0] == "1291026619"

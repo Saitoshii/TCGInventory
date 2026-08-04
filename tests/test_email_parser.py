@@ -105,6 +105,18 @@ def test_english_mail_extracts_address():
     assert "Tracking" not in raw
 
 
+def test_english_mail_extracts_shipment_number():
+    """Englische Mails nennen nur "Shipment 12345" – ohne diese Erkennung blieb
+    die Bestellnummer leer und der Beileger druckte die interne Datenbank-ID."""
+    r = parse_order_email(_SAMPLE_ORDER_EN, "m-en", subject="")
+    assert r["order_number"] == "1290558231"
+
+
+def test_shipment_tracking_line_is_not_mistaken_for_number():
+    body = "Status: Paid\n\nJohn Doe\nUSA\n\nShipment tracking: DHL123\n"
+    assert parse_order_email(body, "m", subject="")["order_number"] == ""
+
+
 def test_english_mail_buyer_and_item():
     r = parse_order_email(_SAMPLE_ORDER_EN, "m-en", subject="")
     assert r["buyer_name"] == "BenjaMean85"

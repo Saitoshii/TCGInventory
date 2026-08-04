@@ -31,7 +31,18 @@
   <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
     <div>
       <strong>{{ order.buyer_name }}</strong>
-      {% if order.order_number %}<span class="text-muted">· Bestellung {{ order.order_number }}</span>{% endif %}
+      {% if order.order_number %}<span class="text-muted">· Bestellung {{ order.order_number }}</span>
+      {% else %}
+      <!-- Nur wenn die Nummer fehlt (Altbestellung vor dem Parser-Fix): nachtragbar,
+           damit der Beileger nicht die interne ID druckt. -->
+      <form method="post" action="{{ url_for('update_order_number', order_id=order.id) }}"
+            class="d-inline-flex align-items-center gap-1 ms-2">
+        <span class="text-muted small">Bestellnummer fehlt:</span>
+        <input type="text" name="order_number" class="form-control form-control-sm"
+               style="max-width:150px;" placeholder="z. B. 1291026619">
+        <button class="btn btn-outline-primary btn-sm" type="submit">Speichern</button>
+      </form>
+      {% endif %}
       <span class="text-muted small ms-2">{{ order.display_date[:19] if order.display_date }}</span>
     </div>
     <form method="post" action="{{ url_for('delete_order', order_id=order.id) }}" class="delete-order-form">

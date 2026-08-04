@@ -2097,6 +2097,28 @@ def update_order_address(order_id: int):
     return redirect(url_for("list_orders"))
 
 
+@app.route("/orders/<int:order_id>/number", methods=["POST"])
+@login_required
+def update_order_number(order_id: int):
+    """Cardmarket-Bestellnummer nachtragen.
+
+    Die Nummer kommt normalerweise aus der Mail. Bestellungen, die vor dem
+    Erkennen des englischen Formats ("Shipment 12345") eingelesen wurden, haben
+    sie leer — dann druckt der Beileger ersatzweise die interne ID. Hier lässt
+    sie sich einmalig nachtragen; die Roh-Mail wird nicht gespeichert, ein
+    automatisches Nachparsen ist daher nicht möglich.
+    """
+    nummer = (request.form.get("order_number", "") or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9\-/]{3,32}", nummer):
+        flash("Ungültige Bestellnummer.", "error")
+        return redirect(url_for("list_orders"))
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("UPDATE orders SET order_number = ? WHERE id = ?", (nummer, order_id))
+        conn.commit()
+    flash(f"Bestellnummer {nummer} gespeichert.")
+    return redirect(url_for("list_orders"))
+
+
 @app.route("/orders/<int:order_id>/language", methods=["POST"])
 @login_required
 def set_order_language(order_id: int):
