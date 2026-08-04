@@ -1,92 +1,164 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <h2 class="page-title mb-0">Briefmarken-Vorrat</h2>
+  <h2 class="page-title mb-0">Briefmarken</h2>
   <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('bookkeeping_view') }}">Zurück zum Journal</a>
 </div>
 
-<p class="text-muted small">
-  Vorab gekaufte Briefmarken werden hier <strong>einmal</strong> als Ausgabe „Porto/Versand"
-  gebucht (mit Beleg) und in den Bestand gelegt. Beim Übernehmen einer Bestellung wählst du
-  „aus Vorrat" – dann wird nur der Bestand reduziert, es entsteht keine zweite Buchung.
-</p>
+<div class="alert alert-info py-2 small">
+  <strong>Porto wird genau einmal zur Ausgabe — beim Kauf der Marke.</strong>
+  Das Verbrauchen einer Marke beim Versand erzeugt <em>nie</em> eine Buchung, sondern nur
+  einen Bestandsabgang. Der Versand-Überschuss entsteht dadurch automatisch als Gewinn.
+</div>
 
 <div class="row g-3">
-  <div class="col-lg-6">
-    <div class="card">
+  <div class="col-lg-5">
+    <div class="card mb-3">
       <div class="card-header"><h5 class="mb-0">Briefmarken kaufen</h5></div>
       <div class="card-body">
-        <form method="post" enctype="multipart/form-data">
-          <div class="row g-2">
-            <div class="col-6">
-              <label class="form-label">Wert (€)</label>
-              <input type="text" inputmode="decimal" class="form-control" name="wert"
-                     placeholder="z. B. 0,95" required>
-            </div>
-            <div class="col-6">
-              <label class="form-label">Anzahl</label>
-              <input type="number" min="1" class="form-control" name="anzahl" placeholder="z. B. 10" required>
-            </div>
-          </div>
-          <div class="mb-3 mt-2">
+        <form method="post" action="{{ url_for('bookkeeping_stamp_buy') }}" enctype="multipart/form-data">
+          <div class="mb-2">
             <label class="form-label">Kaufdatum</label>
-            <input type="date" class="form-control" name="buchungsdatum" required>
+            <input type="date" class="form-control" name="datum" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Markenart</label>
+            <select class="form-select" name="markenart_id" required>
+              {% for m in markenarten if m.aktiv %}
+              <option value="{{ m.id }}" data-cent="{{ m.nennwert_cent }}">
+                {{ m.bezeichnung }} ({{ cent_to_de(m.nennwert_cent) }} €)
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="row g-2">
+            <div class="col-6 mb-2">
+              <label class="form-label">Stückzahl</label>
+              <input type="number" min="1" class="form-control" name="stueckzahl" placeholder="z. B. 10" required>
+            </div>
+            <div class="col-6 mb-2">
+              <label class="form-label">Gesamtbetrag (€)</label>
+              <input type="text" inputmode="decimal" class="form-control" name="betrag" placeholder="z. B. 9,50" required>
+            </div>
           </div>
           <div class="mb-3">
             <label class="form-label">Beleg (PDF, JPG oder PNG)</label>
             <input type="file" class="form-control" name="beleg" accept=".pdf,.jpg,.jpeg,.png">
-            <div class="text-muted small mt-1">
-              Wird unverändert mit Prüfsumme gespeichert und nicht gelöscht.
-            </div>
+            <div class="text-muted small mt-1">Wird unverändert mit Prüfsumme gespeichert und nie gelöscht.</div>
           </div>
           <button class="btn btn-primary" type="submit">Kaufen &amp; buchen</button>
         </form>
       </div>
     </div>
+
+    <div class="card">
+      <div class="card-header"><h5 class="mb-0">Neue Markenart</h5></div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('bookkeeping_stamp_type') }}" class="row g-2 align-items-end">
+          <input type="hidden" name="aktion" value="neu">
+          <div class="col-7">
+            <label class="form-label">Bezeichnung</label>
+            <input class="form-control form-control-sm" name="bezeichnung" placeholder="z. B. Warenpost" required>
+          </div>
+          <div class="col-3">
+            <label class="form-label">Nennwert (€)</label>
+            <input class="form-control form-control-sm" name="nennwert" placeholder="1,80" required>
+          </div>
+          <div class="col-2">
+            <button class="btn btn-outline-primary btn-sm w-100" type="submit">Anlegen</button>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
 
-  <div class="col-lg-6">
-    <div class="card h-100">
-      <div class="card-header"><h5 class="mb-0">Aktueller Bestand</h5></div>
+  <div class="col-lg-7">
+    <div class="card mb-3">
+      <div class="card-header"><h5 class="mb-0">Bestand je Markenart</h5></div>
       <div class="card-body">
         <p class="text-muted small">
-          Bestand direkt korrigieren (physische Inventur) – ohne Auswirkung auf Buchungen.
-          Nützlich, um eine krumme Zahl nach einem alten Storno geradezuziehen.
+          Bestand = Inventur + gekaufte − verbrauchte Stück. Eine Nennwertänderung legt einen
+          <strong>neuen</strong> Stammsatz an; bestehende Buchungen und Verbräuche behalten
+          ihren historischen Wert.
         </p>
+        <div class="table-responsive">
         <table class="table table-sm align-middle mb-0">
-          <thead><tr><th>Wert</th><th style="width:190px;">Bestand</th></tr></thead>
+          <thead><tr><th>Markenart</th><th>Nennwert</th><th class="text-end">Bestand</th><th>Aktionen</th></tr></thead>
           <tbody>
-            {% for m in bestand %}
-            <tr>
-              <td>{{ cent_to_de(m.wert_cent) }} €</td>
+            {% for m in markenarten %}
+            <tr {% if not m.aktiv %}class="text-muted"{% endif %}>
+              <td>{{ m.bezeichnung }}{% if not m.aktiv %} <span class="chip">inaktiv</span>{% endif %}</td>
+              <td>{{ cent_to_de(m.nennwert_cent) }} €</td>
+              <td class="text-end">
+                {% if m.warnung %}
+                <span class="status-badge status-badge--verkauft" title="Bestand unter {{ schwelle }}">⚠ {{ m.bestand }}</span>
+                {% else %}
+                <span class="status-badge status-badge--verfuegbar">{{ m.bestand }}</span>
+                {% endif %}
+              </td>
               <td>
-                <form method="post" action="{{ url_for('bookkeeping_stamp_stock') }}" class="d-flex gap-1">
-                  <input type="hidden" name="wert" value="{{ '%.2f'|format(m.wert_cent/100)|replace('.', ',') }}">
-                  <input type="number" min="0" name="anzahl" value="{{ m.anzahl }}"
-                         class="form-control form-control-sm" style="max-width:90px;">
-                  <button class="btn btn-outline-primary btn-sm" type="submit">Setzen</button>
-                </form>
+                <div class="d-flex gap-1 flex-wrap">
+                  <form method="post" action="{{ url_for('bookkeeping_stamp_type') }}" class="d-flex gap-1">
+                    <input type="hidden" name="aktion" value="bestand">
+                    <input type="hidden" name="markenart_id" value="{{ m.id }}">
+                    <input type="number" min="0" name="bestand" value="{{ m.bestand }}"
+                           class="form-control form-control-sm" style="max-width:75px;" title="Inventur">
+                    <button class="btn btn-outline-secondary btn-sm" type="submit">Inventur</button>
+                  </form>
+                  <form method="post" action="{{ url_for('bookkeeping_stamp_type') }}" class="d-flex gap-1">
+                    <input type="hidden" name="aktion" value="nennwert">
+                    <input type="hidden" name="markenart_id" value="{{ m.id }}">
+                    <input type="text" name="nennwert" class="form-control form-control-sm"
+                           style="max-width:75px;" placeholder="neu €" title="Neuer Nennwert">
+                    <button class="btn btn-outline-secondary btn-sm" type="submit">Porto ↑</button>
+                  </form>
+                  <form method="post" action="{{ url_for('bookkeeping_stamp_type') }}">
+                    <input type="hidden" name="aktion" value="aktiv">
+                    <input type="hidden" name="markenart_id" value="{{ m.id }}">
+                    <input type="hidden" name="aktiv" value="{{ 0 if m.aktiv else 1 }}">
+                    <button class="btn btn-outline-secondary btn-sm" type="submit">
+                      {{ 'Deaktivieren' if m.aktiv else 'Aktivieren' }}
+                    </button>
+                  </form>
+                </div>
               </td>
             </tr>
-            {% else %}
-            <tr><td colspan="2" class="text-muted">Noch keine Briefmarken erfasst.</td></tr>
             {% endfor %}
           </tbody>
         </table>
-        <hr>
-        <form method="post" action="{{ url_for('bookkeeping_stamp_stock') }}" class="d-flex gap-1 align-items-end flex-wrap">
-          <div>
-            <label class="form-label mb-0 small text-muted">Wert (€)</label>
-            <input type="text" inputmode="decimal" name="wert" class="form-control form-control-sm"
-                   style="max-width:100px;" placeholder="0,95">
-          </div>
-          <div>
-            <label class="form-label mb-0 small text-muted">Bestand</label>
-            <input type="number" min="0" name="anzahl" class="form-control form-control-sm"
-                   style="max-width:90px;" placeholder="0">
-          </div>
-          <button class="btn btn-outline-primary btn-sm" type="submit">Bestand setzen</button>
-        </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h5 class="mb-0">Kaufhistorie</h5></div>
+      <div class="card-body">
+        {% if kaeufe %}
+        <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead><tr><th>Datum</th><th>Markenart</th><th class="text-end">Stück</th>
+              <th class="text-end">Betrag</th><th>Buchung</th><th>Beleg</th></tr></thead>
+          <tbody>
+            {% for k in kaeufe %}
+            <tr {% if k.storniert %}class="text-muted"{% endif %}>
+              <td>{{ k.datum }}</td>
+              <td>{{ k.bezeichnung }} ({{ cent_to_de(k.nennwert_cent) }} €)</td>
+              <td class="text-end">{{ k.stueckzahl }}</td>
+              <td class="text-end">{{ cent_to_de(k.betrag_cent) }} €</td>
+              <td>#{{ k.journal_lfd_nr }}{% if k.storniert %} <span class="chip">storniert</span>{% endif %}</td>
+              <td>
+                {% if k.beleg_id %}
+                <a href="{{ url_for('bookkeeping_receipt', beleg_id=k.beleg_id) }}" target="_blank" rel="noopener">Beleg</a>
+                {% else %}—{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+        {% else %}
+        <div class="empty-state"><span class="ico">✉️</span>Noch kein Markenkauf erfasst.</div>
+        {% endif %}
       </div>
     </div>
   </div>

@@ -1479,101 +1479,63 @@ def sales_export_positions_csv():
 
 # ---------------------------------------------------------------------------
 # Buchhaltung (WP3b) — Journal ist append-only, Korrektur nur per Storno.
+# Porto wird ausschliesslich beim Briefmarkenkauf gebucht, nie beim Versand.
 # ---------------------------------------------------------------------------
 @app.route("/buchhaltung")
 @login_required
 def bookkeeping_view():
-    """Buchungsjournal mit übernehmbaren Bestellungen."""
+    """Buchungsjournal: chronologisch (filterbar) und je Bestellung gruppiert."""
+    von = request.args.get("von", "").strip()
+    bis = request.args.get("bis", "").strip()
+    art = request.args.get("art", "").strip()
+    kategorie = request.args.get("kategorie", "").strip()
     grouped = bookkeeping.journal_by_order()
     return render_template(
         "bookkeeping.html",
+        bookings=bookkeeping.list_bookings(von=von, bis=bis, art=art, kategorie=kategorie),
         order_groups=grouped["orders"],
         other_bookings=grouped["sonstige"],
         bookable=bookkeeping.bookable_orders(),
+        pruefliste=bookkeeping.pruefliste(),
+        markenarten=bookkeeping.list_markenarten(only_active=True),
+        kategorien=bookkeeping.KATEGORIEN_EINNAHME + bookkeeping.KATEGORIEN_AUSGABE,
+        filter_von=von, filter_bis=bis, filter_art=art, filter_kategorie=kategorie,
+        ansicht=request.args.get("ansicht", "bestellungen"),
         cent_to_de=bookkeeping.cent_to_de,
-        porto_options=bookkeeping.PORTO_OPTIONS,
-        briefmarken=bookkeeping.list_briefmarken(only_stock=True),
     )
 
 
 @app.route("/buchhaltung/uebernehmen/<int:order_id>", methods=["POST"])
 @login_required
 def bookkeeping_take_order(order_id: int):
-    """Bestellung als Einnahme übernehmen (Warenverkauf/Versand/Gebühren) und das
-    tatsächlich gezahlte Porto erfassen.
+    """Bestellung übernehmen: Warenverkauf, vereinnahmte Versandkosten und
+    Cardmarket-Gebühren aus den Maildaten.
 
-    Vorab können die Cardmarket-Beträge Versand/Gebühr korrigiert werden (leer =
-    unverändert) — nötig, um vor dem Parsing eingelesene oder verrutschte
-    Bestellungen richtigzustellen; Kontrolle: Warenverkauf + Versand − Gebühr
-    muss die Cardmarket-Auszahlung (Net sale price) ergeben.
-
-    Porto-Varianten aus dem Formular:
-      * ``vorrat:<wert_cent>`` – eine vorab gekaufte Briefmarke aus dem Bestand
-        verwenden: der Bestand wird reduziert, es entsteht KEINE neue Buchung
-        (schon beim Kauf bezahlt).
-      * sonst – frisch bezahltes Porto: Betrag aus dem Feld, sonst der
-        Vorschlagspreis der gewählten Methode; wird als Ausgabe gebucht.
+    Optional wird gleichzeitig die Frankierung erfasst:
+      * ``vorrat`` – Marke aus dem Bestand entnehmen: nur Bestandsabgang,
+        **keine** Buchung (das Porto ist beim Kauf bereits gebucht).
+      * ``sofort`` – Marke jetzt gekauft: regulärer Markenkauf (eine
+        Ausgabebuchung) und unmittelbar danach der Verbrauch.
     """
-    # Optionale Korrektur der Cardmarket-Beträge vor dem Buchen (Euro-Felder).
-    updates = {}
-    for name, column in (("versand", "amount_versand"), ("gebuehren", "amount_gebuehren")):
-        raw = request.form.get(name, "").strip()
-        if raw != "":
-            updates[column] = bookkeeping.to_cent(raw) / 100.0
-    if updates:
-        sets = ", ".join(f"{c} = ?" for c in updates)
-        with sqlite3.connect(DB_FILE) as conn:
-            conn.execute(f"UPDATE orders SET {sets} WHERE id = ?",
-                         (*updates.values(), order_id))
-            conn.commit()
-
-    porto_methode = request.form.get("porto_methode", "").strip()
-    porto_betrag = request.form.get("porto_betrag", "").strip()
-
-    vorrat_wert = None
-    if porto_methode.startswith("vorrat:"):
-        rest = porto_methode.split(":", 1)[1]
-        vorrat_wert = int(rest) if rest.isdigit() else None
-
     try:
-        if vorrat_wert:
-            ids = bookkeeping.book_order(order_id)   # keine Porto-Ausgabe
-            if bookkeeping.use_stamp(vorrat_wert):
-                bookkeeping.set_order_stamp(order_id, vorrat_wert)   # für Rückgabe beim Storno
-                flash(f"Bestellung übernommen – {len(ids)} Buchung(en); "
-                      f"Briefmarke {bookkeeping.cent_to_de(vorrat_wert)} € aus dem Vorrat abgezogen.")
-            else:
-                flash(f"Bestellung übernommen – {len(ids)} Buchung(en). Achtung: kein Vorrat "
-                      f"für {bookkeeping.cent_to_de(vorrat_wert)} € – bitte Porto prüfen.", "warning")
-        else:
-            porto_cent = bookkeeping.to_cent(porto_betrag) if porto_betrag else 0
-            if not porto_cent and porto_methode:
-                porto_cent = dict(bookkeeping.PORTO_OPTIONS).get(porto_methode, 0)
-            ids = bookkeeping.book_order(order_id, porto_cent=porto_cent,
-                                         porto_methode=porto_methode)
-            flash(f"Bestellung übernommen – {len(ids)} Buchung(en) erstellt.")
+        ids = bookkeeping.book_order(order_id)
     except (ValueError, sqlite3.IntegrityError) as exc:
         flash(f"Übernahme nicht möglich: {exc}", "error")
-    return redirect(url_for("bookkeeping_view"))
+        return redirect(url_for("bookkeeping_view"))
 
+    msg = f"Bestellung übernommen – {len(ids)} Buchung(en) erstellt."
+    modus = request.form.get("frankierung", "").strip()
+    art_id = request.form.get("markenart_id", "").strip()
+    try:
+        stueck = max(1, int(request.form.get("stueckzahl", "1") or 1))
+    except ValueError:
+        stueck = 1
 
-@app.route("/buchhaltung/briefmarken", methods=["GET", "POST"])
-@login_required
-def bookkeeping_stamps():
-    """Briefmarken vorab kaufen: bucht einmal als Ausgabe (mit Beleg) und legt
-    die Marken in den Bestand. Beim Übernehmen einer Bestellung wird der Bestand
-    nur noch reduziert (keine Doppelbuchung)."""
-    if request.method == "POST":
-        wert_cent = bookkeeping.to_cent(request.form.get("wert", ""))
-        try:
-            anzahl = int(request.form.get("anzahl", "0") or 0)
-        except ValueError:
-            anzahl = 0
-        datum = request.form.get("buchungsdatum", "").strip()
-        if wert_cent <= 0 or anzahl <= 0 or not datum:
-            flash("Bitte Wert, Anzahl (> 0) und Datum angeben.", "error")
-            return redirect(url_for("bookkeeping_stamps"))
-
+    if modus == "vorrat" and art_id.isdigit():
+        bookkeeping.consume_stamps(int(art_id), stueck, bestellung_id=order_id)
+        msg += f" {stueck} Marke(n) aus dem Vorrat entnommen (keine Buchung)."
+    elif modus == "sofort" and art_id.isdigit():
+        betrag = bookkeeping.to_cent(request.form.get("betrag", ""))
         beleg_id = None
         upload = request.files.get("beleg")
         if upload and upload.filename:
@@ -1582,36 +1544,15 @@ def bookkeeping_stamps():
                     upload.filename, upload.read(), upload.mimetype or "")
             except ValueError as exc:
                 flash(f"Beleg abgelehnt: {exc}", "error")
-                return redirect(url_for("bookkeeping_stamps"))
-
-        bookkeeping.buy_stamps(wert_cent, anzahl, datum, beleg_id=beleg_id)
-        flash(f"{anzahl}× {bookkeeping.cent_to_de(wert_cent)} € Briefmarken gekauft und gebucht.")
-        return redirect(url_for("bookkeeping_stamps"))
-
-    return render_template(
-        "stamps.html",
-        bestand=bookkeeping.list_briefmarken(),
-        cent_to_de=bookkeeping.cent_to_de,
-    )
-
-
-@app.route("/buchhaltung/briefmarken/bestand", methods=["POST"])
-@login_required
-def bookkeeping_stamp_stock():
-    """Bestand eines Werts direkt korrigieren (physische Inventur) – z. B. um eine
-    krumme Zahl nach einem alten Storno geradezuziehen. Buchungen bleiben davon
-    unberührt (nur der Vorrats-Zähler)."""
-    wert_cent = bookkeeping.to_cent(request.form.get("wert", ""))
-    try:
-        anzahl = int(request.form.get("anzahl", "") or 0)
-    except ValueError:
-        anzahl = -1
-    if wert_cent <= 0 or anzahl < 0:
-        flash("Bitte einen gültigen Wert und eine Anzahl ≥ 0 angeben.", "error")
-        return redirect(url_for("bookkeeping_stamps"))
-    bookkeeping.set_stock(wert_cent, anzahl)
-    flash(f"Bestand {bookkeeping.cent_to_de(wert_cent)} € auf {anzahl} gesetzt.")
-    return redirect(url_for("bookkeeping_stamps"))
+        if betrag > 0:
+            datum = datetime.now().strftime("%Y-%m-%d")
+            bookkeeping.buy_and_consume(datum, int(art_id), stueck, betrag,
+                                        bestellung_id=order_id, beleg_id=beleg_id)
+            msg += f" Sofortkauf gebucht ({bookkeeping.cent_to_de(betrag)} €) und verbraucht."
+        else:
+            flash("Sofortkauf ohne Betrag – Frankierung nicht erfasst.", "warning")
+    flash(msg)
+    return redirect(url_for("bookkeeping_view"))
 
 
 @app.route("/buchhaltung/storno/<int:buchung_id>", methods=["POST"])
@@ -1619,22 +1560,12 @@ def bookkeeping_stamp_stock():
 def bookkeeping_storno(buchung_id: int):
     """Buchung stornieren (erzeugt eine neue, verknüpfte Stornozeile).
 
-    Nutzte die Bestellung eine Vorrats-Briefmarke und ist das Häkchen gesetzt,
-    wird die Marke wieder in den Vorrat gelegt (einmalig je Bestellung)."""
+    Der Bestand folgt automatisch: ein stornierter Markenkauf zählt nicht mehr
+    als Zugang, weil der Bestand aus den nicht stornierten Käufen abgeleitet wird.
+    """
     try:
         bookkeeping.storno_booking(buchung_id, request.form.get("grund", "").strip())
-        msg = "Stornobuchung erstellt."
-        oid = request.form.get("order_id", "")
-        if request.form.get("briefmarke_zurueck") and oid.isdigit():
-            wert = bookkeeping.return_order_stamp(int(oid))
-            if wert:
-                msg += f" Briefmarke {bookkeeping.cent_to_de(wert)} € in den Vorrat zurückgelegt."
-        if request.form.get("briefmarken_entfernen"):
-            info = bookkeeping.reverse_stamp_purchase(buchung_id)
-            if info:
-                msg += (f" {info['anzahl']}× {bookkeeping.cent_to_de(info['wert_cent'])} € "
-                        "aus dem Vorrat entfernt.")
-        flash(msg)
+        flash("Stornobuchung erstellt.")
     except ValueError as exc:
         flash(f"Storno nicht möglich: {exc}", "error")
     return redirect(url_for("bookkeeping_view"))
@@ -1643,7 +1574,7 @@ def bookkeeping_storno(buchung_id: int):
 @app.route("/buchhaltung/ausgabe", methods=["GET", "POST"])
 @login_required
 def bookkeeping_expense():
-    """Ausgabe mit Beleg erfassen."""
+    """Ausgabe mit Beleg erfassen (Abflussprinzip: Datum = Tag der Zahlung)."""
     if request.method == "POST":
         datum = request.form.get("buchungsdatum", "").strip()
         kategorie = request.form.get("kategorie", "").strip()
@@ -1686,27 +1617,128 @@ def bookkeeping_receipt(beleg_id: int):
     )
 
 
-@app.route("/buchhaltung/zahlungseingang", methods=["GET", "POST"])
+# --- Briefmarken -----------------------------------------------------------
+@app.route("/buchhaltung/briefmarken")
+@login_required
+def bookkeeping_stamps():
+    """Bestand je Markenart, Nachkauf-Hinweis und Kaufhistorie."""
+    return render_template(
+        "stamps.html",
+        markenarten=bookkeeping.list_markenarten(),
+        kaeufe=bookkeeping.list_stamp_purchases(),
+        schwelle=bookkeeping.BESTAND_WARNUNG,
+        cent_to_de=bookkeeping.cent_to_de,
+    )
+
+
+@app.route("/buchhaltung/briefmarken/kauf", methods=["POST"])
+@login_required
+def bookkeeping_stamp_buy():
+    """Markenkauf: genau eine Ausgabebuchung plus Bestandszugang."""
+    datum = request.form.get("datum", "").strip()
+    art_id = request.form.get("markenart_id", "").strip()
+    try:
+        stueck = int(request.form.get("stueckzahl", "0") or 0)
+    except ValueError:
+        stueck = 0
+    betrag = bookkeeping.to_cent(request.form.get("betrag", ""))
+    if not datum or not art_id.isdigit() or stueck <= 0 or betrag <= 0:
+        flash("Bitte Datum, Markenart, Stückzahl und Gesamtbetrag angeben.", "error")
+        return redirect(url_for("bookkeeping_stamps"))
+
+    beleg_id = None
+    upload = request.files.get("beleg")
+    if upload and upload.filename:
+        try:
+            beleg_id = bookkeeping.save_receipt(
+                upload.filename, upload.read(), upload.mimetype or "")
+        except ValueError as exc:
+            flash(f"Beleg abgelehnt: {exc}", "error")
+            return redirect(url_for("bookkeeping_stamps"))
+    try:
+        bookkeeping.buy_stamps(datum, int(art_id), stueck, betrag, beleg_id=beleg_id)
+        flash(f"{stueck} Marke(n) gekauft und {bookkeeping.cent_to_de(betrag)} € gebucht.")
+    except ValueError as exc:
+        flash(str(exc), "error")
+    return redirect(url_for("bookkeeping_stamps"))
+
+
+@app.route("/buchhaltung/briefmarken/art", methods=["POST"])
+@login_required
+def bookkeeping_stamp_type():
+    """Markenart anlegen, Nennwert ändern (neuer Stammsatz) oder deaktivieren."""
+    aktion = request.form.get("aktion", "")
+    try:
+        if aktion == "neu":
+            bookkeeping.add_markenart(request.form.get("bezeichnung", ""),
+                                      bookkeeping.to_cent(request.form.get("nennwert", "")))
+            flash("Markenart angelegt.")
+        elif aktion == "nennwert":
+            bookkeeping.change_nennwert(int(request.form["markenart_id"]),
+                                        bookkeeping.to_cent(request.form.get("nennwert", "")))
+            flash("Neuer Nennwert angelegt – bestehende Buchungen bleiben unverändert.")
+        elif aktion == "aktiv":
+            bookkeeping.set_markenart_aktiv(int(request.form["markenart_id"]),
+                                            request.form.get("aktiv") == "1")
+            flash("Markenart aktualisiert.")
+        elif aktion == "bestand":
+            bookkeeping.set_bestand(int(request.form["markenart_id"]),
+                                    int(request.form.get("bestand", "0") or 0))
+            flash("Bestand korrigiert (Inventur, keine Buchung).")
+    except (ValueError, KeyError) as exc:
+        flash(f"Nicht möglich: {exc}", "error")
+    return redirect(url_for("bookkeeping_stamps"))
+
+
+@app.route("/buchhaltung/verbrauch/<int:verbrauch_id>/entfernen", methods=["POST"])
+@login_required
+def bookkeeping_remove_consumption(verbrauch_id: int):
+    """Einen Markenverbrauch zurücknehmen (nur Bestand, nie das Journal)."""
+    if bookkeeping.remove_consumption(verbrauch_id):
+        flash("Verbrauch zurückgenommen – Marke wieder im Bestand.")
+    return redirect(url_for("bookkeeping_stamps"))
+
+
+# --- Auszahlungen ----------------------------------------------------------
+@app.route("/buchhaltung/auszahlungen", methods=["GET", "POST"])
 @login_required
 def bookkeeping_payments():
-    """Mehreren Bestellungen gemeinsam ein Auszahlungsdatum zuweisen."""
+    """Auszahlung erfassen und Bestellungen zuordnen (Zuflussprinzip)."""
     if request.method == "POST":
         datum = request.form.get("datum", "").strip()
-        ids = [int(i) for i in request.form.getlist("order_ids") if i.isdigit()]
-        if not datum or not ids:
-            flash("Bitte Datum und mindestens eine Bestellung wählen.", "error")
+        betrag = bookkeeping.to_cent(request.form.get("betrag", ""))
+        if not datum or betrag <= 0:
+            flash("Bitte Datum und Betrag der Auszahlung angeben.", "error")
         else:
-            n = bookkeeping.assign_payment_date(ids, datum)
-            flash(f"Auszahlungsdatum gesetzt ({n} Buchung(en)).")
+            bookkeeping.create_auszahlung(datum, betrag, request.form.get("notiz", "").strip())
+            flash("Auszahlung erfasst – jetzt Bestellungen zuordnen.")
         return redirect(url_for("bookkeeping_payments"))
 
     return render_template(
         "payments.html",
+        auszahlungen=bookkeeping.list_auszahlungen(),
         orders=bookkeeping.open_payment_orders(),
         cent_to_de=bookkeeping.cent_to_de,
     )
 
 
+@app.route("/buchhaltung/auszahlungen/<int:auszahlung_id>/zuordnen", methods=["POST"])
+@login_required
+def bookkeeping_assign_payment(auszahlung_id: int):
+    """Bestellungen einer Auszahlung zuordnen; setzt den Zufluss."""
+    ids = [int(i) for i in request.form.getlist("order_ids") if i.isdigit()]
+    if not ids:
+        flash("Bitte mindestens eine Bestellung wählen.", "error")
+        return redirect(url_for("bookkeeping_payments"))
+    try:
+        n = bookkeeping.assign_orders_to_auszahlung(auszahlung_id, ids)
+        flash(f"{len(ids)} Bestellung(en) zugeordnet ({n} Buchung(en) mit Zufluss).")
+    except ValueError as exc:
+        flash(str(exc), "error")
+    return redirect(url_for("bookkeeping_payments"))
+
+
+# --- Auswertungen ----------------------------------------------------------
 def _bookkeeping_period():
     jahr = request.args.get("jahr", "").strip()
     von = request.args.get("von", "").strip()
@@ -1719,10 +1751,22 @@ def _bookkeeping_period():
     return f"{year}-01-01", f"{year}-12-31"
 
 
+@app.route("/buchhaltung/marge")
+@login_required
+def bookkeeping_margin_view():
+    """Versand-Marge — betriebswirtschaftliche Auswertung, keine EÜR-Größe."""
+    start, end = _bookkeeping_period()
+    return render_template(
+        "margin.html", start=start, end=end,
+        result=bookkeeping.versand_marge(start, end),
+        cent_to_de=bookkeeping.cent_to_de,
+    )
+
+
 @app.route("/buchhaltung/auswertung")
 @login_required
 def bookkeeping_summary_view():
-    """Jahresauswertung: Summen je Kategorie als Vorlage für die Anlage EÜR."""
+    """Jahresübersicht: Summen je Kategorie als Vorlage für die Anlage EÜR."""
     start, end = _bookkeeping_period()
     return render_template(
         "bookkeeping_summary.html",
@@ -1735,7 +1779,7 @@ def bookkeeping_summary_view():
 @app.route("/buchhaltung/auswertung.csv")
 @login_required
 def bookkeeping_summary_csv():
-    """Jahresauswertung als deutsches CSV."""
+    """Jahresübersicht als deutsches CSV (Semikolon, UTF-8 mit BOM)."""
     start, end = _bookkeeping_period()
     payload = bookkeeping.summary_csv(bookkeeping.summary(start, end), start, end)
     return Response(
@@ -2094,6 +2138,28 @@ def update_order_address(order_id: int):
         )
         conn.commit()
     flash("Adresse gespeichert und bestätigt.")
+    return redirect(url_for("list_orders"))
+
+
+@app.route("/orders/<int:order_id>/number", methods=["POST"])
+@login_required
+def update_order_number(order_id: int):
+    """Cardmarket-Bestellnummer nachtragen.
+
+    Die Nummer kommt normalerweise aus der Mail. Bestellungen, die vor dem
+    Erkennen des englischen Formats ("Shipment 12345") eingelesen wurden, haben
+    sie leer — dann druckt der Beileger ersatzweise die interne ID. Hier lässt
+    sie sich einmalig nachtragen; die Roh-Mail wird nicht gespeichert, ein
+    automatisches Nachparsen ist daher nicht möglich.
+    """
+    nummer = (request.form.get("order_number", "") or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9\-/]{3,32}", nummer):
+        flash("Ungültige Bestellnummer.", "error")
+        return redirect(url_for("list_orders"))
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("UPDATE orders SET order_number = ? WHERE id = ?", (nummer, order_id))
+        conn.commit()
+    flash(f"Bestellnummer {nummer} gespeichert.")
     return redirect(url_for("list_orders"))
 
 

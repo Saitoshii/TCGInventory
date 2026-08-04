@@ -167,6 +167,9 @@ def initialize_database() -> None:
             # Wert (in Cent) der beim Übernehmen genutzten Vorrats-Briefmarke,
             # damit sie beim Storno wieder in den Vorrat zurück kann. NULL = keine.
             "porto_briefmarke_cent": "INTEGER",
+            # WP3b: Grund, warum die Buchung dieser Bestellung geprüft werden
+            # muss (fehlende Versandkosten, unstimmige Summen). NULL = in Ordnung.
+            "buchung_pruefen": "TEXT",
         }
         for col, coltype in order_new_cols.items():
             if col not in order_columns:
@@ -282,6 +285,12 @@ def initialize_database() -> None:
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_journal_zahlung ON journal(zahlungseingang_am)"
         )
+        # Verknuepfung zur erfassten Auszahlung (Zuflussprinzip); wird wie
+        # zahlungseingang_am einmalig nachgetragen.
+        cursor.execute("PRAGMA table_info(journal)")
+        journal_columns = [row[1] for row in cursor.fetchall()]
+        if "auszahlung_id" not in journal_columns:
+            cursor.execute("ALTER TABLE journal ADD COLUMN auszahlung_id INTEGER")
 
         # Briefmarken-Vorrat: vorab gekaufte Marken je Wert. Der Kauf wird EINMAL
         # als Ausgabe im Journal gebucht (mit Beleg); beim Versand wird hier nur
@@ -307,6 +316,98 @@ def initialize_database() -> None:
             """
         )
 
+        # -------------------------------------------------------------------
+        # WP3b (Neufassung): Markenstammdaten, Kauf, Verbrauch und Auszahlungen.
+        #
+        # Portokosten entstehen buchhalterisch GENAU EINMAL — beim Kauf der
+        # Marke (Abflussprinzip). Der Verbrauch beim Versand erzeugt niemals
+        # eine Buchung, sondern nur einen Bestandsabgang und einen historisch
+        # eingefrorenen Portowert fuer die Versand-Marge (keine EUER-Groesse).
+        # -------------------------------------------------------------------
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS markenart (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bezeichnung TEXT NOT NULL,
+                nennwert_cent INTEGER NOT NULL,
+                aktiv INTEGER NOT NULL DEFAULT 1,
+                -- Inventurkorrektur / uebernommener Altbestand. Der Bestand wird
+                -- sonst aus Kaeufen minus Verbraeuchen abgeleitet.
+                bestand_korrektur INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_markenart_aktiv ON markenart(aktiv)"
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS markenkauf (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                datum TEXT NOT NULL,
+                markenart_id INTEGER NOT NULL,
+                stueckzahl INTEGER NOT NULL,
+                betrag_cent INTEGER NOT NULL,
+                journal_lfd_nr INTEGER,
+                beleg_id INTEGER,
+                FOREIGN KEY(markenart_id) REFERENCES markenart(id),
+                FOREIGN KEY(beleg_id) REFERENCES belege(id)
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS markenverbrauch (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bestellung_id INTEGER,
+                markenart_id INTEGER NOT NULL,
+                stueckzahl INTEGER NOT NULL DEFAULT 1,
+                -- Portowert zum Zeitpunkt des Verbrauchs, historisch eingefroren.
+                portowert_cent INTEGER NOT NULL,
+                datum TEXT NOT NULL,
+                FOREIGN KEY(bestellung_id) REFERENCES orders(id),
+                FOREIGN KEY(markenart_id) REFERENCES markenart(id)
+            )
+            """
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_verbrauch_datum ON markenverbrauch(datum)"
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS auszahlung (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                datum TEXT NOT NULL,
+                betrag_cent INTEGER NOT NULL,
+                notiz TEXT
+            )
+            """
+        )
+
+        # Startwerte fuer die Markenarten (nur beim allerersten Anlegen).
+        if cursor.execute("SELECT COUNT(*) FROM markenart").fetchone()[0] == 0:
+            cursor.executemany(
+                "INSERT INTO markenart (bezeichnung, nennwert_cent) VALUES (?, ?)",
+                [("Standardbrief", 95), ("Kompaktbrief", 110), ("Großbrief", 180),
+                 ("Maxibrief", 290), ("Standardbrief International", 125)],
+            )
+            # Altbestand aus der frueheren, wertbasierten Tabelle uebernehmen,
+            # damit vorhandene Marken nicht verloren gehen (einmalig, additiv).
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='briefmarken'")
+            if cursor.fetchone():
+                cursor.execute(
+                    "UPDATE markenart SET bestand_korrektur = COALESCE("
+                    "(SELECT b.anzahl FROM briefmarken b WHERE b.wert_cent = markenart.nennwert_cent), 0)"
+                )
+                # Werte ohne passende Markenart als eigene Art anlegen.
+                cursor.execute(
+                    "INSERT INTO markenart (bezeichnung, nennwert_cent, bestand_korrektur) "
+                    "SELECT 'Marke ' || (b.wert_cent / 100) || ',' || "
+                    "       substr('0' || (b.wert_cent % 100), -2) || ' €', b.wert_cent, b.anzahl "
+                    "FROM briefmarken b WHERE b.anzahl > 0 AND NOT EXISTS "
+                    "(SELECT 1 FROM markenart m WHERE m.nennwert_cent = b.wert_cent)"
+                )
+
         # Loeschen ist grundsaetzlich verboten.
         cursor.execute(
             """
@@ -318,8 +419,11 @@ def initialize_database() -> None:
             """
         )
         # Aendern ist verboten — einzige Ausnahme: das einmalige Nachtragen von
-        # zahlungseingang_am bzw. storniert_durch (NULL -> Wert). Alle
-        # finanzrelevanten Felder bleiben unveraenderlich.
+        # zahlungseingang_am, auszahlung_id bzw. storniert_durch (NULL -> Wert).
+        # Alle finanzrelevanten Felder bleiben unveraenderlich.
+        # Der DROP haengt nur den Trigger um (keine Daten betroffen) und ersetzt
+        # eine evtl. aeltere Fassung ohne auszahlung_id.
+        cursor.execute("DROP TRIGGER IF EXISTS journal_no_update")
         cursor.execute(
             """
             CREATE TRIGGER IF NOT EXISTS journal_no_update
@@ -338,6 +442,8 @@ def initialize_database() -> None:
                 OR IFNULL(OLD.storniert_buchung_id, -1) <> IFNULL(NEW.storniert_buchung_id, -1)
                 OR (OLD.zahlungseingang_am IS NOT NULL
                     AND IFNULL(NEW.zahlungseingang_am, '') <> OLD.zahlungseingang_am)
+                OR (OLD.auszahlung_id IS NOT NULL
+                    AND IFNULL(NEW.auszahlung_id, -1) <> OLD.auszahlung_id)
                 OR (OLD.storniert_durch IS NOT NULL
                     AND IFNULL(NEW.storniert_durch, -1) <> OLD.storniert_durch)
             )
