@@ -81,20 +81,20 @@
   <div class="card-header"><h5 class="mb-0">Noch nicht zugeflossen</h5></div>
   <div class="card-body">
     <p class="mb-1">
-      {{ result.offen_count }} Buchung(en) aus Bestellungen ohne Auszahlungsdatum —
-      diese sind oben <strong>nicht</strong> enthalten.
+      {{ result.offen_count }} Einnahmebuchung(en) ohne zugeordnete Auszahlung —
+      diese sind oben <strong>nicht</strong> enthalten (Zuflussprinzip).
     </p>
     <div class="text-muted small">
-      Einnahmen {{ cent_to_de(result.offen_einnahme) }} € ·
-      Gebühren {{ cent_to_de(result.offen_ausgabe) }} € ·
-      <a href="{{ url_for('bookkeeping_payments') }}">Auszahlungsdatum zuweisen</a>
+      Summe {{ cent_to_de(result.offen_einnahme) }} € ·
+      <a href="{{ url_for('bookkeeping_payments') }}">Auszahlung erfassen und zuordnen</a>
     </div>
   </div>
 </div>
 {% endif %}
 
 <p class="text-muted small mt-3">
-  Die Zahlen dienen der Vorbereitung der Steuererklärung (Anlage EÜR). Maßgeblich ist der
-  Kontoauszug. Keine Steuerberatung.
+  Die Zahlen dienen der Vorbereitung der Steuererklärung (Anlage EÜR): Einnahmen zählen am Tag
+  des Geldeingangs, Ausgaben am Buchungsdatum. Kleinunternehmer nach § 19 UStG – es wird keine
+  Umsatzsteuer ausgewiesen. Maßgeblich ist der Kontoauszug. Keine Steuerberatung.
 </p>
 {% endblock %}
