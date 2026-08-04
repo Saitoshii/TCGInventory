@@ -321,8 +321,14 @@ def parse_order_header(email_body: str) -> Dict:
     """Extract order number, buyer handle, status and the monetary amounts."""
     header: Dict = {"order_number": "", "buyer_handle": "", "status": "", "amounts": {}}
 
+    # Bestell-/Sendungsnummer. Cardmarket nutzt je nach Mailtyp und Sprache
+    # verschiedene Bezeichnungen: "Bestellnummer: X", "Order number: X" und in
+    # den englischen Versand-Mails nur "Shipment X" (auch im Fliesstext:
+    # "... has paid for shipment X"). Ohne die letzte Variante blieb die Nummer
+    # leer und der Beileger druckte ersatzweise die interne Datenbank-ID.
     m = re.search(r"Bestellnummer\s*:?\s*(\S+)", email_body, re.IGNORECASE) \
-        or re.search(r"Order\s+number\s*:?\s*(\S+)", email_body, re.IGNORECASE)
+        or re.search(r"Order\s+number\s*:?\s*(\S+)", email_body, re.IGNORECASE) \
+        or re.search(r"\b(?:Shipment|Sendung)\s*:?\s*(\d{5,})", email_body, re.IGNORECASE)
     if m:
         header["order_number"] = m.group(1).strip()
 
