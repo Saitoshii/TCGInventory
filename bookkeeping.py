@@ -31,6 +31,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+import os
 import re
 import sqlite3
 from datetime import datetime
@@ -69,6 +70,12 @@ CSV_ENCODING = "utf-8-sig"
 
 # Schwellwert, ab dem in der Übersicht auf niedrigen Markenbestand hingewiesen wird.
 BESTAND_WARNUNG = 5
+
+# Geschäftsbeginn: Bestellungen davor stammen aus der Zeit vor der Gründung und
+# gehören nicht in die Buchhaltung. Sie werden deshalb gar nicht erst zur
+# Übernahme angeboten. Über die Umgebungsvariable ``TCG_GESCHAEFTSBEGINN``
+# (Format JJJJ-MM-TT) anpassbar.
+GESCHAEFTSBEGINN = os.environ.get("TCG_GESCHAEFTSBEGINN", "2026-05-01")
 
 
 # ---------------------------------------------------------------------------
@@ -312,7 +319,11 @@ def pruefliste(db_file: Optional[str] = None) -> List[dict]:
 
 
 def bookable_orders(db_file: Optional[str] = None) -> List[dict]:
-    """Versendete Bestellungen, die noch nicht (aktiv) gebucht sind."""
+    """Versendete Bestellungen ab Geschäftsbeginn, die noch nicht gebucht sind.
+
+    Bestellungen von vor dem Geschäftsbeginn werden gar nicht erst angeboten —
+    sie stammen aus der Zeit vor der Gründung und gehören nicht in die EÜR.
+    """
     with _connect(db_file) as conn:
         rows = conn.execute(
             """
@@ -322,13 +333,29 @@ def bookable_orders(db_file: Optional[str] = None) -> List[dict]:
                    o.amount_auszahlung
             FROM orders o
             WHERE o.status = 'sold'
+              AND substr(COALESCE(o.date_completed, o.email_date, o.date_received), 1, 10) >= ?
               AND NOT EXISTS (SELECT 1 FROM journal j
                               WHERE j.bestellung_id = o.id AND j.art <> 'storno'
                                 AND j.storniert_durch IS NULL)
             ORDER BY datum DESC
-            """
+            """, (GESCHAEFTSBEGINN,)
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def count_vor_geschaeftsbeginn(db_file: Optional[str] = None) -> int:
+    """Wie viele versendete, ungebuchte Bestellungen liegen vor Geschäftsbeginn?
+
+    Nur zur Information in der Oberfläche — sie werden bewusst ausgeblendet.
+    """
+    with _connect(db_file) as conn:
+        return conn.execute(
+            "SELECT COUNT(*) FROM orders o WHERE o.status = 'sold' "
+            "AND substr(COALESCE(o.date_completed, o.email_date, o.date_received), 1, 10) < ? "
+            "AND NOT EXISTS (SELECT 1 FROM journal j WHERE j.bestellung_id = o.id "
+            "AND j.art <> 'storno' AND j.storniert_durch IS NULL)",
+            (GESCHAEFTSBEGINN,)
+        ).fetchone()[0]
 
 
 # ---------------------------------------------------------------------------
@@ -629,9 +656,10 @@ def open_payment_orders(db_file: Optional[str] = None) -> List[dict]:
             FROM journal j JOIN orders o ON o.id = j.bestellung_id
             WHERE j.auszahlung_id IS NULL AND j.zahlungseingang_am IS NULL
               AND j.art <> 'storno' AND j.storniert_durch IS NULL
+              AND substr(COALESCE(o.date_completed, o.email_date, o.date_received), 1, 10) >= ?
             GROUP BY o.id
             ORDER BY datum ASC
-            """
+            """, (GESCHAEFTSBEGINN,)
         ).fetchall()
     return [dict(r) for r in rows]
 
