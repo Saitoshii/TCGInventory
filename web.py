@@ -1496,6 +1496,8 @@ def bookkeeping_view():
         order_groups=grouped["orders"],
         other_bookings=grouped["sonstige"],
         bookable=bookkeeping.bookable_orders(),
+        vor_beginn=bookkeeping.count_vor_geschaeftsbeginn(),
+        geschaeftsbeginn=bookkeeping.GESCHAEFTSBEGINN,
         pruefliste=bookkeeping.pruefliste(),
         markenarten=bookkeeping.list_markenarten(only_active=True),
         kategorien=bookkeeping.KATEGORIEN_EINNAHME + bookkeeping.KATEGORIEN_AUSGABE,

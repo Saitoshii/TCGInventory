@@ -85,6 +85,12 @@
       erfasst – aus dem Vorrat (kein Geldfluss, keine Buchung) oder als Sofortkauf
       (ein Markenkauf = eine Ausgabebuchung).
     </p>
+    {% if vor_beginn %}
+    <p class="text-muted small">
+      {{ vor_beginn }} ältere Bestellung(en) vor dem Geschäftsbeginn
+      ({{ geschaeftsbeginn }}) werden nicht angezeigt.
+    </p>
+    {% endif %}
     {% for o in bookable %}
     <form method="post" action="{{ url_for('bookkeeping_take_order', order_id=o.id) }}"
           enctype="multipart/form-data" class="border rounded p-2 mb-2">
