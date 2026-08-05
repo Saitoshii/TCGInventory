@@ -1,0 +1,17 @@
+[Unit]
+Description=TCGInventory – nächtliches Backup (03:30)
+Documentation=file:///home/pi/TCGInventory/docs/BACKUP.md
+
+[Timer]
+# Uhrzeit anpassbar: sudo systemctl edit tcginventory-backup.timer
+OnCalendar=*-*-* 03:30:00
+
+# Wichtig: War der Pi zur Laufzeit aus, wird der Lauf nach dem Einschalten
+# nachgeholt. Ohne Persistent=true fiele die Nacht ersatzlos aus.
+Persistent=true
+
+# Nicht alle Aufgaben exakt zur selben Sekunde starten lassen.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
