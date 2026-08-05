@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block content %}
+<h2 class="page-title mb-3">Backup</h2>
+
+{% if status.warnung %}
+<div class="alert alert-danger">
+  <strong>⚠ Achtung – Backup prüfen!</strong><br>
+  {% if not status.vorhanden %}
+    Es liegt noch kein Backup-Bericht vor. Ist der Timer installiert und aktiv?
+  {% elif status.ergebnis != 'erfolg' %}
+    Der letzte Lauf ist <strong>fehlgeschlagen</strong>: {{ status.meldung }}
+  {% else %}
+    Der letzte erfolgreiche Lauf ist <strong>{{ status.alter_stunden }} Stunden</strong> her
+    (mehr als {{ status.schwelle_stunden }} Stunden).
+  {% endif %}
+  <div class="small mt-1">
+    Prüfen mit: <code>systemctl status tcginventory-backup.timer</code> ·
+    <code>journalctl -u tcginventory-backup.service -n 50</code>
+  </div>
+</div>
+{% else %}
+<div class="alert alert-success">
+  ✅ Letztes Backup erfolgreich – vor {{ status.alter_stunden }} Stunden.
+</div>
+{% endif %}
+
+<div class="card" style="max-width: 720px;">
+  <div class="card-header"><h5 class="mb-0">Letzter Lauf</h5></div>
+  <div class="card-body">
+    <table class="table table-sm mb-0">
+      <tbody>
+        <tr><td>Zeitpunkt</td><td>{{ status.zeitpunkt or '—' }}</td></tr>
+        <tr>
+          <td>Ergebnis</td>
+          <td>
+            {% if status.ergebnis == 'erfolg' %}
+            <span class="status-badge status-badge--verfuegbar">Erfolg</span>
+            {% elif status.ergebnis %}
+            <span class="status-badge status-badge--verkauft">Fehler</span>
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+        <tr><td>Archiv</td><td>{{ status.archiv or '—' }}</td></tr>
+        <tr><td>Größe</td><td>{% if status.groesse_mb %}{{ status.groesse_mb }} MB{% else %}—{% endif %}</td></tr>
+        <tr><td>Dauer</td><td>{% if status.dauer_sekunden %}{{ status.dauer_sekunden }} s{% else %}—{% endif %}</td></tr>
+        <tr>
+          <td>Prüfsumme (SHA-256)</td>
+          <td class="text-break"><small>{{ status.sha256 or '—' }}</small></td>
+        </tr>
+        {% if status.datenbanken %}
+        <tr><td>Gesicherte Datenbanken</td><td>{{ status.datenbanken|join(', ') }}</td></tr>
+        {% endif %}
+        {% if status.meldung %}
+        <tr><td>Meldung</td><td class="small">{{ status.meldung }}</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<p class="text-muted small mt-3">
+  Gesichert wird verschlüsselt nach OneDrive – die Verschlüsselung passiert auf dem Pi,
+  inklusive Datei- und Ordnernamen. Aufbewahrt werden die letzten 7 Tagesstände und je der
+  erste Stand der letzten 12 Monate. Einrichtung, Wiederherstellung und der
+  <strong>Wiederherstellungstest</strong> stehen in <code>docs/BACKUP.md</code>.
+</p>
+{% endblock %}

@@ -58,6 +58,7 @@ from TCGInventory.order_service import get_order_service
 from TCGInventory.shipping_note import render_shipping_note, detect_language
 from TCGInventory import sales_export
 from TCGInventory import bookkeeping
+from TCGInventory import backup_status
 from pathlib import Path
 from werkzeug.utils import secure_filename
 
@@ -940,6 +941,17 @@ def sell_card_route(card_id: int):
     if card is None:
         return jsonify({"quantity": 0, "removed": True, "sold_out": True})
     return jsonify({"quantity": card[6], "removed": False, "sold_out": False})
+
+
+@app.route("/system/backup")
+@login_required
+def backup_status_view():
+    """Zeigt Zeitpunkt, Ergebnis und Größe des letzten Backups.
+
+    Warnt deutlich, wenn der letzte erfolgreiche Lauf länger als 48 Stunden her
+    ist — ein still ausgefallenes Backup fällt sonst niemandem auf.
+    """
+    return render_template("backup_status.html", status=backup_status.lies_status())
 
 
 @app.route("/system/inventar-aufraeumen", methods=["GET", "POST"])
