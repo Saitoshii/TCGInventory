@@ -6,3 +6,17 @@ test_old_db.db
 test_mtg_lager.db
 data/*
 !data/default-card.db
+
+# Backup (WP4a): niemals Zugangsdaten oder Sicherungsstände einchecken.
+rclone.conf
+*.rclone.conf
+tcginventory-backup.env
+*.pass
+*.pem
+*.key
+credentials.json
+token.json
+token.pickle
+backup_work/
+tcginventory_*.tar.gz
+tcginventory_*.tar.gz.sha256
