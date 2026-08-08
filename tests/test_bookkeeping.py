@@ -596,6 +596,138 @@ def test_take_order_with_stock_frankierung_books_no_porto(tmp_path):
     assert bookkeeping.consumption_for_order(7)[0]["portowert_cent"] == 95
 
 
+def test_immediate_purchase_is_linked_to_the_order(tmp_path):
+    """Der Sofortkauf muss beim Bestellblock erscheinen, nicht unter Sonstige.
+
+    Vorher hatte die Buchung keine bestellung_id und war dort unsichtbar, wo
+    der Nutzer sie erwartet — sie wirkte deshalb wie 'nicht gebucht'.
+    """
+    db = _db(tmp_path)
+    _order(db)
+    art = _markenart(95)
+    client = _client(db)
+
+    client.post("/buchhaltung/uebernehmen/7",
+                data={"frankierung": "sofort", "markenart_id": str(art),
+                      "stueckzahl": "1", "betrag": "0,95"})
+
+    with sqlite3.connect(db) as c:
+        zeile = c.execute(
+            "SELECT bestellung_id, betrag_cent FROM journal WHERE kategorie=?",
+            (bookkeeping.KAT_PORTO,)).fetchone()
+    assert zeile == (7, 95)
+
+    gruppe = bookkeeping.journal_by_order()
+    order = gruppe["orders"][0]
+    assert order["portokauf_cent"] == 95
+    assert order["ausgaben_cent"] == 20 + 95        # Gebühr + Porto
+    assert len(order["bookings"]) == 4
+    assert gruppe["sonstige"] == []                 # nichts landet daneben
+
+
+def test_stock_never_goes_negative(tmp_path):
+    """'Aus Vorrat' ohne Bestand wird abgelehnt, statt den Vorrat ins Minus zu ziehen."""
+    db = _db(tmp_path)
+    _order(db)
+    art = _markenart(95)
+    assert bookkeeping.get_markenart(art)["bestand"] == 0
+
+    with pytest.raises(ValueError, match="Nicht genug Marken"):
+        bookkeeping.consume_stamps(art, 1, bestellung_id=7)
+
+    client = _client(db)
+    client.post("/buchhaltung/uebernehmen/7",
+                data={"frankierung": "vorrat", "markenart_id": str(art), "stueckzahl": "1"})
+    assert bookkeeping.get_markenart(art)["bestand"] == 0
+    assert bookkeeping.consumption_for_order(7) == []
+    # Die Übernahme selbst bleibt bestehen – nur die Frankierung fehlt.
+    with sqlite3.connect(db) as c:
+        assert c.execute("SELECT COUNT(*) FROM journal WHERE bestellung_id=7").fetchone()[0] == 3
+
+
+def test_storno_of_immediate_purchase_removes_its_consumption(tmp_path):
+    """Kauf und Sofort-Verbrauch gehören zusammen: Storno nimmt beides zurück."""
+    db = _db(tmp_path)
+    _order(db)
+    art = _markenart(95)
+    client = _client(db)
+    client.post("/buchhaltung/uebernehmen/7",
+                data={"frankierung": "sofort", "markenart_id": str(art),
+                      "stueckzahl": "1", "betrag": "0,95"})
+    assert bookkeeping.get_markenart(art)["bestand"] == 0
+
+    with sqlite3.connect(db) as c:
+        kauf = c.execute("SELECT id FROM journal WHERE kategorie=?",
+                         (bookkeeping.KAT_PORTO,)).fetchone()[0]
+    bookkeeping.storno_booking(kauf, "Fehlkauf")
+
+    assert bookkeeping.get_markenart(art)["bestand"] == 0    # nicht -1
+    assert bookkeeping.consumption_for_order(7) == []
+
+
+def test_retake_after_storno_does_not_consume_twice(tmp_path):
+    """Nach Storno und erneuter Übernahme darf nicht doppelt frankiert werden."""
+    db = _db(tmp_path)
+    _order(db)
+    art = _markenart(95)
+    bookkeeping.buy_stamps("2026-06-01", art, 10, 950)
+    client = _client(db)
+
+    client.post("/buchhaltung/uebernehmen/7",
+                data={"frankierung": "vorrat", "markenart_id": str(art), "stueckzahl": "1"})
+    assert bookkeeping.get_markenart(art)["bestand"] == 9
+
+    with sqlite3.connect(db) as c:
+        ids = [r[0] for r in c.execute(
+            "SELECT id FROM journal WHERE bestellung_id=7 AND art<>'storno'")]
+    for bid in ids:                                  # ohne Rückgabe-Häkchen
+        client.post(f"/buchhaltung/storno/{bid}")
+
+    client.post("/buchhaltung/uebernehmen/7",
+                data={"frankierung": "vorrat", "markenart_id": str(art), "stueckzahl": "1"})
+    assert bookkeeping.get_markenart(art)["bestand"] == 9    # nicht 8
+    assert len(bookkeeping.consumption_for_order(7)) == 1
+
+
+def test_storno_with_checkbox_returns_the_stamp(tmp_path):
+    """Mit Häkchen wandert die Marke zurück in den Vorrat."""
+    db = _db(tmp_path)
+    _order(db)
+    art = _markenart(95)
+    bookkeeping.buy_stamps("2026-06-01", art, 10, 950)
+    client = _client(db)
+    client.post("/buchhaltung/uebernehmen/7",
+                data={"frankierung": "vorrat", "markenart_id": str(art), "stueckzahl": "1"})
+    assert bookkeeping.get_markenart(art)["bestand"] == 9
+
+    with sqlite3.connect(db) as c:
+        ids = [r[0] for r in c.execute(
+            "SELECT id FROM journal WHERE bestellung_id=7 AND art<>'storno'")]
+    for bid in ids:
+        client.post(f"/buchhaltung/storno/{bid}",
+                    data={"order_id": "7", "marken_zurueck": "1"})
+
+    assert bookkeeping.get_markenart(art)["bestand"] == 10   # zurückgelegt
+    assert bookkeeping.consumption_for_order(7) == []
+
+
+def test_immediate_purchase_without_amount_keeps_order_but_warns(tmp_path):
+    db = _db(tmp_path)
+    _order(db)
+    art = _markenart(95)
+    client = _client(db)
+    antwort = client.post("/buchhaltung/uebernehmen/7",
+                          data={"frankierung": "sofort", "markenart_id": str(art),
+                                "stueckzahl": "1", "betrag": ""},
+                          follow_redirects=True)
+    seite = antwort.get_data(as_text=True)
+    assert "fehlt der Betrag" in seite
+    with sqlite3.connect(db) as c:
+        assert c.execute("SELECT COUNT(*) FROM journal WHERE bestellung_id=7").fetchone()[0] == 3
+        assert c.execute("SELECT COUNT(*) FROM journal WHERE kategorie=?",
+                         (bookkeeping.KAT_PORTO,)).fetchone()[0] == 0
+
+
 def test_take_order_with_immediate_purchase_books_once(tmp_path):
     db = _db(tmp_path)
     _order(db)

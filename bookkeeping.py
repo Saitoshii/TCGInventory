@@ -201,6 +201,11 @@ def storno_booking(buchung_id: int, grund: str = "", db_file: Optional[str] = No
         conn.execute("UPDATE journal SET storniert_durch = ? WHERE id = ?",
                      (storno_id, buchung_id))
         conn.commit()
+
+    # War es ein Markenkauf, verschwindet der zugehörige Sofort-Verbrauch mit —
+    # sonst bliebe ein Verbrauch ohne Kauf stehen und der Bestand ginge ins Minus.
+    if row["kategorie"] == KAT_PORTO:
+        _entferne_verbrauch_zum_kauf(buchung_id, db_file)
     return storno_id
 
 
@@ -384,7 +389,9 @@ def list_markenarten(only_active: bool = False, db_file: Optional[str] = None) -
         q += " ORDER BY m.aktiv DESC, m.nennwert_cent"
         rows = [dict(r) for r in conn.execute(q).fetchall()]
     for r in rows:
-        r["bestand"] = r["bestand_korrektur"] + r["gekauft"] - r["verbraucht"]
+        # Nie unter null: ein negativer Bestand waere physisch unmöglich und
+        # nur ein Zeichen für inkonsistente Daten.
+        r["bestand"] = max(0, r["bestand_korrektur"] + r["gekauft"] - r["verbraucht"])
         r["warnung"] = r["aktiv"] == 1 and r["bestand"] < BESTAND_WARNUNG
     return rows
 
@@ -462,12 +469,16 @@ def set_bestand(markenart_id: int, ziel_bestand: int, db_file: Optional[str] = N
 
 
 def buy_stamps(datum: str, markenart_id: int, stueckzahl: int, betrag_cent: int,
-               beleg_id: Optional[int] = None, db_file: Optional[str] = None) -> int:
+               beleg_id: Optional[int] = None, bestellung_id: Optional[int] = None,
+               db_file: Optional[str] = None) -> int:
     """Markenkauf — der **einzige** Weg, wie Porto zur Ausgabe wird.
 
     Erzeugt genau **eine** Ausgabebuchung (Kategorie ``Porto/Briefmarken``,
     Buchungsdatum = Kaufdatum, Abflussprinzip) und einen Bestandszugang.
     Identisch für Vorratskauf und Sofortkauf. Gibt die Journal-``id`` zurück.
+
+    ``bestellung_id`` wird beim Sofortkauf gesetzt, damit die Ausgabe im Block
+    der Bestellung erscheint und nicht unter „Sonstige Buchungen" verschwindet.
     """
     stueckzahl = int(stueckzahl)
     betrag_cent = int(betrag_cent)
@@ -481,7 +492,8 @@ def buy_stamps(datum: str, markenart_id: int, stueckzahl: int, betrag_cent: int,
 
     beschr = f"Briefmarkenkauf {stueckzahl}× {m['bezeichnung']} ({cent_to_de(m['nennwert_cent'])} €)"
     booking_id = add_booking(datum, "ausgabe", KAT_PORTO, betrag_cent, beschr,
-                             beleg_id=beleg_id, db_file=db_file)
+                             bestellung_id=bestellung_id, beleg_id=beleg_id,
+                             db_file=db_file)
     with _connect(db_file) as conn:
         lfd_nr = conn.execute("SELECT lfd_nr FROM journal WHERE id = ?",
                               (booking_id,)).fetchone()["lfd_nr"]
@@ -496,12 +508,16 @@ def buy_stamps(datum: str, markenart_id: int, stueckzahl: int, betrag_cent: int,
 
 def consume_stamps(markenart_id: int, stueckzahl: int = 1,
                    bestellung_id: Optional[int] = None, datum: Optional[str] = None,
+                   markenkauf_id: Optional[int] = None,
                    db_file: Optional[str] = None) -> int:
     """Marken beim Versand verbrauchen — erzeugt **niemals** eine Buchung.
 
     Speichert den Portowert zum Zeitpunkt des Verbrauchs (historisch
     eingefroren). Dieser Wert ist eine reine Info-Größe für die Versand-Marge
     und fließt nie in die Einnahmen-/Ausgabensummen der EÜR ein.
+
+    Ohne ausreichenden Bestand wird abgelehnt — ein negativer Vorrat wäre
+    physisch unmöglich und würde nur stillschweigend falsche Zahlen erzeugen.
     """
     stueckzahl = int(stueckzahl)
     if stueckzahl <= 0:
@@ -509,13 +525,19 @@ def consume_stamps(markenart_id: int, stueckzahl: int = 1,
     m = get_markenart(markenart_id, db_file)
     if not m:
         raise ValueError("Markenart nicht gefunden")
+    if m["bestand"] < stueckzahl:
+        raise ValueError(
+            f"Nicht genug Marken vom Typ {m['bezeichnung']} im Vorrat "
+            f"(vorhanden {m['bestand']}, gebraucht {stueckzahl}). "
+            f"Bitte zuerst welche kaufen oder 'Sofort gekauft' wählen.")
     datum = datum or datetime.now().strftime("%Y-%m-%d")
     with _connect(db_file) as conn:
         c = conn.cursor()
         c.execute(
             "INSERT INTO markenverbrauch (bestellung_id, markenart_id, stueckzahl, "
-            "portowert_cent, datum) VALUES (?, ?, ?, ?, ?)",
-            (bestellung_id, int(markenart_id), stueckzahl, m["nennwert_cent"], datum[:10]),
+            "portowert_cent, datum, markenkauf_id) VALUES (?, ?, ?, ?, ?, ?)",
+            (bestellung_id, int(markenart_id), stueckzahl, m["nennwert_cent"],
+             datum[:10], markenkauf_id),
         )
         conn.commit()
         return c.lastrowid
@@ -524,13 +546,21 @@ def consume_stamps(markenart_id: int, stueckzahl: int = 1,
 def buy_and_consume(datum: str, markenart_id: int, stueckzahl: int, betrag_cent: int,
                     bestellung_id: Optional[int] = None, beleg_id: Optional[int] = None,
                     db_file: Optional[str] = None) -> Tuple[int, int]:
-    """Sofortkauf im Versanddialog: regulärer Markenkauf **und** direkt danach
-    der Verbrauch. Das Porto ist damit genau **einmal** gebucht (durch den
-    Kauf), nicht zweimal."""
+    """Sofortkauf: regulärer Markenkauf **und** direkt danach der Verbrauch.
+
+    Das Porto ist damit genau **einmal** gebucht (durch den Kauf), nicht
+    zweimal. Kauf und Verbrauch sind verknüpft: wird der Kauf storniert,
+    verschwindet auch der Verbrauch, sodass der Bestand stimmig bleibt.
+    """
     booking_id = buy_stamps(datum, markenart_id, stueckzahl, betrag_cent,
-                            beleg_id=beleg_id, db_file=db_file)
+                            beleg_id=beleg_id, bestellung_id=bestellung_id,
+                            db_file=db_file)
+    with _connect(db_file) as conn:
+        kauf_id = conn.execute(
+            "SELECT k.id FROM markenkauf k JOIN journal j ON j.lfd_nr = k.journal_lfd_nr "
+            "WHERE j.id = ?", (booking_id,)).fetchone()["id"]
     verbrauch_id = consume_stamps(markenart_id, stueckzahl, bestellung_id, datum,
-                                  db_file=db_file)
+                                  markenkauf_id=kauf_id, db_file=db_file)
     return booking_id, verbrauch_id
 
 
@@ -543,6 +573,33 @@ def remove_consumption(verbrauch_id: int, db_file: Optional[str] = None) -> bool
         cur = conn.execute("DELETE FROM markenverbrauch WHERE id = ?", (verbrauch_id,))
         conn.commit()
         return cur.rowcount > 0
+
+
+def remove_consumptions_for_order(order_id: int, db_file: Optional[str] = None) -> int:
+    """Alle Verbräuche einer Bestellung zurücknehmen (Marken zurück in den Vorrat)."""
+    with _connect(db_file) as conn:
+        cur = conn.execute("DELETE FROM markenverbrauch WHERE bestellung_id = ?",
+                           (order_id,))
+        conn.commit()
+        return cur.rowcount
+
+
+def _entferne_verbrauch_zum_kauf(buchung_id: int, db_file: Optional[str] = None) -> int:
+    """Beim Storno eines Markenkaufs die damit erzeugten Verbräuche entfernen.
+
+    Sonst bliebe der Verbrauch ohne zugehörigen Kauf stehen und der Bestand
+    rutschte ins Minus.
+    """
+    with _connect(db_file) as conn:
+        zeile = conn.execute(
+            "SELECT k.id FROM markenkauf k JOIN journal j ON j.lfd_nr = k.journal_lfd_nr "
+            "WHERE j.id = ?", (buchung_id,)).fetchone()
+        if not zeile:
+            return 0
+        cur = conn.execute("DELETE FROM markenverbrauch WHERE markenkauf_id = ?",
+                           (zeile["id"],))
+        conn.commit()
+        return cur.rowcount
 
 
 def list_stamp_purchases(db_file: Optional[str] = None, limit: int = 200) -> List[dict]:
@@ -785,6 +842,7 @@ def journal_by_order(db_file: Optional[str] = None) -> dict:
                 "porto_cent": verbrauch.get(oid, 0),
                 "bookings": [],
                 "warenverkauf_cent": 0, "versand_cent": 0, "gebuehren_cent": 0,
+                "portokauf_cent": 0,
             }
         g["bookings"].append(b)
         if b["art"] != "storno" and b["storniert_durch"] is None:
@@ -795,14 +853,19 @@ def journal_by_order(db_file: Optional[str] = None) -> dict:
                 g["versand_cent"] += b["betrag_cent"]
             elif k == KAT_GEBUEHREN:
                 g["gebuehren_cent"] += b["betrag_cent"]
+            elif k == KAT_PORTO:
+                # Sofortkauf, der dieser Bestellung zugeordnet wurde.
+                g["portokauf_cent"] += b["betrag_cent"]
 
     orders: List[dict] = []
     for g in groups.values():
+        # Die Kontrolle gegen die Cardmarket-Auszahlung betrifft nur die drei
+        # Übernahme-Buchungen; ein Portokauf gehört nicht in diese Rechnung.
         netto = g["warenverkauf_cent"] + g["versand_cent"] - g["gebuehren_cent"]
         g["netto_cent"] = netto
         g["einnahmen_cent"] = g["warenverkauf_cent"] + g["versand_cent"]
-        g["ausgaben_cent"] = g["gebuehren_cent"]
-        # Nur nachrichtlich: das Porto ist bereits beim Markenkauf gebucht.
+        g["ausgaben_cent"] = g["gebuehren_cent"] + g["portokauf_cent"]
+        # Ergebnis nach tatsächlichem Portoaufwand (verbrauchte Marken).
         g["ergebnis_cent"] = netto - g["porto_cent"]
         aus = g["auszahlung_cent"]
         g["has_auszahlung"] = aus > 0

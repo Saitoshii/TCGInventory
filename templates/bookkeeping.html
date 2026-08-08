@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% macro booking_rows(items) %}
+{% macro booking_rows(items, verbrauch=false) %}
   {% for b in items %}
   <tr {% if b.storniert_durch or b.art == 'storno' %}class="text-muted"{% endif %}>
     <td>{{ b.lfd_nr }}</td>
@@ -27,6 +27,14 @@
       {% if b.art != 'storno' and not b.storniert_durch %}
       <form method="post" action="{{ url_for('bookkeeping_storno', buchung_id=b.id) }}"
             onsubmit="return confirm('Diese Buchung stornieren? Es wird eine Stornobuchung erzeugt.')">
+        {% if verbrauch and b.bestellung_id %}
+        <input type="hidden" name="order_id" value="{{ b.bestellung_id }}">
+        <div class="form-check form-check-inline me-1">
+          <input class="form-check-input" type="checkbox" name="marken_zurueck"
+                 value="1" checked id="zur{{ b.id }}">
+          <label class="form-check-label small" for="zur{{ b.id }}">Marke zurücklegen</label>
+        </div>
+        {% endif %}
         <button class="btn btn-sm btn-outline-danger" type="submit">Stornieren</button>
       </form>
       {% endif %}
@@ -230,7 +238,7 @@
         </span>
         <span class="small">
           Einnahmen {{ cent_to_de(g.einnahmen_cent) }} € ·
-          Gebühren {{ cent_to_de(g.ausgaben_cent) }} € ·
+          Ausgaben {{ cent_to_de(g.ausgaben_cent) }} € ·
           Auszahlung {{ cent_to_de(g.netto_cent) }} €
         </span>
       </summary>
@@ -249,7 +257,7 @@
           <table class="table table-sm align-middle mb-0">
             <thead><tr><th>Nr</th><th>Datum</th><th>Art</th><th>Kategorie</th>
                 <th class="text-end">Betrag</th><th>Beschreibung</th><th>Zufluss</th><th>Beleg</th><th></th></tr></thead>
-            <tbody>{{ booking_rows(g.bookings) }}</tbody>
+            <tbody>{{ booking_rows(g.bookings, g.porto_cent > 0) }}</tbody>
           </table>
         </div>
       </div>

@@ -1547,26 +1547,40 @@ def bookkeeping_take_order(order_id: int):
     except ValueError:
         stueck = 1
 
-    if modus == "vorrat" and art_id.isdigit():
-        bookkeeping.consume_stamps(int(art_id), stueck, bestellung_id=order_id)
-        msg += f" {stueck} Marke(n) aus dem Vorrat entnommen (keine Buchung)."
-    elif modus == "sofort" and art_id.isdigit():
-        betrag = bookkeeping.to_cent(request.form.get("betrag", ""))
-        beleg_id = None
-        upload = request.files.get("beleg")
-        if upload and upload.filename:
-            try:
-                beleg_id = bookkeeping.save_receipt(
-                    upload.filename, upload.read(), upload.mimetype or "")
-            except ValueError as exc:
-                flash(f"Beleg abgelehnt: {exc}", "error")
-        if betrag > 0:
+    # Eine bereits erfasste Frankierung wird nicht ein zweites Mal gebucht —
+    # sonst entstünde nach Storno und erneuter Übernahme ein Doppelverbrauch.
+    if modus in ("vorrat", "sofort") and bookkeeping.consumption_for_order(order_id):
+        flash(msg + " Frankierung war bereits erfasst und wurde nicht erneut gebucht.",
+              "warning")
+        return redirect(url_for("bookkeeping_view"))
+
+    try:
+        if modus == "vorrat" and art_id.isdigit():
+            bookkeeping.consume_stamps(int(art_id), stueck, bestellung_id=order_id)
+            msg += f" {stueck} Marke(n) aus dem Vorrat entnommen (keine Buchung)."
+        elif modus == "sofort" and art_id.isdigit():
+            betrag = bookkeeping.to_cent(request.form.get("betrag", ""))
+            if betrag <= 0:
+                raise ValueError(
+                    "Beim Sofortkauf fehlt der Betrag – bitte den gezahlten Preis "
+                    "eintragen. Die Bestellung ist übernommen, die Frankierung nicht.")
+            beleg_id = None
+            upload = request.files.get("beleg")
+            if upload and upload.filename:
+                try:
+                    beleg_id = bookkeeping.save_receipt(
+                        upload.filename, upload.read(), upload.mimetype or "")
+                except ValueError as exc:
+                    flash(f"Beleg abgelehnt: {exc}", "error")
             datum = datetime.now().strftime("%Y-%m-%d")
             bookkeeping.buy_and_consume(datum, int(art_id), stueck, betrag,
                                         bestellung_id=order_id, beleg_id=beleg_id)
-            msg += f" Sofortkauf gebucht ({bookkeeping.cent_to_de(betrag)} €) und verbraucht."
-        else:
-            flash("Sofortkauf ohne Betrag – Frankierung nicht erfasst.", "warning")
+            msg += (f" Sofortkauf über {bookkeeping.cent_to_de(betrag)} € als Ausgabe "
+                    f"gebucht und verbraucht.")
+    except ValueError as exc:
+        # Die Übernahme selbst bleibt bestehen; nur die Frankierung fehlt.
+        flash(f"{msg} Frankierung nicht erfasst: {exc}", "warning")
+        return redirect(url_for("bookkeeping_view"))
     flash(msg)
     return redirect(url_for("bookkeeping_view"))
 
@@ -1581,7 +1595,19 @@ def bookkeeping_storno(buchung_id: int):
     """
     try:
         bookkeeping.storno_booking(buchung_id, request.form.get("grund", "").strip())
-        flash("Stornobuchung erstellt.")
+        meldung = "Stornobuchung erstellt."
+
+        # Ist die Bestellung danach gar nicht mehr gebucht, war die Übernahme
+        # ein Fehlgriff: dann gehören die verbrauchten Marken zurück in den
+        # Vorrat (Häkchen, damit eine tatsächlich verklebte Marke draußen
+        # bleiben kann).
+        oid = request.form.get("order_id", "")
+        if oid.isdigit() and request.form.get("marken_zurueck"):
+            if not bookkeeping.order_already_booked(int(oid)):
+                n = bookkeeping.remove_consumptions_for_order(int(oid))
+                if n:
+                    meldung += f" {n} Frankierung(en) zurückgenommen."
+        flash(meldung)
     except ValueError as exc:
         flash(f"Storno nicht möglich: {exc}", "error")
     return redirect(url_for("bookkeeping_view"))
