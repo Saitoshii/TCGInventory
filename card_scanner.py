@@ -28,8 +28,44 @@ CardInfo = Dict[str, str]
 SCANNER_QUEUE: Queue[CardInfo] = Queue()
 
 
+def image_url_for(card_id: str, groesse: str = "normal") -> str:
+    """Bildadresse aus der Scryfall-ID ableiten.
+
+    Scryfall legt die Bilder unter einem festen Pfad ab, der sich aus den
+    ersten beiden Zeichen der ID ergibt. Die Adresse muss deshalb nicht
+    gespeichert werden — das spart in der Kartendatenbank pro Zeile rund 75
+    Zeichen. Nebeneffekt: auch doppelseitige Karten bekommen ein Bild, die im
+    Bulk-Datensatz oben kein ``image_uris`` haben.
+    """
+    if not card_id or len(card_id) < 2:
+        return ""
+    return (f"https://cards.scryfall.io/{groesse}/front/"
+            f"{card_id[0]}/{card_id[1]}/{card_id}.jpg")
+
+
+def reset_card_database() -> None:
+    """Zwischengespeicherte Verbindung schließen.
+
+    Nach dem atomaren Austausch der Kartendatenbank zeigt eine offene
+    Verbindung noch auf die alte Datei; sie muss deshalb verworfen werden.
+    """
+    global _DB_CONN
+    if _DB_CONN is not None:
+        try:
+            _DB_CONN.close()
+        except sqlite3.Error:
+            pass
+        _DB_CONN = None
+
+
 def _load_card_database() -> None:
-    """Open the local card database connection if available."""
+    """Open the local card database connection if available.
+
+    Es wird ausschließlich die aufbereitete SQLite-Datenbank genutzt. Die rohe
+    Bulk-JSON wird bewusst nicht mehr geladen: sie würde vollständig in den
+    Arbeitsspeicher gehen und den Pi zum Absturz bringen. Fehlt die Datenbank,
+    kann sie über „Kartendaten aktualisieren" neu aufgebaut werden.
+    """
     global _DB_CONN
     if _DB_CONN:
         return
@@ -44,22 +80,9 @@ def _load_card_database() -> None:
             # invalid or empty database file -> ignore
             _DB_CONN.close()
             _DB_CONN = None
-    if not DEFAULT_CARDS_PATH.exists():
-        print(f"⚠️  Lokale Kartendatei {DEFAULT_CARDS_PATH} nicht gefunden.")
-        return
-    try:
-        with DEFAULT_CARDS_PATH.open("r", encoding="utf-8") as f:
-            cards: List[Dict] = json.load(f)
-    except Exception as exc:  # pragma: no cover - simple placeholder
-        print(f"❌ Fehler beim Laden der Kartendaten: {exc}")
-        return
-    for card in cards:
-        cid = card.get("id")
-        name = card.get("name", "").lower()
-        if cid:
-            _CARDS_BY_ID[cid] = card
-        if name and name not in _CARDS_BY_NAME:
-            _CARDS_BY_NAME[name] = card
+    else:
+        print(f"⚠️  Lokale Kartendatenbank {DEFAULT_DB_PATH} nicht gefunden – "
+              "bitte in der Weboberflaeche unter 'Kartendaten' aktualisieren.")
 
 def scan_image(path: str) -> Optional[str]:
     """Scan an image file for barcodes and return the first result as string."""
@@ -78,7 +101,7 @@ def fetch_card_info(card_id: str) -> Optional[CardInfo]:
     _load_card_database()
     if _DB_CONN:
         c = _DB_CONN.execute(
-            "SELECT name, set_code, lang, cardmarket_id, collector_number, image_url FROM cards WHERE id=?",
+            "SELECT name, set_code, lang, cardmarket_id, collector_number, id FROM cards WHERE id=?",
             (card_id,),
         )
         row = c.fetchone()
@@ -89,7 +112,7 @@ def fetch_card_info(card_id: str) -> Optional[CardInfo]:
                 "language": row[2],
                 "cardmarket_id": row[3],
                 "collector_number": row[4],
-                "image_url": row[5],
+                "image_url": image_url_for(row[5]),
             }
     card = _CARDS_BY_ID.get(card_id)
     if card:
@@ -122,7 +145,7 @@ def fetch_card_info_by_name(name: str) -> Optional[CardInfo]:
     _load_card_database()
     if _DB_CONN:
         c = _DB_CONN.execute(
-            "SELECT name, set_code, lang, cardmarket_id, collector_number, image_url, id FROM cards WHERE lower(name)=lower(?)",
+            "SELECT name, set_code, lang, cardmarket_id, collector_number, id FROM cards WHERE lower(name)=lower(?)",
             (name,),
         )
         row = c.fetchone()
@@ -133,8 +156,8 @@ def fetch_card_info_by_name(name: str) -> Optional[CardInfo]:
                 "language": row[2],
                 "cardmarket_id": row[3],
                 "collector_number": row[4],
-                "image_url": row[5],
-                "scryfall_id": row[6],
+                "image_url": image_url_for(row[5]),
+                "scryfall_id": row[5],
             }
     card = _CARDS_BY_NAME.get(name.lower())
     if card:
@@ -217,7 +240,7 @@ def fetch_variants(name: str) -> List[CardInfo]:
     results: List[CardInfo] = []
     if _DB_CONN:
         c = _DB_CONN.execute(
-            "SELECT id, name, set_code, lang, collector_number, cardmarket_id, image_url FROM cards WHERE lower(name)=lower(?) ORDER BY set_code",
+            "SELECT id, name, set_code, lang, collector_number, cardmarket_id FROM cards WHERE lower(name)=lower(?) ORDER BY set_code",
             (name,),
         )
         for row in c.fetchall():
@@ -229,7 +252,7 @@ def fetch_variants(name: str) -> List[CardInfo]:
                     "language": row[3],
                     "collector_number": row[4],
                     "cardmarket_id": row[5],
-                    "image_url": row[6],
+                    "image_url": image_url_for(row[0]),
                 }
             )
         return results
@@ -373,7 +396,7 @@ def find_by_identity(
 
     if _DB_CONN:
         c = _DB_CONN.execute(
-            "SELECT id, name, set_code, lang, cardmarket_id, collector_number, image_url "
+            "SELECT id, name, set_code, lang, cardmarket_id, collector_number "
             "FROM cards WHERE lower(set_code)=lower(?) AND collector_number=?",
             (set_code, str(collector_number)),
         )
@@ -388,7 +411,7 @@ def find_by_identity(
             "language": row["lang"],
             "cardmarket_id": row["cardmarket_id"],
             "collector_number": row["collector_number"],
-            "image_url": row["image_url"],
+            "image_url": image_url_for(row["id"]),
         }
 
     # JSON fallback (no prebuilt DB): scan the loaded cards.
