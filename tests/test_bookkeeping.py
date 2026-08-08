@@ -35,8 +35,8 @@ def _db(tmp_path):
 
 
 def _order(db, oid=7, number="1001", gesamt=5.45, versand=1.55, gebuehren=0.20,
-           auszahlung=5.25, status="sold", versandt="2026-05-05",
-           datum="2026-05-04T10:00:00", positionen=(("Karte", 1, 3.90),)):
+           auszahlung=5.25, status="sold", versandt="2026-06-05",
+           datum="2026-06-04T10:00:00", positionen=(("Karte", 1, 3.90),)):
     with sqlite3.connect(db) as c:
         c.execute(
             "INSERT INTO orders (id, buyer_name, email_message_id, date_received, email_date,"
@@ -147,7 +147,7 @@ def test_order_takeover_creates_exactly_three_bookings(tmp_path):
     assert rows["Warenverkauf"] == 390                # 5,45 − 1,55
     assert rows["Vereinnahmte Versandkosten"] == 155
     assert rows["Cardmarket-Gebühren"] == 20
-    assert datum == "2026-05-05"                      # Versanddatum
+    assert datum == "2026-06-05"                      # Versanddatum
 
     # Porto wird bei der Bestellung NICHT gebucht.
     with sqlite3.connect(db) as c:
@@ -178,20 +178,21 @@ def test_unique_index_blocks_duplicate_at_db_level(tmp_path):
 def test_orders_before_business_start_are_hidden(tmp_path):
     """Bestellungen von vor dem Geschäftsbeginn werden nicht zur Übernahme
     angeboten — vor der Gründung gehören sie nicht in die EÜR."""
+    assert bookkeeping.GESCHAEFTSBEGINN == "2026-06-01"   # Gründung der GbR
     db = _db(tmp_path)
-    _order(db, oid=20, number="alt-1", versandt="2026-04-30", datum="2026-04-29T10:00:00")
-    _order(db, oid=21, number="neu-1", versandt="2026-05-01", datum="2026-05-01T10:00:00")
-    _order(db, oid=22, number="neu-2", versandt="2026-06-15", datum="2026-06-14T10:00:00")
+    _order(db, oid=20, number="alt-1", versandt="2026-05-31", datum="2026-05-30T10:00:00")
+    _order(db, oid=21, number="neu-1", versandt="2026-06-01", datum="2026-06-01T10:00:00")
+    _order(db, oid=22, number="neu-2", versandt="2026-07-15", datum="2026-07-14T10:00:00")
 
     nummern = [o["order_number"] for o in bookkeeping.bookable_orders()]
-    assert "alt-1" not in nummern
-    assert set(nummern) == {"neu-1", "neu-2"}          # Stichtag inklusive 01.05.
+    assert "alt-1" not in nummern                      # 31.05. liegt davor
+    assert set(nummern) == {"neu-1", "neu-2"}          # Stichtag inklusive 01.06.
     assert bookkeeping.count_vor_geschaeftsbeginn() == 1
 
     # Der Stichtag ist konfigurierbar.
     original = bookkeeping.GESCHAEFTSBEGINN
     try:
-        bookkeeping.GESCHAEFTSBEGINN = "2026-06-01"
+        bookkeeping.GESCHAEFTSBEGINN = "2026-07-01"
         assert [o["order_number"] for o in bookkeeping.bookable_orders()] == ["neu-2"]
     finally:
         bookkeeping.GESCHAEFTSBEGINN = original
