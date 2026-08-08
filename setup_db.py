@@ -274,12 +274,18 @@ def initialize_database() -> None:
         # korrigiert und danach erneut uebernommen werden. Der DROP haengt nur
         # den Index um (keine Daten betroffen) und ersetzt eine evtl. aeltere,
         # engere Definition dieses Index.
+        # Der Index sichert ab, dass eine Bestellung nur EINMAL uebernommen wird.
+        # Er gilt deshalb nur fuer die drei Uebernahme-Kategorien; ein
+        # Briefmarkenkauf darf einer Bestellung zusaetzlich zugeordnet sein
+        # (und notfalls auch mehrfach, etwa bei Nachfrankierung).
         cursor.execute("DROP INDEX IF EXISTS idx_journal_bestellung_kategorie")
         cursor.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_journal_bestellung_kategorie "
             "ON journal(bestellung_id, kategorie) "
             "WHERE bestellung_id IS NOT NULL AND art <> 'storno' "
-            "AND storniert_durch IS NULL"
+            "AND storniert_durch IS NULL "
+            "AND kategorie IN ('Warenverkauf', 'Vereinnahmte Versandkosten', "
+            "'Cardmarket-Gebühren')"
         )
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_journal_datum ON journal(buchungsdatum)")
         cursor.execute(
@@ -370,6 +376,13 @@ def initialize_database() -> None:
             )
             """
         )
+        # Beim Sofortkauf gehoeren Kauf und Verbrauch zusammen. Wird der Kauf
+        # storniert, muss auch der Verbrauch verschwinden - sonst saenke der
+        # Bestand unter null.
+        cursor.execute("PRAGMA table_info(markenverbrauch)")
+        verbrauch_spalten = [row[1] for row in cursor.fetchall()]
+        if "markenkauf_id" not in verbrauch_spalten:
+            cursor.execute("ALTER TABLE markenverbrauch ADD COLUMN markenkauf_id INTEGER")
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_verbrauch_datum ON markenverbrauch(datum)"
         )
