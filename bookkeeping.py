@@ -71,11 +71,12 @@ CSV_ENCODING = "utf-8-sig"
 # Schwellwert, ab dem in der Übersicht auf niedrigen Markenbestand hingewiesen wird.
 BESTAND_WARNUNG = 5
 
-# Geschäftsbeginn: Bestellungen davor stammen aus der Zeit vor der Gründung und
-# gehören nicht in die Buchhaltung. Sie werden deshalb gar nicht erst zur
-# Übernahme angeboten. Über die Umgebungsvariable ``TCG_GESCHAEFTSBEGINN``
-# (Format JJJJ-MM-TT) anpassbar.
-GESCHAEFTSBEGINN = os.environ.get("TCG_GESCHAEFTSBEGINN", "2026-05-01")
+# Geschäftsbeginn (Gründung der GbR): 01.06.2026. Bestellungen davor stammen aus
+# der Zeit vor der Gründung und gehören nicht in die Buchhaltung — sie werden
+# deshalb gar nicht erst zur Übernahme angeboten. Der Stichtag zählt inklusive:
+# eine Bestellung vom 01.06. gehört dazu. Über die Umgebungsvariable
+# ``TCG_GESCHAEFTSBEGINN`` (Format JJJJ-MM-TT) anpassbar.
+GESCHAEFTSBEGINN = os.environ.get("TCG_GESCHAEFTSBEGINN", "2026-06-01")
 
 
 # ---------------------------------------------------------------------------
