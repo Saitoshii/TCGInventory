@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block content %}
+<h2 class="page-title mb-3">Kartendaten</h2>
+
+<p class="text-muted small">
+  Namen, Sets und Bilder stammen aus den Scryfall-Bulkdaten. Sie werden direkt auf dem Pi
+  geladen und im Vorbeifließen in die Datenbank geschrieben – die mehrere hundert MB große
+  Rohdatei landet dabei nie auf der SD-Karte. Die bisherige Datenbank bleibt bis zum
+  Abschluss in Betrieb und wird erst am Ende ausgetauscht.
+</p>
+
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header"><h5 class="mb-0">Aktueller Stand</h5></div>
+      <div class="card-body">
+        {% if info.vorhanden %}
+        <table class="table table-sm mb-0">
+          <tbody>
+            <tr><td>Karten</td><td>{{ '{:,}'.format(info.anzahl)|replace(',', '.') }}</td></tr>
+            <tr><td>Größe</td><td>{{ info.groesse_mb }} MB</td></tr>
+            <tr>
+              <td>Stand (Scryfall)</td>
+              <td>{{ info.stand[:10] if info.stand else '– unbekannt (vor der Umstellung erzeugt)' }}</td>
+            </tr>
+          </tbody>
+        </table>
+        {% else %}
+        <div class="alert alert-warning mb-0">
+          Es ist noch keine Kartendatenbank vorhanden. Ohne sie fehlen Bilder und die
+          automatische Zuordnung beim Import.
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header"><h5 class="mb-0">Aktualisieren</h5></div>
+      <div class="card-body">
+        <div id="fortschritt" class="{% if not status.laeuft %}d-none{% endif %}">
+          <div class="progress mb-2">
+            <div class="progress-bar progress-bar-striped progress-bar-animated"
+                 style="width: 100%"></div>
+          </div>
+          <div class="text-muted small" id="fortschritt-text">{{ status.meldung }}</div>
+        </div>
+
+        <div id="formular" class="{% if status.laeuft %}d-none{% endif %}">
+          {% if status.fertig and status.meldung %}
+          <div class="alert {% if status.fehler %}alert-danger{% else %}alert-success{% endif %} py-2">
+            {{ status.meldung }}
+          </div>
+          {% endif %}
+          <form method="post" action="{{ url_for('card_data_update') }}">
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" name="erzwingen" value="1" id="erzwingen">
+              <label class="form-check-label small" for="erzwingen">
+                Auch dann laden, wenn Scryfall keine neuere Fassung meldet
+              </label>
+            </div>
+            <button class="btn btn-primary" type="submit">Jetzt aktualisieren</button>
+          </form>
+          <div class="text-muted small mt-2">
+            Dauert je nach Verbindung einige Minuten. Die Oberfläche bleibt nutzbar.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="text-muted small mt-3">
+  Alternative ohne Internetzugang auf dem Pi: eine fertige <code>default-cards.db</code>
+  auf einem anderen Rechner erzeugen (<code>python build_card_db.py --datei default-cards.json</code>)
+  und über <a href="{{ url_for('upload_database') }}">DB hochladen</a> einspielen.
+</p>
+
+<script>
+// Während des Laufs den Fortschritt abfragen (kein Dauerticken im Sekundentakt).
+(function () {
+  var laeuft = {{ 'true' if status.laeuft else 'false' }};
+  if (!laeuft) return;
+  var text = document.getElementById('fortschritt-text');
+  var timer = setInterval(function () {
+    fetch('{{ url_for("card_data_status") }}')
+      .then(function (r) { return r.json(); })
+      .then(function (s) {
+        text.textContent = s.meldung || '';
+        if (!s.laeuft) { clearInterval(timer); window.location.reload(); }
+      })
+      .catch(function () { clearInterval(timer); });
+  }, 3000);
+})();
+</script>
+{% endblock %}

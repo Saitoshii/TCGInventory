@@ -59,6 +59,8 @@ from TCGInventory.shipping_note import render_shipping_note, detect_language
 from TCGInventory import sales_export
 from TCGInventory import bookkeeping
 from TCGInventory import backup_status
+from TCGInventory import build_card_db
+from TCGInventory import card_scanner
 from pathlib import Path
 from werkzeug.utils import secure_filename
 
@@ -1883,6 +1885,90 @@ def audit_log_view():
         action_filter=action_filter,
         user_filter=user_filter
     )
+
+
+# ---------------------------------------------------------------------------
+# Kartendaten (Scryfall-Bulkdaten)
+# ---------------------------------------------------------------------------
+#: Zustand der laufenden Aktualisierung. Der Aufbau dauert einige Minuten und
+#: läuft deshalb im Hintergrund; die Seite fragt den Fortschritt ab.
+CARDDATA_STATUS: dict = {
+    "laeuft": False, "anzahl": 0, "meldung": "", "fertig": False, "fehler": None,
+}
+
+
+def _kartendaten_info() -> dict:
+    """Größe, Kartenzahl und Stand der lokalen Kartendatenbank."""
+    pfad = Path(__file__).resolve().parent / "data" / "default-cards.db"
+    info = {"vorhanden": pfad.exists(), "pfad": str(pfad),
+            "groesse_mb": 0.0, "anzahl": 0, "stand": None}
+    if not pfad.exists():
+        return info
+    info["groesse_mb"] = round(pfad.stat().st_size / 1024 / 1024, 1)
+    try:
+        with sqlite3.connect(f"file:{pfad}?mode=ro", uri=True) as conn:
+            info["anzahl"] = conn.execute("SELECT COUNT(*) FROM cards").fetchone()[0]
+            try:
+                zeile = conn.execute(
+                    "SELECT wert FROM meta WHERE schluessel = 'updated_at'").fetchone()
+                info["stand"] = zeile[0] if zeile else None
+            except sqlite3.Error:
+                pass          # ältere Datenbank ohne meta-Tabelle
+    except sqlite3.Error:
+        pass
+    return info
+
+
+def _aktualisiere_kartendaten(erzwingen: bool) -> None:
+    """Hintergrundlauf: Bulkdaten streamen und Datenbank atomar tauschen."""
+    def melde(anzahl, text):
+        CARDDATA_STATUS["anzahl"] = anzahl
+        CARDDATA_STATUS["meldung"] = text
+    try:
+        # Die zwischengespeicherte Verbindung wird unmittelbar vor dem Tausch
+        # geschlossen – danach liest die Anwendung die neue Datei.
+        ergebnis = build_card_db.aktualisiere_von_scryfall(
+            fortschritt=melde, erzwingen=erzwingen,
+            vor_tausch=card_scanner.reset_card_database)
+        CARDDATA_STATUS["meldung"] = (
+            f"Fertig – {ergebnis['anzahl']} Karten übernommen."
+            if ergebnis["aktualisiert"] else "Kartendaten waren bereits aktuell.")
+    except Exception as exc:                       # noqa: BLE001
+        CARDDATA_STATUS["fehler"] = str(exc)
+        CARDDATA_STATUS["meldung"] = f"Fehlgeschlagen: {exc}"
+    finally:
+        CARDDATA_STATUS["laeuft"] = False
+        CARDDATA_STATUS["fertig"] = True
+
+
+@app.route("/system/kartendaten")
+@login_required
+def card_data_view():
+    """Stand der Kartendaten anzeigen und Aktualisierung anbieten."""
+    return render_template("card_data.html", info=_kartendaten_info(),
+                           status=CARDDATA_STATUS)
+
+
+@app.route("/system/kartendaten/aktualisieren", methods=["POST"])
+@login_required
+def card_data_update():
+    """Aktualisierung im Hintergrund anstoßen (Download direkt von Scryfall)."""
+    if CARDDATA_STATUS["laeuft"]:
+        flash("Eine Aktualisierung läuft bereits.", "warning")
+        return redirect(url_for("card_data_view"))
+    CARDDATA_STATUS.update({"laeuft": True, "anzahl": 0, "fertig": False,
+                            "fehler": None, "meldung": "Wird gestartet …"})
+    erzwingen = bool(request.form.get("erzwingen"))
+    threading.Thread(target=_aktualisiere_kartendaten, args=(erzwingen,),
+                     daemon=True).start()
+    return redirect(url_for("card_data_view"))
+
+
+@app.route("/system/kartendaten/status")
+@login_required
+def card_data_status():
+    """Fortschritt für die Anzeige (wird von der Seite abgefragt)."""
+    return jsonify(CARDDATA_STATUS)
 
 
 @app.route("/upload_database", methods=["GET", "POST"])

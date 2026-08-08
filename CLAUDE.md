@@ -14,7 +14,12 @@ Server-rendered (Jinja2 + Bootstrap 5 via CDN), SQLite. Betrieb im DACH-Raum.
   Server-rendered bleibt. Styling über eine schlanke **eigene CSS-Schicht auf
   Bootstrap**.
 - Scryfall-Bulkdaten liegen lokal vor (`default-cards.db` / `build_card_db.py`)
-  → für Karten-Anreicherung nutzen, nicht online abfragen.
+  → für Karten-Anreicherung **immer** die lokale Datenbank nutzen, **niemals**
+  pro Karte die Scryfall-API abfragen.
+  Die Bulkdatei selbst darf periodisch von Scryfall geladen werden (Seite
+  „Kartendaten"): sie wird streamend verarbeitet, die Rohdatei wird nicht
+  gespeichert, und die Datenbank wird erst am Ende atomar getauscht.
+  Die rohe Bulk-JSON nie vollständig in den Speicher laden — das sprengt den Pi.
 - **Kein Cardmarket-API-Zugang** derzeit. Bestellungen kommen per Gmail-Mail
   (`email_parser.py`, `gmail_auth.py`).
 - Labeldrucker **Niimbot B1 (50×30 mm)** wird später via USB am Pi angebunden.
