@@ -208,6 +208,14 @@ TCGInventory/
   enrichment adds the canonical `scryfall_id` and `cardmarket_id` (for later API
   use). `storage_code` is the physical location (multiple cards per location
   allowed); `folder_id` is the binder/folder.
+- **CSV import:** two export layouts share one code path (`dragonshield.py`) —
+  Dragonshield and the longer list export of scan apps. Both name the relevant
+  columns identically (`Card Name`, `Set Code`, `Card Number`, `Condition`,
+  `Printing`, `Language`, `Price Bought`, `Date Bought`); the extra columns
+  `Rarity` and `Current Price (<source>)` are read when present. Conditions are
+  normalized to the Cardmarket codes (`NearMint` → `NM`) so the inventory filter
+  matches them; values with no accepted 1:1 mapping ("Moderately Played") are
+  kept verbatim rather than guessed. See [docs/IMPORT.md](docs/IMPORT.md).
 - **End-to-end identity path (must not be broken):**
   Dragonshield CSV → Scryfall enrichment (canonical IDs) → inventory row with a
   storage location → parse order email → match on
@@ -228,6 +236,8 @@ python -m pytest
 ## Further documentation
 
 - [`CLAUDE.md`](CLAUDE.md) — project framework, constraints and principles.
+- [docs/IMPORT.md](docs/IMPORT.md) — supported CSV layouts, column mapping and
+  what happens to rows that cannot be resolved.
 - [docs/WEB_INTERFACE.md](docs/WEB_INTERFACE.md) — walkthrough of the web pages
   and forms.
 - [docs/FEATURES.md](docs/FEATURES.md) — UI/UX and data-model capabilities

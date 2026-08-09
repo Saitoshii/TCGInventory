@@ -107,6 +107,10 @@ def _needs_review_entry(fields: dict, folder_id, reason: str, raw: dict) -> dict
         "condition": fields.get("condition", ""),
         "quantity": fields.get("quantity", 1),
         "price": fields.get("price", 0.0),
+        "rarity": fields.get("rarity", ""),
+        "date_bought": fields.get("date_bought", ""),
+        "market_price": fields.get("market_price"),
+        "source_list": fields.get("source_list", ""),
         "folder_id": folder_id,
         "reason": reason,
         "raw": raw,
@@ -144,7 +148,8 @@ def fetch_cards(search: str | None = None, folder_id: int | None = None,
             "SELECT cards.id, cards.name, cards.set_code, cards.language, "
             "cards.condition, cards.price, cards.quantity, cards.storage_code, "
             "COALESCE(folders.name, ''), cards.status, cards.image_url, cards.foil, "
-            "cards.collector_number, cards.item_type, cards.location_hint FROM cards "
+            "cards.collector_number, cards.item_type, cards.location_hint, "
+            "cards.rarity, cards.date_bought, cards.market_price FROM cards "
             "LEFT JOIN folders ON cards.folder_id = folders.id"
         )
         conditions = []
@@ -531,12 +536,16 @@ def export_cards():
             "Bild",
             "Typ",
             "Standort",
+            "Seltenheit",
+            "Kaufdatum",
+            "Marktpreis (€)",
         ]
     )
     for row in rows:
-        # Row indices: 0=id, 1=name, 2=set_code, 3=language, 4=condition, 5=price, 
+        # Row indices: 0=id, 1=name, 2=set_code, 3=language, 4=condition, 5=price,
         # 6=quantity, 7=storage_code, 8=folder, 9=status, 10=image_url, 11=foil,
-        # 12=collector_number, 13=item_type, 14=location_hint
+        # 12=collector_number, 13=item_type, 14=location_hint, 15=rarity,
+        # 16=date_bought, 17=market_price
         writer.writerow([
             row[12] if len(row) > 12 else '',  # collector_number
             row[1],   # name
@@ -551,6 +560,9 @@ def export_cards():
             row[10],  # image_url
             row[13] if len(row) > 13 else 'card',  # item_type
             row[14] if len(row) > 14 else '',  # location_hint
+            row[15] if len(row) > 15 else '',  # rarity
+            row[16] if len(row) > 16 else '',  # date_bought
+            row[17] if len(row) > 17 else '',  # market_price
         ])
     resp = Response(output.getvalue(), mimetype="text/csv; charset=utf-8")
     
@@ -764,6 +776,12 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
                         "item_type": "card",
                         "storage_code": "",
                         "location_hint": "",
+                        # Structured extras from the CSV, kept instead of dropped.
+                        "rarity": fields["rarity"],
+                        "date_bought": fields["date_bought"],
+                        "market_price": fields["market_price"],
+                        "source_list": fields["source_list"],
+                        "condition_raw": fields["condition_raw"],
                     }
                 )
                 added_any = True
@@ -1285,6 +1303,9 @@ def upload_card_route(index: int):
             card.get("foil", False),
             card.get("item_type", "card"),
             card.get("location_hint", ""),
+            rarity=card.get("rarity", ""),
+            date_bought=card.get("date_bought", ""),
+            market_price=card.get("market_price"),
         )
         flash(
             "Karte übernommen" if success else "Kein Lagerplatz für " + card["name"],
@@ -1315,6 +1336,9 @@ def upload_all_route():
             card.get("foil", False),
             card.get("item_type", "card"),
             card.get("location_hint", ""),
+            rarity=card.get("rarity", ""),
+            date_bought=card.get("date_bought", ""),
+            market_price=card.get("market_price"),
         )
     flash("Alle Karten aus der Warteschlange übernommen")
     return redirect(url_for("list_cards"))
@@ -1401,6 +1425,10 @@ def needs_review_retry(index: int):
             "item_type": "card",
             "storage_code": "",
             "location_hint": "",
+            "rarity": entry.get("rarity", ""),
+            "date_bought": entry.get("date_bought", ""),
+            "market_price": entry.get("market_price"),
+            "source_list": entry.get("source_list", ""),
         }
     )
     NEEDS_REVIEW.pop(index)

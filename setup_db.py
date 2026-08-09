@@ -29,7 +29,10 @@ def initialize_database() -> None:
                 collector_number TEXT,
                 scryfall_id TEXT,
                 image_url TEXT,
-                foil INTEGER DEFAULT 0
+                foil INTEGER DEFAULT 0,
+                rarity TEXT,
+                date_bought TEXT,
+                market_price REAL
             )
             """
         )
@@ -83,6 +86,17 @@ def initialize_database() -> None:
             cursor.execute("ALTER TABLE cards ADD COLUMN cardmarket_id TEXT")
         if "storage_code" not in columns:
             cursor.execute("ALTER TABLE cards ADD COLUMN storage_code TEXT")
+        # Structured fields carried over from the CSV import (kept instead of
+        # discarded, see CLAUDE.md principle 2). ``date_bought`` is the purchase
+        # date from the export and is distinct from ``date_added`` (import time);
+        # ``market_price`` is the market price at export time and is distinct
+        # from ``price`` (purchase price).
+        if "rarity" not in columns:
+            cursor.execute("ALTER TABLE cards ADD COLUMN rarity TEXT")
+        if "date_bought" not in columns:
+            cursor.execute("ALTER TABLE cards ADD COLUMN date_bought TEXT")
+        if "market_price" not in columns:
+            cursor.execute("ALTER TABLE cards ADD COLUMN market_price REAL")
 
         # Indexes for the identity path and common lookups. CREATE INDEX
         # IF NOT EXISTS keeps this idempotent and non-destructive. All columns

@@ -50,6 +50,9 @@ ALLOWED_FIELDS = {
     "item_type",
     "reserved_until",
     "location_hint",
+    "rarity",
+    "date_bought",
+    "market_price",
 }
 
 # Constants for item types and status values.
@@ -106,8 +109,18 @@ def add_card(
     foil=False,
     item_type="card",
     location_hint="",
+    *,
+    rarity="",
+    date_bought="",
+    market_price=None,
 ):
-    """Add a card or display item and reserve a storage slot if available."""
+    """Add a card or display item and reserve a storage slot if available.
+
+    ``rarity``, ``date_bought`` (purchase date from the import) and
+    ``market_price`` (market price at export time) are optional structured
+    fields from the CSV import; they are keyword-only so existing positional
+    callers are unaffected.
+    """
     # Validate item_type
     if item_type not in ITEM_TYPES:
         item_type = "card"
@@ -136,8 +149,9 @@ def add_card(
             """
         INSERT INTO cards (name, set_code, language, condition, price, quantity, storage_code,
                            cardmarket_id, date_added, folder_id, collector_number,
-                           scryfall_id, image_url, foil, item_type, location_hint)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                           scryfall_id, image_url, foil, item_type, location_hint,
+                           rarity, date_bought, market_price)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 name,
@@ -156,6 +170,9 @@ def add_card(
                 int(bool(foil)),
                 item_type,
                 location_hint,
+                rarity,
+                date_bought,
+                market_price,
             ),
         )
 
@@ -212,6 +229,10 @@ def add_or_increment_card(
     item_type="card",
     location_hint="",
     user="system",
+    *,
+    rarity="",
+    date_bought="",
+    market_price=None,
 ):
     """Add a card, or increment the quantity of an identical one in the same folder.
 
@@ -257,6 +278,9 @@ def add_or_increment_card(
         foil,
         item_type,
         location_hint,
+        rarity=rarity,
+        date_bought=date_bought,
+        market_price=market_price,
     )
 
 

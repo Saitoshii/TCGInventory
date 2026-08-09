@@ -157,6 +157,7 @@
         {% if c[12] %}<span class="sep">·</span><span>#{{ c[12] }}</span>{% endif %}
         {% if c[3] %}<span class="sep">·</span><span>{{ c[3]|upper }}</span>{% endif %}
         {% if c[4] %}<span class="sep">·</span><span>{{ c[4] }}</span>{% endif %}
+        {% if c|length > 15 and c[15] %}<span class="sep">·</span><span>{{ c[15]|title }}</span>{% endif %}
       </div>
       <div class="tcg-card__row">
         {% set status = c[9] %}
@@ -174,7 +175,8 @@
         {% if c[8] %}<span class="chip">📁 {{ c[8] }}</span>{% endif %}
       </div>
       <div class="tcg-card__stats">
-        <span class="tcg-card__price">€{{ "%.2f"|format(c[5]) if c[5] else '0.00' }}</span>
+        <span class="tcg-card__price"
+              {% if c|length > 17 and c[17] %}title="Marktpreis beim Import: €{{ '%.2f'|format(c[17]) }}"{% endif %}>€{{ "%.2f"|format(c[5]) if c[5] else '0.00' }}</span>
         <span class="tcg-card__qty">Menge <strong class="qty-cell">{{ c[6] }}</strong></span>
       </div>
       <div class="tcg-card__actions">

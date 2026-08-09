@@ -18,6 +18,9 @@
       <th>Set</th>
       <th>Language</th>
       <th>Condition</th>
+      <th>Rarity</th>
+      <th>Einkauf</th>
+      <th>Marktpreis</th>
       <th>Storage/Location</th>
       <th>Foil</th>
       <th>Warnings</th>
@@ -43,7 +46,21 @@
       <td>{{ card.quantity }}</td>
       <td>{{ card.set_code }}</td>
       <td>{{ card.language|upper if card.language else '—' }}</td>
-      <td>{{ card.condition if card.condition else '—' }}</td>
+      <td>
+        {{ card.condition if card.condition else '—' }}
+        {% if card.get('condition_raw') and card.get('condition_raw') != card.condition %}
+          <small class="text-muted d-block">{{ card.condition_raw }}</small>
+        {% endif %}
+      </td>
+      <td>{{ card.get('rarity')|title if card.get('rarity') else '—' }}</td>
+      <td>{{ '%.2f'|format(card.get('price') or 0) }} €</td>
+      <td>
+        {% if card.get('market_price') is not none %}
+          {{ '%.2f'|format(card.market_price) }} €
+        {% else %}
+          —
+        {% endif %}
+      </td>
       <td>
         {% if card.get('storage_code') %}
           {{ card.storage_code }}
@@ -65,6 +82,10 @@
         {% endif %}
         {% if card.get('item_type') == 'card' and not card.get('storage_code') %}
           <span class="badge bg-info" title="No storage assigned">ℹ️</span>
+        {% endif %}
+        {% if card.get('market_price') is not none and card.get('price') == card.get('market_price') %}
+          <span class="badge bg-warning text-dark"
+                title="Der Einkaufspreis aus der Datei entspricht exakt dem Marktpreis – die Scan-App hat ihn vermutlich vorbelegt. Vor der Übernahme prüfen.">💶</span>
         {% endif %}
       </td>
       <td>
