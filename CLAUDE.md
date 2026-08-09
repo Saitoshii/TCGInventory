@@ -23,6 +23,13 @@ Server-rendered (Jinja2 + Bootstrap 5 via CDN), SQLite. Betrieb im DACH-Raum.
 - **Kein Cardmarket-API-Zugang** derzeit. Bestellungen kommen per Gmail-Mail
   (`email_parser.py`, `gmail_auth.py`).
 - Labeldrucker **Niimbot B1 (50×30 mm)** wird später via USB am Pi angebunden.
+- **Die Buchhaltung gehört nicht mehr hierher.** Sie ist eine eigenständige
+  Anwendung (Repository `ZurFestung-Buchhaltung`, eigener Dienst auf Port
+  5001, eigene Datenbank) und liest die Bestellungen über `api_v1.py`. Hier
+  also **keine** Buchungen, keine Belege, keine Auswertung von Einnahmen und
+  Ausgaben mehr anlegen — auch nicht „nur schnell". Die Tabellen `journal`,
+  `belege`, `markenart`, `markenkauf`, `markenverbrauch` und `auszahlung`
+  sind Altbestand: lesbar, aber es wird nicht mehr hineingeschrieben.
 
 ## Kern-Datenmodell (Tabelle `cards`)
 Eine Karte wird eindeutig identifiziert über die Kombination:
