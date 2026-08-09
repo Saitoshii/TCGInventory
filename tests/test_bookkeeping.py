@@ -728,6 +728,42 @@ def test_immediate_purchase_without_amount_keeps_order_but_warns(tmp_path):
                          (bookkeeping.KAT_PORTO,)).fetchone()[0] == 0
 
 
+def test_retake_after_storno_works_despite_linked_stamp_purchase(tmp_path):
+    """Ein zugeordneter Sofortkauf darf die erneute Übernahme nicht blockieren.
+
+    Der Portokauf ist keine Übernahme-Buchung. Zählte er mit, gälte die
+    Bestellung nach dem Storno weiter als gebucht und liesse sich nicht mehr
+    korrigieren — genau das war der Fehler.
+    """
+    db = _db(tmp_path)
+    _order(db)
+    art = _markenart(95)
+    client = _client(db)
+    client.post("/buchhaltung/uebernehmen/7",
+                data={"frankierung": "sofort", "markenart_id": str(art),
+                      "stueckzahl": "1", "betrag": "0,95"})
+
+    with sqlite3.connect(db) as c:
+        ids = [r[0] for r in c.execute(
+            "SELECT id FROM journal WHERE bestellung_id=7 AND art<>'storno' "
+            "AND kategorie<>?", (bookkeeping.KAT_PORTO,))]
+    for bid in ids:
+        client.post(f"/buchhaltung/storno/{bid}",
+                    data={"order_id": "7", "marken_zurueck": "1"})
+
+    # Trotz weiterhin vorhandener Portokauf-Buchung ist die Bestellung wieder offen.
+    assert bookkeeping.order_already_booked(7) is False
+    assert any(o["id"] == 7 for o in bookkeeping.bookable_orders())
+
+    client.post("/buchhaltung/uebernehmen/7", data={"frankierung": ""})
+    with sqlite3.connect(db) as c:
+        aktiv = c.execute(
+            "SELECT COUNT(*) FROM journal WHERE bestellung_id=7 AND art<>'storno' "
+            "AND storniert_durch IS NULL AND kategorie<>?",
+            (bookkeeping.KAT_PORTO,)).fetchone()[0]
+    assert aktiv == 3                       # erneute Übernahme hat funktioniert
+
+
 def test_take_order_with_immediate_purchase_books_once(tmp_path):
     db = _db(tmp_path)
     _order(db)

@@ -213,16 +213,21 @@ def storno_booking(buchung_id: int, grund: str = "", db_file: Optional[str] = No
 # Einnahmen aus Bestellungen (nur Maildaten)
 # ---------------------------------------------------------------------------
 def order_already_booked(order_id: int, db_file: Optional[str] = None) -> bool:
-    """True, wenn die Bestellung eine *aktive* (nicht stornierte) Buchung hat.
+    """True, wenn die Bestellung eine *aktive* Übernahme-Buchung hat.
 
-    Eine stornierte Übernahme zählt nicht mehr — so lässt sich ein Fehlgriff per
-    Storno korrigieren und die Bestellung danach erneut übernehmen.
+    Gezählt werden nur die drei Übernahme-Kategorien. Ein der Bestellung
+    zugeordneter Briefmarkenkauf ist **keine** Übernahme — sonst gälte eine
+    Bestellung nach einem Sofortkauf als gebucht und liesse sich nach einem
+    Storno nicht mehr erneut übernehmen.
+
+    Eine stornierte Übernahme zählt nicht mehr, damit ein Fehlgriff per Storno
+    korrigiert und die Bestellung danach neu übernommen werden kann.
     """
     with _connect(db_file) as conn:
         row = conn.execute(
             "SELECT 1 FROM journal WHERE bestellung_id = ? AND art <> 'storno' "
-            "AND storniert_durch IS NULL LIMIT 1",
-            (order_id,),
+            "AND storniert_durch IS NULL AND kategorie IN (?, ?, ?) LIMIT 1",
+            (order_id, KAT_WARENVERKAUF, KAT_VERSANDEINNAHME, KAT_GEBUEHREN),
         ).fetchone()
     return row is not None
 
@@ -342,7 +347,9 @@ def bookable_orders(db_file: Optional[str] = None) -> List[dict]:
               AND substr(COALESCE(o.date_completed, o.email_date, o.date_received), 1, 10) >= ?
               AND NOT EXISTS (SELECT 1 FROM journal j
                               WHERE j.bestellung_id = o.id AND j.art <> 'storno'
-                                AND j.storniert_durch IS NULL)
+                                AND j.storniert_durch IS NULL
+                                AND j.kategorie IN ('Warenverkauf',
+                                    'Vereinnahmte Versandkosten', 'Cardmarket-Gebühren'))
             ORDER BY datum DESC
             """, (GESCHAEFTSBEGINN,)
         ).fetchall()
