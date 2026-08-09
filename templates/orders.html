@@ -89,7 +89,8 @@
         </div>
         <!-- Nur Anzeige: die aus der Cardmarket-Mail geparsten Betraege (das,
              was der Kunde zahlt und was auf dem Beileger steht). Keine manuelle
-             Eingabe hier — Versand/Gebuehren/Porto gehoeren in die Buchhaltung. -->
+             Eingabe hier — Versand/Gebuehren/Porto gehoeren in die eigenstaendige
+             Buchhaltung, die die Bestellungen ueber die API liest. -->
         {% if order.amounts.gesamt is not none or order.amounts.gesamtwert is not none %}
         <div class="text-muted small mt-3">
           Warenwert €{{ '%.2f'|format(order.amounts.gesamtwert or 0) }} ·

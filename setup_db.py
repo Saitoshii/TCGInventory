@@ -242,10 +242,21 @@ def initialize_database() -> None:
         )
 
         # -------------------------------------------------------------------
-        # Tabelle 7+8: Belege und Buchungsjournal (WP3b).
-        # Das Journal ist APPEND-ONLY: Buchungen werden nie geaendert oder
-        # geloescht, Korrekturen erfolgen ausschliesslich per Stornobuchung.
-        # Das wird unten per Trigger auf DB-Ebene erzwungen.
+        # Tabelle 7+8: Belege und Buchungsjournal — ALTBESTAND.
+        #
+        # Die Buchhaltung ist in eine eigenstaendige Anwendung umgezogen
+        # (Repository ZurFestung-Buchhaltung). Das Inventarsystem schreibt
+        # in diese Tabellen nicht mehr; sie bleiben ausschliesslich
+        # bestehen, damit vorhandene Daten lesbar bleiben — geloescht wird
+        # hier nichts, es sind steuerrelevante Aufzeichnungen.
+        #
+        # Die Uebernahme in das neue System erledigt dort
+        # scripts/uebernahme.py; siehe docs/UMSTELLUNG.md im neuen
+        # Repository. Bei einer Neuinstallation bleiben die Tabellen leer.
+        #
+        # Das Journal war APPEND-ONLY: Korrekturen erfolgten ausschliesslich
+        # per Stornobuchung, erzwungen per Trigger. Die Trigger bleiben
+        # bestehen und schuetzen den Altbestand weiter.
         # -------------------------------------------------------------------
         cursor.execute(
             """
