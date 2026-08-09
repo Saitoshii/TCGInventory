@@ -3,9 +3,11 @@
 <h2 class="page-title">Bulk-Import</h2>
 <p class="text-muted">
   Wähle den <strong>Zielordner</strong> für diesen Import (keine automatische
-  Zuordnung nach Set). Bei einer Dragonshield-CSV werden Foil (aus „Printing"),
-  Set-Code, Kartennummer und Sprache automatisch erkannt und über die lokale
-  Scryfall-Datenbank angereichert. Nicht eindeutig auflösbare Zeilen landen unter
+  Zuordnung nach Set oder nach der Liste aus der Datei). Aus der CSV werden Foil
+  (aus „Printing"), Set-Code, Kartennummer, Sprache und Zustand automatisch
+  erkannt und über die lokale Scryfall-Datenbank angereichert; Seltenheit,
+  Kaufdatum und Marktpreis werden mit übernommen, sofern vorhanden. Nicht
+  eindeutig auflösbare Zeilen landen unter
   <a href="{{ url_for('needs_review_view') }}">Needs-Review</a>, nicht im Bestand.
 </p>
 <form id="bulk-add-form" method="post" enctype="multipart/form-data">
@@ -27,7 +29,7 @@
     <input type="file" name="json_file" class="form-control">
   </div>
   <div class="mb-3">
-    <label class="form-label">CSV-Datei (Dragonshield)</label>
+    <label class="form-label">CSV-Datei (Dragonshield oder Scan-App-Listenexport)</label>
     <input type="file" name="csv_file" class="form-control" accept=".csv">
   </div>
   <button type="submit" class="btn btn-primary">Hochladen</button>

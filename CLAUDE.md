@@ -65,6 +65,18 @@ Dragonshield-CSV
 - Set-Codes können sich in Groß-/Kleinschreibung von Scryfall unterscheiden
   (Dragonshield `ACR` vs. Scryfall `acr`) → beim Nachschlagen normalisieren;
   unauflösbare Fälle in eine „Needs-Review"-Liste, nicht raten.
+- Zustände kommen als Langform (`NearMint`) und werden auf die
+  Cardmarket-Codes (`NM`) normalisiert — der Bestand und der Zustandsfilter
+  arbeiten mit den Codes. Skalen ohne 1:1-Zuordnung nicht umdeuten.
+
+## Weiteres CSV-Layout (Scan-App-Listenexport)
+Neben Dragonshield wird der längere Listenexport von Scan-Apps gelesen
+(`List Type, List Name, …, Rarity, …, Current Price (<quelle>), …`). Beide
+Layouts benennen die relevanten Spalten gleich und teilen sich **einen**
+Codepfad (`dragonshield.py`) — kein zweiter Parser, keine Layout-Erkennung.
+Zusätzlich übernommen werden `rarity`, `date_bought` (Kaufdatum, getrennt von
+`date_added`) und `market_price` (Marktpreis beim Export, getrennt vom
+Einkaufspreis `price`). Details: `docs/IMPORT.md`.
 
 ## Repo-Konventionen
 - Tests liegen in `tests/` (pytest). Eine `test.py` im Root ist Altlast.
