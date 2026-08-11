@@ -151,7 +151,27 @@ Inhalt nach dem Muster in `deploy/tcginventory-backup.env.example`, mindestens:
 TCG_BACKUP_REMOTE=onedrive-crypt:
 TCG_RCLONE_CONFIG=/home/pi/.config/rclone/rclone.conf
 TCG_RCLONE_CONFIG_PASS_FILE=/home/pi/.config/rclone/config.pass
+BUCH_DATA_DIR=/home/pi/buchhaltung-daten
 ```
+
+### Die Buchhaltung gehört dazu
+
+Die Buchhaltung läuft als eigenständige Anwendung mit eigener Datenbank
+und eigenen Belegdateien. Beides ist steuerrelevant und wird von diesem
+Lauf **mitgesichert**, sobald `BUCH_DATA_DIR` gesetzt ist — dieselbe
+Variable, die auch die Buchhaltung selbst benutzt. Ein zweiter
+Sicherungslauf wäre ein zweiter Ort, an dem etwas vergessen werden kann.
+
+Im Archiv liegen die Dateien dann unter:
+
+| Pfad im Archiv | Inhalt |
+|---|---|
+| `db/buchhaltung.db` | geprüfte, konsistente Kopie der Buchhaltung |
+| `buchhaltung/belege/JJJJ/MM/…` | die Belegdateien |
+
+Ist die Buchhaltungsdatenbank beschädigt, bricht der ganze Lauf ab und es
+wird **nichts** hochgeladen — lieber keine Sicherung als eine, die sich
+nicht zurückspielen lässt.
 
 Units installieren und aktivieren:
 

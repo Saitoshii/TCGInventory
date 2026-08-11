@@ -57,6 +57,22 @@ def _umgebung(tmp_path: Path) -> backup.Config:
     )
 
 
+def _mit_buchhaltung(tmp_path: Path) -> backup.Config:
+    """Konfiguration mit dem Datenverzeichnis der eigenstaendigen Buchhaltung."""
+    cfg = _umgebung(tmp_path)
+    buch = tmp_path / "buchhaltung-daten"
+    (buch / "belege" / "2026" / "06").mkdir(parents=True, exist_ok=True)
+    (buch / "belege" / "2026" / "06" / "20260612_kartons.pdf").write_bytes(
+        b"%PDF-1.4 Buchhaltungsbeleg")
+    conn = sqlite3.connect(str(buch / "buchhaltung.db"))
+    conn.execute("CREATE TABLE transaktion (id INTEGER PRIMARY KEY, betrag INTEGER)")
+    conn.execute("INSERT INTO transaktion (betrag) VALUES (1215)")
+    conn.commit()
+    conn.close()
+    cfg.buch_dir = buch
+    return cfg
+
+
 # =========================================================================
 # SQLite-sichere Kopie und Integritätsprüfung
 # =========================================================================
@@ -444,3 +460,72 @@ def test_scripts_contain_no_hardcoded_secrets():
         quelle = (REPO / "scripts" / name).read_text(encoding="utf-8")
         treffer = muster.findall(quelle)
         assert not treffer, f"{name}: mögliche Zugangsdaten im Code ({treffer})"
+
+
+# =========================================================================
+# Buchhaltung: eigene Anwendung, dieselbe Sicherung
+# =========================================================================
+
+def test_buchhaltungsdatenbank_wird_mitgesichert(tmp_path):
+    """Die Buchhaltung hat eine eigene Datenbank — sie darf nicht fehlen."""
+    cfg = _mit_buchhaltung(tmp_path)
+    ergebnis = backup.run_backup(cfg)
+    assert ergebnis["ergebnis"] == "erfolg"
+
+    archiv = Path(cfg.remote) / Path(ergebnis["archiv"]).name
+    with tarfile.open(archiv) as tar:
+        namen = tar.getnames()
+    assert "db/buchhaltung.db" in namen
+    assert "db/mtg_lager.db" in namen
+
+
+def test_buchhaltungsbelege_werden_mitgesichert(tmp_path):
+    """Die Belege liegen als Dateien; ohne sie waere die Sicherung wertlos."""
+    cfg = _mit_buchhaltung(tmp_path)
+    ergebnis = backup.run_backup(cfg)
+
+    archiv = Path(cfg.remote) / Path(ergebnis["archiv"]).name
+    with tarfile.open(archiv) as tar:
+        namen = tar.getnames()
+        inhalt = tar.extractfile(
+            "buchhaltung/belege/2026/06/20260612_kartons.pdf").read()
+    assert "buchhaltung/belege/2026/06/20260612_kartons.pdf" in namen
+    assert inhalt == b"%PDF-1.4 Buchhaltungsbeleg"
+    # Die Datenbank kommt als geprüfte Kopie, nicht als Rohdatei.
+    assert "buchhaltung/buchhaltung.db" not in namen
+
+
+def test_kaputte_buchhaltungsdatenbank_verhindert_den_upload(tmp_path):
+    """Lieber gar keine Sicherung als eine, die sich nicht zurückspielen lässt."""
+    cfg = _mit_buchhaltung(tmp_path)
+    (cfg.buch_dir / "buchhaltung.db").write_bytes(b"kein SQLite")
+
+    ergebnis = backup.run_backup(cfg)
+    assert ergebnis["ergebnis"] == "fehler"
+    assert not list(Path(cfg.remote).glob("*.tar.gz"))
+
+
+def test_ohne_buchhaltung_bleibt_alles_beim_alten(tmp_path):
+    """Wer die Buchhaltung nicht einsetzt, merkt von der Erweiterung nichts."""
+    cfg = _umgebung(tmp_path)
+    assert cfg.buch_dir is None
+    ergebnis = backup.run_backup(cfg)
+    assert ergebnis["ergebnis"] == "erfolg"
+
+    archiv = Path(cfg.remote) / Path(ergebnis["archiv"]).name
+    with tarfile.open(archiv) as tar:
+        namen = tar.getnames()
+    assert not any(n.startswith("buchhaltung/") for n in namen)
+
+
+def test_konfiguration_nimmt_die_variable_der_buchhaltung(tmp_path):
+    """BUCH_DATA_DIR ist die Variable, die die Buchhaltung selbst benutzt."""
+    cfg = backup.Config.from_env({"BUCH_DATA_DIR": str(tmp_path / "daten")})
+    assert cfg.buch_dir == tmp_path / "daten"
+
+    # Die ausdrückliche Backup-Variable hat Vorrang.
+    cfg = backup.Config.from_env({"BUCH_DATA_DIR": str(tmp_path / "a"),
+                                  "TCG_BACKUP_BUCH_DIR": str(tmp_path / "b")})
+    assert cfg.buch_dir == tmp_path / "b"
+
+    assert backup.Config.from_env({}).buch_dir is None

@@ -64,6 +64,11 @@ class Config:
 
     root: Path = field(default_factory=_repo_root)
     data_dir: Path = None            # type: ignore[assignment]
+    # Datenverzeichnis der eigenstaendigen Buchhaltung. Sie hat eine eigene
+    # Datenbank und eigene Belege; beides ist steuerrelevant und gehoert in
+    # dieselbe Sicherung. Ein zweiter Sicherungslauf waere ein zweiter Ort,
+    # an dem etwas vergessen werden kann.
+    buch_dir: Optional[Path] = None
     work_dir: Path = None            # type: ignore[assignment]
     status_file: Path = None         # type: ignore[assignment]
     log_file: Path = None            # type: ignore[assignment]
@@ -84,9 +89,13 @@ class Config:
             value = env.get(name)
             return Path(value) if value else None
 
+        # Bevorzugt die Variable, die die Buchhaltung selbst benutzt — so
+        # zeigen beide Systeme zwangslaeufig auf dasselbe Verzeichnis.
+        buch = env.get("TCG_BACKUP_BUCH_DIR") or env.get("BUCH_DATA_DIR")
         return cls(
             root=root,
             data_dir=data_dir,
+            buch_dir=Path(buch) if buch else None,
             work_dir=Path(env.get("TCG_BACKUP_WORK_DIR") or (data_dir / "backup_work")),
             status_file=Path(env.get("TCG_BACKUP_STATUS_FILE")
                              or (data_dir / "backup_status.json")),
@@ -190,10 +199,17 @@ def make_store(cfg: Config) -> RemoteStore:
 # Schritt 1+2: SQLite sicher kopieren und prüfen
 # ---------------------------------------------------------------------------
 def finde_datenbanken(cfg: Config) -> List[Path]:
-    """Alle zu sichernden SQLite-Dateien: aus ``data/`` und aus dem Projektwurzel-
-    Verzeichnis (dort liegt ``mtg_lager.db`` standardmäßig)."""
+    """Alle zu sichernden SQLite-Dateien.
+
+    Aus ``data/``, aus dem Projektwurzelverzeichnis (dort liegt
+    ``mtg_lager.db`` standardmäßig) und aus dem Datenverzeichnis der
+    Buchhaltung, falls eines konfiguriert ist.
+    """
     gefunden: List[Path] = []
-    for verzeichnis in (cfg.data_dir, cfg.root):
+    verzeichnisse = [cfg.data_dir, cfg.root]
+    if cfg.buch_dir:
+        verzeichnisse.append(cfg.buch_dir)
+    for verzeichnis in verzeichnisse:
         if not verzeichnis.is_dir():
             continue
         for pfad in sorted(verzeichnis.glob("*.db")):
@@ -272,6 +288,18 @@ def baue_archiv(archiv: Path, db_kopien: Iterable[Path], cfg: Config) -> Path:
                 if pfad.suffix == ".db":
                     continue          # Datenbanken kommen als geprüfte Kopie mit
                 tar.add(pfad, arcname=f"data/{pfad.relative_to(cfg.data_dir)}",
+                        filter=filter_fn)
+        # Die Belege der Buchhaltung sind Nachweise zu Geschaeftsvorfaellen
+        # und liegen als Dateien, nicht in der Datenbank. Ohne sie waere die
+        # Sicherung unvollstaendig.
+        if cfg.buch_dir and cfg.buch_dir.is_dir():
+            for pfad in sorted(cfg.buch_dir.rglob("*")):
+                if not pfad.is_file() or _ist_secret(pfad):
+                    continue
+                if pfad.suffix in (".db", ".db-wal", ".db-shm"):
+                    continue      # kommt als geprüfte Kopie mit
+                tar.add(pfad,
+                        arcname=f"buchhaltung/{pfad.relative_to(cfg.buch_dir)}",
                         filter=filter_fn)
     return archiv
 
