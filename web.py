@@ -57,6 +57,7 @@ from TCGInventory.repo_updater import update_repo
 from TCGInventory.order_service import get_order_service
 from TCGInventory.shipping_note import render_shipping_note, detect_language
 from TCGInventory import sales_export
+from TCGInventory import sortierung
 from TCGInventory import bookkeeping
 from TCGInventory import backup_status
 from TCGInventory import build_card_db
@@ -1003,14 +1004,32 @@ def delete_folder_view(folder_id: int):
     return redirect(url_for("list_folders_view"))
 
 
+# Spaltenreihenfolge der Abfrage in list_folders_view; die Vorlage greift
+# numerisch darauf zu, deshalb stehen die Namen hier.
+_SP_NAME, _SP_PLATZ, _SP_NUMMER = 1, 4, 5
+
+#: Sortierungen der Ordner-Übersicht. Jede hat einen zweiten Schlüssel — sonst
+#: stünden Karten, die sich einen Platz teilen, in zufälliger Reihenfolge.
+_ORDNER_SORTIERUNG = {
+    # Voreinstellung: wie im Ordner. Erst der Platz, innerhalb eines Platzes
+    # alphabetisch.
+    "storage": lambda k: (sortierung.platz(k[_SP_PLATZ]),
+                          sortierung.alphabet(k[_SP_NAME])),
+    "name":    lambda k: (sortierung.alphabet(k[_SP_NAME]),
+                          sortierung.platz(k[_SP_PLATZ])),
+    "id":      lambda k: (sortierung.nummer(k[_SP_NUMMER]),
+                          sortierung.alphabet(k[_SP_NAME])),
+}
+
+
 @app.route("/folders")
 @login_required
 def list_folders_view():
-    sort = request.args.get("sort", "name")
+    # Ein Ordner ist ein physisches Binder: die Reihenfolge auf dem Bildschirm
+    # soll der Reihenfolge in der Hand entsprechen.
+    sort = request.args.get("sort", "storage")
     search = request.args.get("q", "").strip()
-
-    allowed = {"id": "collector_number", "storage": "storage_code", "name": "name"}
-    order_col = allowed.get(sort, "name")
+    schluessel = _ORDNER_SORTIERUNG.get(sort, _ORDNER_SORTIERUNG["storage"])
 
     folders = list_folders()
     folder_cards = {}
@@ -1028,9 +1047,11 @@ def list_folders_view():
                 )
                 like = f"%{search}%"
                 params.extend([like, like, like])
-            query += f" ORDER BY {order_col}"
             c.execute(query, params)
-            folder_cards[fid] = c.fetchall()
+            # Sortiert wird in Python: SQLite vergleicht Text zeichenweise und
+            # brächte S10 vor S2, Kleinbuchstaben hinter Z und Karten ohne
+            # Platz nach ganz oben. Siehe sortierung.py.
+            folder_cards[fid] = sorted(c.fetchall(), key=schluessel)
     return render_template(
         "folders.html",
         folders=folders,

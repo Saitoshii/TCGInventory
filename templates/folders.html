@@ -12,9 +12,9 @@
     </div>
     <div class="col-auto">
       <select class="form-select" name="sort">
+        <option value="storage" {% if sort == 'storage' %}selected{% endif %}>Lagerort, dann Name</option>
         <option value="name" {% if sort == 'name' %}selected{% endif %}>Name</option>
         <option value="id" {% if sort == 'id' %}selected{% endif %}>Nummer</option>
-        <option value="storage" {% if sort == 'storage' %}selected{% endif %}>Lagerort</option>
       </select>
     </div>
     <div class="col-auto">
