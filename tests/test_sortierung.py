@@ -267,3 +267,72 @@ def test_die_datenbank_wird_nicht_angefasst(tmp_path):
     conn.close()
 
     assert vorher == nachher
+
+
+# =========================================================================
+# Die Plätze bleiben, wo sie sind
+# =========================================================================
+
+def _plaetze(pfad):
+    """Karte → Platz, so wie es in der Datenbank steht."""
+    conn = sqlite3.connect(pfad)
+    try:
+        return conn.execute(
+            "SELECT id, name, storage_code FROM cards ORDER BY id").fetchall()
+    finally:
+        conn.close()
+
+
+def test_ansehen_verschiebt_keine_karte(tmp_path, monkeypatch):
+    """Die Ordnerseite in allen Sortierungen aufrufen ändert keinen Platz.
+
+    Die eigentliche Zusicherung: sortiert wird beim Anzeigen. Wo eine Karte
+    liegt, entscheidet allein, wer sie dort einsortiert hat.
+    """
+    from TCGInventory import lager_manager, web
+    db = str(tmp_path / "t.db")
+    _ordner_datenbank(db)
+    monkeypatch.setattr(web, "DB_FILE", db)
+    monkeypatch.setattr(lager_manager, "DB_FILE", db)
+
+    vorher = _plaetze(db)
+    assert vorher, "Testaufbau leer"
+
+    web.app.config["TESTING"] = True
+    client = web.app.test_client()
+    with client.session_transaction() as s:
+        s["user"] = "tester"
+    for abfrage in ("", "?sort=storage", "?sort=name", "?sort=id",
+                    "?sort=quatsch", "?q=Mox", "?sort=storage&q=O01"):
+        assert client.get("/folders" + abfrage).status_code == 200
+
+    assert _plaetze(db) == vorher
+
+
+def test_update_laesst_die_plaetze_stehen(tmp_path, monkeypatch):
+    """Was beim Druck auf „Update" passiert: Neustart mit Schemaprüfung.
+
+    ``initialize_database`` läuft bei jedem Start. Es legt nur an, was fehlt —
+    vorhandene Karten und ihre Plätze bleiben unverändert.
+    """
+    from TCGInventory import auth, setup_db
+    db = str(tmp_path / "t.db")
+    monkeypatch.setattr(setup_db, "DB_FILE", db)
+    monkeypatch.setattr(auth, "DB_FILE", db)
+
+    setup_db.initialize_database()
+    conn = sqlite3.connect(db)
+    conn.executemany(
+        "INSERT INTO cards (name, set_code, quantity, storage_code, folder_id) "
+        "VALUES (?, 'tst', 1, ?, 1)",
+        [("Ancestral Recall", "O01-S01-P1"), ("Mox Pearl", "O01-S01-P1"),
+         ("Lightning Bolt", "O01-S10-P9"), ("Booster Display", None)])
+    conn.commit()
+    conn.close()
+
+    vorher = _plaetze(db)
+
+    setup_db.initialize_database()          # Neustart nach dem Update
+    setup_db.initialize_database()          # und noch einer, zur Sicherheit
+
+    assert _plaetze(db) == vorher
