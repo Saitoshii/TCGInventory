@@ -253,3 +253,112 @@ def test_cardmarket_bestellungen_bleiben_unberuehrt(db):
     ).fetchone()
     conn.close()
     assert zeile == ("cardmarket", "cardmarket")
+
+
+# =========================================================================
+# Weboberfläche
+# =========================================================================
+
+@pytest.fixture()
+def client(db, monkeypatch):
+    from TCGInventory import web
+    monkeypatch.setattr(web, "DB_FILE", db)
+    web.app.config["TESTING"] = True
+    c = web.app.test_client()
+    with c.session_transaction() as s:
+        s["user"] = "tester"
+    return c
+
+
+def test_formular_wird_angezeigt(client):
+    seite = client.get("/orders/neu").get_data(as_text=True)
+    assert "Direktverkauf erfassen" in seite
+    assert "Flohmarkt" in seite
+    assert "nicht zusätzlich" in seite          # Warnung wegen Tagesabschluss
+
+
+def test_formular_uebernimmt_die_karte_aus_der_uebersicht(client, db):
+    karte = _karte(db, "Sol Ring")
+    seite = client.get(f"/orders/neu?card_id={karte[0]}").get_data(as_text=True)
+    assert "Sol Ring" in seite
+    assert "wird beim Speichern ausgebucht" in seite
+
+
+def test_verkauf_ueber_das_formular(client, db):
+    karte = _karte(db, "Sol Ring")
+    antwort = client.post("/orders/neu", data={
+        "kanal": "flohmarkt", "kaeufer": "Laufkundschaft",
+        "card_id": str(karte[0]), "card_name": "Sol Ring",
+        "quantity": "1", "unit_price": "3,50",
+    }, follow_redirects=True)
+
+    assert antwort.status_code == 200
+    assert "angelegt" in antwort.get_data(as_text=True)
+    assert _karte(db, "Sol Ring") is None       # ausgebucht
+
+
+def test_leere_zeilen_im_formular_stoeren_nicht(client, db):
+    """Das Formular schickt so viele Zeilen mit, wie angelegt wurden."""
+    antwort = client.post("/orders/neu", data={
+        "card_id": ["", ""], "card_name": ["Wühlkiste", ""],
+        "quantity": ["1", "1"], "unit_price": ["2,00", ""],
+    }, follow_redirects=True)
+    assert "angelegt" in antwort.get_data(as_text=True)
+
+    conn = sqlite3.connect(db)
+    anzahl = conn.execute("SELECT COUNT(*) FROM order_items").fetchone()[0]
+    conn.close()
+    assert anzahl == 1                          # nur die gefüllte Zeile
+
+
+def test_fehler_bleibt_im_formular(client, db):
+    antwort = client.post("/orders/neu", data={
+        "card_name": "X", "quantity": "1", "unit_price": "teuer",
+    }, follow_redirects=True)
+    seite = antwort.get_data(as_text=True)
+    assert "kein Preis" in seite
+    assert "Direktverkauf erfassen" in seite     # Formular wieder da
+
+    conn = sqlite3.connect(db)
+    assert conn.execute("SELECT COUNT(*) FROM orders").fetchone()[0] == 0
+    conn.close()
+
+
+def test_quittung_braucht_keine_adresse(client, db):
+    ergebnis = erstelle_bestellung(
+        positionen=[{"card_name": "Wühlkiste", "quantity": 1, "unit_price": "2,00"}],
+        kanal="flohmarkt", db_file=db)
+
+    antwort = client.get(f"/orders/{ergebnis['order_id']}/quittung")
+    assert antwort.status_code == 200
+    assert antwort.mimetype == "application/pdf"
+    assert antwort.data[:5] == b"%PDF-"
+
+
+def test_quittung_zeigt_die_positionen(client, db):
+    pypdf = pytest.importorskip("pypdf")
+    import io
+    ergebnis = erstelle_bestellung(
+        positionen=[{"card_name": "Sammlung gemischt", "quantity": 3,
+                     "unit_price": "5,00"}],
+        kanal="flohmarkt", kaeufer="Laufkundschaft", db_file=db)
+
+    antwort = client.get(f"/orders/{ergebnis['order_id']}/quittung")
+    text = pypdf.PdfReader(io.BytesIO(antwort.data)).pages[0].extract_text()
+    assert "Quittung" in text
+    assert ergebnis["order_number"] in text
+    assert "Sammlung gemischt" in text
+    assert "15,00" in text                      # 3 × 5,00
+    assert "Flohmarkt" in text
+    # Keine Adresse, keine Anrede — das ist der Unterschied zum Beileger.
+    assert "Hallo" not in text
+
+
+def test_bestellliste_zeigt_den_kanal(client, db):
+    erstelle_bestellung(
+        positionen=[{"card_name": "Wühlkiste", "quantity": 1, "unit_price": "2,00"}],
+        kanal="flohmarkt", db_file=db)
+    seite = client.get("/orders").get_data(as_text=True)
+    assert "flohmarkt" in seite
+    assert "Quittung drucken" in seite
+    assert "Direktverkauf" in seite              # der neue Knopf oben

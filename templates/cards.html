@@ -295,6 +295,15 @@ document.addEventListener('DOMContentLoaded', function() {
   document.querySelectorAll('.sell-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const id = btn.getAttribute('data-id');
+      // Ein Verkauf ohne Cardmarket-Bestellung braucht einen Beleg. Wer den
+      // will, wird ins Formular geschickt — dort wird die Karte ausgebucht.
+      // Wer nur den Bestand korrigiert, bucht wie bisher direkt aus.
+      if (confirm('Soll daraus ein Direktverkauf mit Beleg werden?\n\n' +
+                  'OK: Formular öffnen (Preis eintragen, Beleg drucken).\n' +
+                  'Abbrechen: nur ausbuchen, ohne Beleg.')) {
+        window.location.href = `/orders/neu?card_id=${id}`;
+        return;
+      }
       fetch(`/cards/${id}/sell`, { method: 'POST' })
         .then(r => r.json())
         .then(data => {

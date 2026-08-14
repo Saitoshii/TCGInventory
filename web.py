@@ -56,6 +56,8 @@ from TCGInventory.auth import (
 from TCGInventory.repo_updater import update_repo
 from TCGInventory.order_service import get_order_service
 from TCGInventory.shipping_note import render_shipping_note, detect_language
+from TCGInventory.quittung import render_quittung
+from TCGInventory import direktverkauf
 from TCGInventory import sales_export
 from TCGInventory import bookkeeping
 from TCGInventory import backup_status
@@ -2130,7 +2132,7 @@ def list_orders():
             SELECT o.id, o.buyer_name, COALESCE(o.email_date, o.date_received) AS display_date,
                    o.status, o.order_number, o.address, o.address_confirmed, o.print_language,
                    o.amount_gesamtwert, o.amount_gebuehren, o.amount_auszahlung,
-                   o.amount_versand, o.amount_gesamt
+                   o.amount_versand, o.amount_gesamt, o.quelle, o.verkaufskanal
             FROM orders o
             WHERE o.status = 'open'
               AND COALESCE(o.email_date, o.date_received) >= ?
@@ -2177,6 +2179,11 @@ def list_orders():
                 "address_confirmed": bool(order["address_confirmed"]),
                 "language": effective_lang,
                 "language_overridden": bool(order["print_language"]),
+                # Woher der Verkauf kam. Bei einem Direktverkauf steht kein
+                # Cardmarket dahinter — die Liste zeigt das an, damit man beim
+                # Drucken das passende Dokument wählt.
+                "quelle": order["quelle"] or "cardmarket",
+                "verkaufskanal": order["verkaufskanal"] or "cardmarket",
                 "amounts": {
                     "gesamtwert": order["amount_gesamtwert"],
                     "gebuehren": order["amount_gebuehren"],
@@ -2391,6 +2398,106 @@ def shipping_note_pdf(order_id: int):
         pdf_bytes,
         mimetype="application/pdf",
         headers={"Content-Disposition": f"inline; filename={filename}"},
+    )
+
+
+@app.route("/orders/<int:order_id>/quittung")
+@login_required
+def quittung_pdf(order_id: int):
+    """Quittung (A5) für den Verkauf vor Ort — ohne Adresse.
+
+    Gegenstück zum Beileger: der ist ein Anschreiben fürs Fensterkuvert, diese
+    hier ist der Beleg, den man über den Tisch reicht.
+    """
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute(
+            "SELECT order_number, buyer_name, verkaufskanal, amount_versand, "
+            "email_date, date_received FROM orders WHERE id = ?", (order_id,))
+        order = c.fetchone()
+        if not order:
+            flash("Bestellung nicht gefunden", "error")
+            return redirect(url_for("list_orders"))
+        c.execute(
+            "SELECT card_name, quantity, set_name, condition, unit_price, foil "
+            "FROM order_items WHERE order_id = ? ORDER BY card_name", (order_id,))
+        positions = [
+            {"quantity": r["quantity"], "name": r["card_name"],
+             "set_name": r["set_name"], "condition": r["condition"],
+             "unit_price": r["unit_price"], "foil": r["foil"]}
+            for r in c.fetchall()
+        ]
+
+    pdf_bytes = render_quittung(
+        positionen=positions,
+        beleg_nummer=order["order_number"] or str(order_id),
+        kanal=order["verkaufskanal"] or "direktverkauf",
+        versand=order["amount_versand"] or 0,
+        kaeufer=order["buyer_name"] or "",
+        datum=(order["email_date"] or order["date_received"] or "")[:10] or None,
+    )
+    filename = f"quittung_{order['order_number'] or order_id}.pdf"
+    return Response(
+        pdf_bytes,
+        mimetype="application/pdf",
+        headers={"Content-Disposition": f"inline; filename={filename}"},
+    )
+
+
+@app.route("/orders/neu", methods=["GET", "POST"])
+@login_required
+def direktverkauf_neu():
+    """Einen Verkauf ohne Cardmarket-Bestellung von Hand erfassen."""
+    if request.method == "POST":
+        positionen = []
+        # Die Zeilen kommen als gleich lange Listen aus dem Formular.
+        namen = request.form.getlist("card_name")
+        karten_ids = request.form.getlist("card_id")
+        mengen = request.form.getlist("quantity")
+        preise = request.form.getlist("unit_price")
+        for i in range(len(preise)):
+            karte_id = (karten_ids[i] if i < len(karten_ids) else "").strip()
+            name = (namen[i] if i < len(namen) else "").strip()
+            if not karte_id and not name and not (preise[i] or "").strip():
+                continue                      # leere Zeile im Formular
+            positionen.append({
+                "card_id": int(karte_id) if karte_id.isdigit() else None,
+                "card_name": name,
+                "quantity": mengen[i] if i < len(mengen) else "1",
+                "unit_price": preise[i],
+            })
+        try:
+            ergebnis = direktverkauf.erstelle_bestellung(
+                positionen=positionen,
+                kaeufer=request.form.get("kaeufer", ""),
+                kanal=request.form.get("kanal", "direktverkauf"),
+                versand=request.form.get("versand", ""),
+                adresse=request.form.get("adresse", ""),
+                datum=request.form.get("datum") or None,
+                benutzer=session.get("user", "system"),
+            )
+            flash(f"Direktverkauf {ergebnis['order_number']} angelegt "
+                  f"({ergebnis['gesamt']:.2f} €). Beleg jetzt drucken.", None)
+            return redirect(url_for("list_orders", highlight=ergebnis["order_id"]))
+        except direktverkauf.DirektverkaufFehler as exc:
+            flash(str(exc), "error")
+
+    # Vorauswahl, wenn aus der Kartenübersicht heraus aufgerufen.
+    vorgabe = None
+    karte_id = request.args.get("card_id", "")
+    if karte_id.isdigit():
+        with sqlite3.connect(DB_FILE) as conn:
+            conn.row_factory = sqlite3.Row
+            zeile = conn.execute(
+                "SELECT id, name, set_code, condition, quantity, price "
+                "FROM cards WHERE id = ?", (int(karte_id),)).fetchone()
+            vorgabe = dict(zeile) if zeile else None
+    return render_template(
+        "direktverkauf_form.html",
+        kanaele=direktverkauf.KANAELE,
+        vorgabe=vorgabe,
+        heute=datetime.now().strftime("%Y-%m-%d"),
     )
 
 
