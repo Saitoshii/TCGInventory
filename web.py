@@ -63,6 +63,7 @@ from TCGInventory import bookkeeping
 from TCGInventory import backup_status
 from TCGInventory import build_card_db
 from TCGInventory import card_scanner
+from TCGInventory.api_v1 import api_v1
 from pathlib import Path
 from werkzeug.utils import secure_filename
 
@@ -71,6 +72,10 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "tcg-secret")
 app.permanent_session_lifetime = timedelta(minutes=15)
 # Maximum file size for database uploads: 500 MB
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
+
+# Lese-API für die Buchhaltungssoftware. Ohne gesetztes TCG_API_TOKEN
+# antworten die Endpunkte mit 503 – die Schnittstelle ist dann abgeschaltet.
+app.register_blueprint(api_v1)
 
 # Queue for cards uploaded via the bulk add feature
 UPLOAD_QUEUE: list[dict] = []
