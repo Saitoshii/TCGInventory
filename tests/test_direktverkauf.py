@@ -452,3 +452,48 @@ def test_api_bleibt_bei_cardmarket_fuer_maildaten(client, db, monkeypatch):
     assert b["verkaufskanal"] == "cardmarket"
     assert b["quelle"] == "cardmarket"
     assert b["betraege_cent"]["gebuehren"] == 7
+
+
+# =========================================================================
+# Wenn das Ausbuchen scheitert
+# =========================================================================
+
+def test_gescheitertes_ausbuchen_wird_gemeldet(db, monkeypatch):
+    """Sonst steht ein Verkauf im System, während die Karte im Regal liegt.
+
+    Das fällt sonst erst beim nächsten Zählen auf — und dann weiß niemand
+    mehr, warum der Bestand nicht stimmt.
+    """
+    karte = _karte(db, "Sol Ring")
+    monkeypatch.setattr(direktverkauf, "sell_card", lambda *a, **k: False)
+
+    ergebnis = erstelle_bestellung(
+        positionen=[{"card_id": karte[0], "quantity": 1, "unit_price": "3,50"}],
+        db_file=db)
+
+    assert ergebnis["nicht_ausgebucht"] == ["Sol Ring"]
+    # Der Verkauf bleibt erfasst — der Beleg wurde ja schon gegeben.
+    b = _bestellung(db, ergebnis["order_id"])
+    assert b["amount_gesamt"] == 3.50
+
+
+def test_erfolgreiches_ausbuchen_meldet_nichts(db):
+    karte = _karte(db, "Sol Ring")
+    ergebnis = erstelle_bestellung(
+        positionen=[{"card_id": karte[0], "quantity": 1, "unit_price": "3,50"}],
+        db_file=db)
+    assert ergebnis["nicht_ausgebucht"] == []
+
+
+def test_oberflaeche_warnt_bei_gescheitertem_ausbuchen(client, db, monkeypatch):
+    karte = _karte(db, "Sol Ring")
+    monkeypatch.setattr(direktverkauf, "sell_card", lambda *a, **k: False)
+
+    seite = client.post("/orders/neu", data={
+        "card_id": str(karte[0]), "card_name": "Sol Ring",
+        "quantity": "1", "unit_price": "3,50",
+    }, follow_redirects=True).get_data(as_text=True)
+
+    assert "Sol Ring" in seite
+    assert "nicht aus dem Bestand ausgebucht" in seite
+    assert "von Hand prüfen" in seite
