@@ -455,7 +455,6 @@ def test_api_bleibt_bei_cardmarket_fuer_maildaten(client, db, monkeypatch):
 
 
 # =========================================================================
-mehrseitige-belege
 # Grosse Belege
 # =========================================================================
 
@@ -492,7 +491,9 @@ def test_kleine_quittung_bleibt_einseitig():
         positionen=[{"quantity": 1, "name": "Sol Ring", "unit_price": 3.50}],
         beleg_nummer="DV-2026-0002")
     assert len(pypdf.PdfReader(io.BytesIO(pdf)).pages) == 1
-=======
+
+
+# =========================================================================
 # Wenn das Ausbuchen scheitert
 # =========================================================================
 
@@ -535,4 +536,3 @@ def test_oberflaeche_warnt_bei_gescheitertem_ausbuchen(client, db, monkeypatch):
     assert "Sol Ring" in seite
     assert "nicht aus dem Bestand ausgebucht" in seite
     assert "von Hand prüfen" in seite
-main
