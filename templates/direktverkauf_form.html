@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h2 class="page-title mb-0">Direktverkauf erfassen</h2>
+  <a href="{{ url_for('list_orders') }}" class="btn btn-outline-secondary">← Bestellungen</a>
+</div>
+
+<p class="text-muted">
+  Für Verkäufe ohne Cardmarket — auf dem Flohmarkt oder von Hand zu Hand.
+  Karten aus dem Bestand werden dabei ausgebucht und ihr Lagerplatz wird frei,
+  genau wie beim Knopf „verkauft“.
+</p>
+
+<form method="post" class="card card-body">
+  <div class="row g-3 mb-3">
+    <div class="col-md-3">
+      <label class="form-label">Kanal</label>
+      <select class="form-select" name="kanal">
+        {% for schluessel, name in kanaele.items() %}
+        <option value="{{ schluessel }}">{{ name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">Datum</label>
+      <input class="form-control" type="date" name="datum" value="{{ heute }}">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">Käufer <span class="text-muted small">(optional)</span></label>
+      <input class="form-control" name="kaeufer" placeholder="Laufkundschaft">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">Versand <span class="text-muted small">(optional)</span></label>
+      <input class="form-control" name="versand" placeholder="0,00">
+    </div>
+  </div>
+
+  <table class="table table-sm align-middle" id="positionen">
+    <thead>
+      <tr>
+        <th style="width:90px;">Menge</th>
+        <th>Karte / Artikel</th>
+        <th style="width:150px;">Preis je Stück</th>
+        <th style="width:44px;"></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><input class="form-control" type="number" name="quantity" min="1"
+                   value="{{ 1 }}"></td>
+        <td>
+          <input class="form-control" name="card_name"
+                 value="{{ vorgabe.name if vorgabe else '' }}"
+                 placeholder="Kartenname oder Beschreibung">
+          <input type="hidden" name="card_id" value="{{ vorgabe.id if vorgabe else '' }}">
+          {% if vorgabe %}
+          <div class="form-text">
+            Aus dem Bestand: {{ vorgabe.set_code|upper }} · {{ vorgabe.condition }}
+            · {{ vorgabe.quantity }} vorrätig — wird beim Speichern ausgebucht.
+          </div>
+          {% endif %}
+        </td>
+        <td><input class="form-control" name="unit_price" placeholder="3,50" required></td>
+        <td></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="mb-3">
+    <button class="btn btn-sm btn-outline-secondary" type="button" id="zeile-mehr">
+      ＋ Weitere Position</button>
+  </div>
+
+  <details class="mb-3">
+    <summary class="text-muted">Lieferadresse (nur nötig, wenn versendet wird)</summary>
+    <textarea class="form-control mt-2" name="adresse" rows="4"
+              placeholder="Max Mustermann&#10;Musterweg 12&#10;24103 Kiel"></textarea>
+    <div class="form-text">
+      Mit Adresse lässt sich der Beileger drucken, ohne Adresse die Quittung.
+    </div>
+  </details>
+
+  <div class="alert alert-warning">
+    <strong>Wichtig für die Buchhaltung:</strong> Dieser Verkauf wandert über
+    die Schnittstelle als eigener Vorgang in die Buchhaltung. Erfassen Sie für
+    dieselben Verkäufe deshalb <strong>nicht zusätzlich</strong> einen
+    Flohmarkt-Tagesabschluss — sonst steht der Umsatz doppelt.
+  </div>
+
+  <div>
+    <button class="btn btn-primary">Verkauf anlegen</button>
+  </div>
+</form>
+
+<script>
+document.getElementById('zeile-mehr').addEventListener('click', function () {
+  const koerper = document.querySelector('#positionen tbody');
+  const zeile = koerper.rows[0].cloneNode(true);
+  zeile.querySelectorAll('input').forEach(function (feld) {
+    if (feld.name === 'quantity') { feld.value = '1'; }
+    else { feld.value = ''; }
+  });
+  // Die Hinweiszeile gehoert zur Vorauswahl und passt bei einer neuen Zeile nicht.
+  const hinweis = zeile.querySelector('.form-text');
+  if (hinweis) { hinweis.remove(); }
+  const weg = document.createElement('button');
+  weg.type = 'button';
+  weg.className = 'btn btn-sm btn-outline-danger';
+  weg.textContent = '×';
+  weg.addEventListener('click', function () { zeile.remove(); });
+  zeile.cells[3].appendChild(weg);
+  koerper.appendChild(zeile);
+});
+</script>
+{% endblock %}

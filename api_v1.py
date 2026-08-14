@@ -99,6 +99,19 @@ def _positionen(conn: sqlite3.Connection, order_id: int) -> List[Dict]:
     ]
 
 
+def _spalte(zeile: sqlite3.Row, name: str):
+    """Wert einer Spalte, die es vielleicht noch nicht gibt.
+
+    Ältere Datenbanken kennen ``quelle`` und ``verkaufskanal`` noch nicht.
+    Ein Absturz der API wäre dafür die falsche Antwort — die Buchhaltung
+    bekommt dann den Vorgabewert und bucht wie bisher.
+    """
+    try:
+        return zeile[name]
+    except (IndexError, KeyError):
+        return None
+
+
 def _cent(wert) -> Optional[int]:
     """Euro-Wert aus der Inventardatenbank in Cent — ohne Gleitkommafehler."""
     if wert is None:
@@ -129,7 +142,12 @@ def _bestellung(zeile: sqlite3.Row, conn: sqlite3.Connection,
             "gebuehren": _cent(zeile["amount_gebuehren"]),
             "auszahlung": _cent(zeile["amount_auszahlung"]),
         },
-        "verkaufskanal": "cardmarket",
+        # Nicht jeder Verkauf läuft über Cardmarket. Bei einem Direktverkauf
+        # fällt keine Plattformgebühr an und das Geld landet nicht auf dem
+        # Cardmarket-Konto — die Buchhaltung muss die Fälle unterscheiden
+        # können, deshalb steht hier der echte Kanal statt einer Konstante.
+        "verkaufskanal": _spalte(zeile, "verkaufskanal") or "cardmarket",
+        "quelle": _spalte(zeile, "quelle") or "cardmarket",
     }
     daten["inhalt_hash"] = inhalt_hash(dict(zeile))
     if mit_positionen:

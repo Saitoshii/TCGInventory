@@ -3,6 +3,8 @@
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <h2 class="page-title mb-0">Offene Bestellungen <small>· {{ orders|length }}</small></h2>
   <div class="d-flex align-items-center gap-2 flex-wrap">
+    <a href="{{ url_for('direktverkauf_neu') }}" class="btn btn-success">
+      ＋ Direktverkauf</a>
     <form method="post" action="{{ url_for('sync_orders') }}">
       <button type="submit" class="btn btn-primary">Jetzt synchronisieren</button>
     </form>
@@ -77,16 +79,26 @@
           </div>
           <span class="text-muted small">{% if order.language_overridden %}manuell{% else %}automatisch{% endif %}</span>
         </div>
-        <div class="mt-2">
+        <div class="mt-2 d-flex gap-2 flex-wrap align-items-center">
           {% if order.address_confirmed %}
           <a class="btn btn-outline-info btn-sm" href="{{ url_for('shipping_note_pdf', order_id=order.id) }}" target="_blank" rel="noopener">
             🖨️ Beileger drucken
           </a>
           {% else %}
           <button class="btn btn-outline-info btn-sm" type="button" disabled title="Adresse zuerst bestätigen">🖨️ Beileger drucken</button>
-          <div class="text-muted small mt-1">Adresse zuerst speichern/bestätigen, dann ist der Beileger druckbar.</div>
+          {% endif %}
+          {# Die Quittung braucht keine Adresse — sie ist der Beleg fuer den
+             Verkauf vor Ort und deshalb immer druckbar. #}
+          <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('quittung_pdf', order_id=order.id) }}" target="_blank" rel="noopener">
+            🧾 Quittung drucken
+          </a>
+          {% if order.verkaufskanal and order.verkaufskanal != 'cardmarket' %}
+          <span class="badge bg-success">{{ order.verkaufskanal }}</span>
           {% endif %}
         </div>
+        {% if not order.address_confirmed %}
+        <div class="text-muted small mt-1">Adresse zuerst speichern/bestätigen, dann ist der Beileger druckbar. Für den Verkauf vor Ort genügt die Quittung.</div>
+        {% endif %}
         <!-- Nur Anzeige: die aus der Cardmarket-Mail geparsten Betraege (das,
              was der Kunde zahlt und was auf dem Beileger steht). Keine manuelle
              Eingabe hier — Versand/Gebuehren/Porto gehoeren in die Buchhaltung. -->
