@@ -62,6 +62,20 @@ GREETING_TOP_MM = 104
 TABLE_TOP_MM = 126
 FOOTER_HAIRLINE_FROM_BOTTOM_MM = 41
 
+# --- Mehrseitige Beileger -------------------------------------------------
+# Eine große Bestellung passt nicht auf ein Blatt. Ohne Umbruch lief die
+# Tabelle einfach weiter: im PDF war alles enthalten, auf dem Papier fehlte
+# ab der 13. Karte alles.
+ROW_H_MM = 11                 # Höhe einer Positionszeile
+TOTALS_H_MM = 22              # Zwischensumme + Versand + Gesamt samt Strich
+# Unterkante der Tabelle: 4 mm Luft über der Fußzeile.
+TABLE_BOTTOM_MM = PAGE_H_MM - FOOTER_HAIRLINE_FROM_BOTTOM_MM - 4
+# Folgeseiten brauchen kein Adressfeld — die Tabelle beginnt weiter oben.
+CONT_TITLE_TOP_MM = 20
+CONT_TABLE_TOP_MM = 36
+CONT_LOGO_W_MM = 30
+PAGE_NUMBER_FROM_BOTTOM_MM = 10
+
 # Fold / hole marks at the left sheet edge (DIN 676).
 FOLD_MARKS_MM: Sequence[float] = (105.0, 210.0, 148.5)
 
@@ -96,6 +110,8 @@ TEXTS = {
         "col_qty": "MENGE", "col_card": "KARTE", "col_cond": "ZUSTAND", "col_price": "PREIS",
         "subtotal": "Zwischensumme", "shipping": "Versand", "total": "Gesamt",
         "review": "Über eine Bewertung auf Cardmarket freuen wir uns sehr.",
+        "continued": "Bestellung {number} — Fortsetzung",
+        "page": "Seite {n} von {gesamt}",
     },
     "en": {
         "subject": "Order {number}",
@@ -106,6 +122,8 @@ TEXTS = {
         "col_qty": "QTY", "col_card": "CARD", "col_cond": "CONDITION", "col_price": "PRICE",
         "subtotal": "Subtotal", "shipping": "Shipping", "total": "Total",
         "review": "We would greatly appreciate a rating on Cardmarket.",
+        "continued": "Order {number} — continued",
+        "page": "Page {n} of {gesamt}",
     },
 }
 
@@ -297,6 +315,29 @@ def _position_fields(pos):
     return qty, name, set_name, condition, unit_price, foil
 
 
+def seitenanzahl(anzahl_positionen: int) -> int:
+    """Wie viele Blätter der Beileger braucht.
+
+    Wird **vor** dem Zeichnen gebraucht, damit „Seite 1 von 3" schon beim
+    Anlegen der Seite stehen kann. Nachträglich auf eine frühere Seite zu
+    schreiben ist bei eingebetteten Schriften unzuverlässig — dabei kam auf
+    Seite 2 Zeichensalat heraus.
+
+    Die Rechnung bildet die Schleife im Zeichencode nach; ein Test hält beide
+    zusammen, damit sie nicht auseinanderlaufen.
+    """
+    seiten = 1
+    y = TABLE_TOP_MM + 8                    # Tabellenkopf belegt 8 mm
+    for _ in range(max(anzahl_positionen, 0)):
+        if y + ROW_H_MM > TABLE_BOTTOM_MM:
+            seiten += 1
+            y = CONT_TABLE_TOP_MM + 8
+        y += ROW_H_MM
+    if y + TOTALS_H_MM > TABLE_BOTTOM_MM:   # die Summen bleiben zusammen
+        seiten += 1
+    return seiten
+
+
 def _register_fonts(pdf: FPDF) -> None:
     pdf.add_font(_SERIF, "", str(_FONT_DIR / "DejaVuSerif.ttf"))
     pdf.add_font(_SERIF, "B", str(_FONT_DIR / "DejaVuSerif-Bold.ttf"))
@@ -356,6 +397,8 @@ def render_shipping_note(
 
     date_str = _format_date(date, lang)
 
+    gesamt_seiten = seitenanzahl(len(positions))
+
     pdf = FPDF(orientation="P", unit="mm", format="A4")
     pdf.set_auto_page_break(auto=False)
     pdf.set_compression(compress)
@@ -405,23 +448,67 @@ def render_shipping_note(
     text(PAGE_MARGIN_MM, GREETING_TOP_MM + 6, t["thanks"], _SERIF, "", 11, INK, w=CONTENT_W_MM)
     text(PAGE_MARGIN_MM, GREETING_TOP_MM + 12, t["note"], _SERIF, "I", 10.5, GREY, w=CONTENT_W_MM)
 
-    # --- Positions table header ---
-    y = TABLE_TOP_MM
-    pdf.set_font(_SANS, "B", 7.5)
-    pdf.set_text_color(*GOLD)
-    pdf.set_char_spacing(0.6)
-    pdf.set_xy(_COL_QTY_X, y); pdf.cell(16, 5, t["col_qty"])
-    pdf.set_xy(_COL_CARD_X, y); pdf.cell(70, 5, t["col_card"])
-    pdf.set_xy(_COL_COND_X, y); pdf.cell(35, 5, t["col_cond"])
-    pdf.set_xy(_PRICE_RIGHT_X - 30, y); pdf.cell(30, 5, t["col_price"], align="R")
-    pdf.set_char_spacing(0)
-    y += 6
-    pdf.set_draw_color(*HAIRLINE)
-    pdf.line(PAGE_MARGIN_MM, y, PAGE_W_MM - PAGE_MARGIN_MM, y)
-    y += 2
+    def tabellenkopf(yy: float) -> float:
+        """Spaltenüberschriften zeichnen, gibt das neue y zurück."""
+        pdf.set_font(_SANS, "B", 7.5)
+        pdf.set_text_color(*GOLD)
+        pdf.set_char_spacing(0.6)
+        pdf.set_xy(_COL_QTY_X, yy); pdf.cell(16, 5, t["col_qty"])
+        pdf.set_xy(_COL_CARD_X, yy); pdf.cell(70, 5, t["col_card"])
+        pdf.set_xy(_COL_COND_X, yy); pdf.cell(35, 5, t["col_cond"])
+        pdf.set_xy(_PRICE_RIGHT_X - 30, yy); pdf.cell(30, 5, t["col_price"], align="R")
+        pdf.set_char_spacing(0)
+        yy += 6
+        pdf.set_draw_color(*HAIRLINE)
+        pdf.line(PAGE_MARGIN_MM, yy, PAGE_W_MM - PAGE_MARGIN_MM, yy)
+        return yy + 2
+
+    def seitenzahl_schreiben() -> None:
+        """„Seite n von m" unten rechts — nur bei mehrseitigen Beilegern."""
+        if gesamt_seiten > 1:
+            text(PAGE_MARGIN_MM, PAGE_H_MM - PAGE_NUMBER_FROM_BOTTOM_MM,
+                 t["page"].format(n=pdf.page, gesamt=gesamt_seiten),
+                 _SANS, "", 7.5, GREY, w=CONTENT_W_MM, align="R")
+
+    def neue_seite() -> float:
+        """Folgeseite beginnen: Logo, Fortsetzungszeile, Spaltenköpfe.
+
+        Ohne Adressfeld und Anrede — die stehen auf der ersten Seite. Die
+        Bestellnummer wird wiederholt, damit lose Blätter zuzuordnen bleiben.
+        """
+        pdf.add_page()
+        seitenzahl_schreiben()
+        # Falzmarken gehören auf jedes Blatt — gefaltet wird der ganze Stapel.
+        pdf.set_draw_color(*HAIRLINE)
+        pdf.set_line_width(0.2)
+        for fy in FOLD_MARKS_MM:
+            pdf.line(0, fy, 5, fy)
+        if logo and Path(logo).exists():
+            try:
+                pdf.image(logo, x=PAGE_W_MM - PAGE_MARGIN_MM - CONT_LOGO_W_MM,
+                          y=LOGO_TOP_MM, w=CONT_LOGO_W_MM)
+            except Exception:
+                pass
+        text(PAGE_MARGIN_MM, CONT_TITLE_TOP_MM,
+             t["continued"].format(number=order_number), _SERIF, "", 12, INK,
+             w=CONTENT_W_MM - CONT_LOGO_W_MM - 4)
+        pdf.set_draw_color(*GOLD)
+        pdf.set_line_width(0.4)
+        pdf.line(PAGE_MARGIN_MM, CONT_TITLE_TOP_MM + 8,
+                 PAGE_W_MM - PAGE_MARGIN_MM, CONT_TITLE_TOP_MM + 8)
+        return tabellenkopf(CONT_TABLE_TOP_MM)
+
+    seitenzahl_schreiben()
+    y = tabellenkopf(TABLE_TOP_MM)
 
     subtotal = 0.0
     for pos in positions:
+        # Passt die Zeile nicht mehr über die Fußzeile, kommt eine neue Seite.
+        # Vorher lief die Tabelle einfach weiter und alles darunter stand
+        # außerhalb des Blattes — im PDF vorhanden, auf dem Papier weg.
+        if y + ROW_H_MM > TABLE_BOTTOM_MM:
+            y = neue_seite()
+
         qty, name, set_name, condition, unit_price, foil = _position_fields(pos)
         if unit_price is not None:
             subtotal += float(unit_price) * float(qty or 1)
@@ -433,9 +520,13 @@ def render_shipping_note(
             text(_PRICE_RIGHT_X - 34, y, _eur(unit_price, lang), _SERIF, "", 11, INK, w=34, align="R")
         if set_name:
             text(_COL_CARD_X, y + 4.6, set_name, _SERIF, "I", 8.5, GREY, w=88)
-        y += 11
+        y += ROW_H_MM
         pdf.set_draw_color(*HAIRLINE)
         pdf.line(PAGE_MARGIN_MM, y - 2, PAGE_W_MM - PAGE_MARGIN_MM, y - 2)
+
+    # Die Summen gehören zusammen — lieber eine Seite mehr, als sie zu trennen.
+    if y + TOTALS_H_MM > TABLE_BOTTOM_MM:
+        y = neue_seite()
 
     # --- Totals (right-aligned) ---
     sub = totals.get("subtotal")

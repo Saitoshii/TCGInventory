@@ -45,6 +45,9 @@ KOPF_Y_MM = 12
 TABELLE_Y_MM = 46
 ZEILE_H_MM = 6.4
 SIEGEL_H_MM = 12
+SUMMEN_H_MM = 18
+#: Unterkante der Tabelle — darunter beginnt der Fuß mit Siegel und Absender.
+TABELLE_UNTEN_MM = SEITE_H_MM - 34
 
 #: Rechter Rand für Preise und Summen.
 PREIS_RECHTS_X = SEITE_B_MM - RAND_MM
@@ -61,6 +64,7 @@ TEXTE = {
     "versand": "Versand",
     "gesamt": "Gesamt",
     "bezahlt": "Betrag dankend erhalten.",
+    "fortsetzung": "Beleg {number} — Fortsetzung",
 }
 
 
@@ -122,9 +126,30 @@ def render_quittung(
     pdf.line(RAND_MM, y + 5, PREIS_RECHTS_X, y + 5)
 
     # --- Positionen ------------------------------------------------------
+    # Auch hier gilt: passt eine Zeile nicht mehr aufs Blatt, kommt ein neues.
+    # Sonst stünde sie im PDF und fehlte auf dem Papier — derselbe Fehler wie
+    # beim Beileger.
+    def neues_blatt() -> float:
+        pdf.add_page()
+        text(RAND_MM, KOPF_Y_MM, TEXTE["fortsetzung"].format(number=beleg_nummer),
+             _SERIF, "", 12, INK)
+        pdf.set_draw_color(*HAIRLINE)
+        pdf.set_line_width(0.2)
+        pdf.line(RAND_MM, KOPF_Y_MM + 8, PREIS_RECHTS_X, KOPF_Y_MM + 8)
+        yy = KOPF_Y_MM + 12
+        text(RAND_MM, yy, TEXTE["spalte_menge"], _SANS, "B", 8, GOLD)
+        text(RAND_MM + 18, yy, TEXTE["spalte_karte"], _SANS, "B", 8, GOLD)
+        text(SUMME_LABEL_RECHTS_X - 20, yy, TEXTE["spalte_preis"], _SANS, "B", 8,
+             GOLD, w=PREIS_RECHTS_X - SUMME_LABEL_RECHTS_X + 20, align="R")
+        pdf.line(RAND_MM, yy + 5, PREIS_RECHTS_X, yy + 5)
+        return yy + 8
+
     y += 8
     zwischensumme = 0.0
     for position in positionen:
+        if y + ZEILE_H_MM + 3 > TABELLE_UNTEN_MM:
+            y = neues_blatt()
+
         menge, name, set_name, zustand, einzelpreis, foil = _position_fields(position)
         menge = menge or 1
         einzelpreis = float(einzelpreis or 0)
@@ -143,6 +168,8 @@ def render_quittung(
         y += ZEILE_H_MM + (2.5 if zusatz else 0)
 
     # --- Summen ----------------------------------------------------------
+    if y + SUMMEN_H_MM > TABELLE_UNTEN_MM:      # Summen bleiben zusammen
+        y = neues_blatt()
     y += 2
     pdf.line(SUMME_LABEL_RECHTS_X - 26, y, PREIS_RECHTS_X, y)
     y += 2

@@ -347,3 +347,99 @@ def test_language_override_switches_note_to_english(tmp_path):
         assert conn.execute("SELECT print_language FROM orders WHERE id=?", (oid,)).fetchone()[0] == "en"
     text = _text(client.get(f"/orders/{oid}/shipping_note").get_data())
     assert "Order" in text and "Hello" in text          # English texts on the note
+
+
+# ---------------------------------------------------------------------------
+# Mehrseitige Beileger
+# ---------------------------------------------------------------------------
+
+def _viele(anzahl):
+    return [{"quantity": 1, "name": f"Testkarte {i:03d}", "set_name": "TST",
+             "condition": "NM", "unit_price": 1.00} for i in range(1, anzahl + 1)]
+
+
+def _beileger(anzahl):
+    return render_shipping_note(
+        recipient_lines=["Max Mustermann", "01159 Dresden"],
+        order_number="GROSS-1", buyer_name="vielkaeufer",
+        positions=_viele(anzahl), totals={"shipping": 1.55})
+
+
+def test_grosse_bestellung_laeuft_auf_weiteren_seiten_weiter():
+    """Der gemeldete Fehler: ab der 11. Karte stand alles ausserhalb des Blattes.
+
+    Im PDF war der Text vorhanden — deshalb faellt es beim Auslesen nicht auf,
+    wohl aber auf dem Papier. Geprueft wird deshalb die Seitenzahl.
+    """
+    pypdf = pytest.importorskip("pypdf")
+    from io import BytesIO
+    seiten = pypdf.PdfReader(BytesIO(_beileger(40))).pages
+    assert len(seiten) > 1, "40 Karten passen nicht auf ein Blatt"
+
+    text = "".join(s.extract_text() for s in seiten)
+    for i in range(1, 41):
+        assert f"Testkarte {i:03d}" in text, f"Karte {i} fehlt"
+
+
+def test_jede_karte_steht_auf_genau_einer_seite():
+    """Keine Karte doppelt, keine verloren."""
+    pypdf = pytest.importorskip("pypdf")
+    from io import BytesIO
+    seiten = pypdf.PdfReader(BytesIO(_beileger(40))).pages
+    for i in range(1, 41):
+        treffer = sum(1 for s in seiten if f"Testkarte {i:03d}" in s.extract_text())
+        assert treffer == 1, f"Karte {i} steht auf {treffer} Seiten"
+
+
+def test_summen_und_fuss_stehen_auf_der_letzten_seite():
+    pypdf = pytest.importorskip("pypdf")
+    from io import BytesIO
+    seiten = pypdf.PdfReader(BytesIO(_beileger(40))).pages
+    letzte = seiten[-1].extract_text()
+    assert "Gesamt" in letzte and "41,55" in letzte
+    assert "Iltisweg 7" in letzte                     # Absender im Fuss
+    # Nicht auf den Seiten davor.
+    for s in seiten[:-1]:
+        assert "Gesamt" not in s.extract_text()
+
+
+def test_folgeseiten_wiederholen_bestellnummer_und_spaltenkopf():
+    """Lose Blaetter muessen zuzuordnen bleiben."""
+    pypdf = pytest.importorskip("pypdf")
+    from io import BytesIO
+    seiten = pypdf.PdfReader(BytesIO(_beileger(40))).pages
+    for s in seiten[1:]:
+        t = s.extract_text()
+        assert "GROSS-1" in t and "Fortsetzung" in t
+        assert "MENGE" in t and "PREIS" in t
+    # Adressfeld und Anrede bleiben auf Seite 1.
+    for s in seiten[1:]:
+        assert "Max Mustermann" not in s.extract_text()
+        assert "Hallo" not in s.extract_text()
+
+
+def test_seitenzahlen_stimmen_und_fehlen_bei_einer_seite():
+    pypdf = pytest.importorskip("pypdf")
+    from io import BytesIO
+    import re
+
+    einseitig = pypdf.PdfReader(BytesIO(_beileger(3)))
+    assert len(einseitig.pages) == 1
+    assert "Seite" not in einseitig.pages[0].extract_text()
+
+    mehrseitig = pypdf.PdfReader(BytesIO(_beileger(40)))
+    gesamt = len(mehrseitig.pages)
+    for nr, seite in enumerate(mehrseitig.pages, start=1):
+        assert f"Seite {nr} von {gesamt}" in seite.extract_text()
+
+
+def test_vorausberechnung_stimmt_mit_dem_ergebnis_ueberein():
+    """`seitenanzahl()` bildet die Zeichenschleife nach — beide muessen gleich
+    zaehlen, sonst stuende eine falsche Nummer auf dem Blatt."""
+    pypdf = pytest.importorskip("pypdf")
+    from io import BytesIO
+    from TCGInventory.shipping_note import seitenanzahl
+
+    for anzahl in (0, 1, 9, 10, 11, 12, 13, 20, 27, 28, 29, 40, 100):
+        echt = len(pypdf.PdfReader(BytesIO(_beileger(anzahl))).pages)
+        assert seitenanzahl(anzahl) == echt, f"bei {anzahl} Karten"
