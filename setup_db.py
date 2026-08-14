@@ -184,6 +184,14 @@ def initialize_database() -> None:
             # WP3b: Grund, warum die Buchung dieser Bestellung geprüft werden
             # muss (fehlende Versandkosten, unstimmige Summen). NULL = in Ordnung.
             "buchung_pruefen": "TEXT",
+            # Woher die Bestellung stammt: 'cardmarket' (aus der Mail) oder
+            # 'manuell' (von Hand erfasster Direktverkauf). Vorhandene Zeilen
+            # kommen alle aus Cardmarket — daher der Vorgabewert.
+            "quelle": "TEXT DEFAULT 'cardmarket'",
+            # Verkaufskanal für die Buchhaltung. Bei Cardmarket fallen
+            # Plattformgebühren an, bei einem Direktverkauf nicht — deshalb
+            # muss die Buchhaltung die beiden auseinanderhalten können.
+            "verkaufskanal": "TEXT DEFAULT 'cardmarket'",
         }
         for col, coltype in order_new_cols.items():
             if col not in order_columns:
