@@ -214,10 +214,19 @@ def erstelle_bestellung(
     # Erst wenn die Bestellung steht, wird ausgebucht. Schlägt das fehl,
     # bleibt die Bestellung erhalten und der Bestand lässt sich von Hand
     # nachziehen — umgekehrt wäre die Karte weg und der Beleg fehlte.
+    #
+    # Der Rückgabewert von sell_card wird ausgewertet: geht das Ausbuchen
+    # schief, stünde sonst ein Verkauf im System, während die Karte weiter im
+    # Regal liegt. Das fällt niemandem auf — außer beim nächsten Zählen.
+    nicht_ausgebucht: List[str] = []
     for p in vorbereitet:
-        if p["card_id"]:
-            for _ in range(p["quantity"]):
-                sell_card(p["card_id"], user=benutzer)
+        if not p["card_id"]:
+            continue
+        for _ in range(p["quantity"]):
+            if not sell_card(p["card_id"], user=benutzer):
+                nicht_ausgebucht.append(p["card_name"])
+                break
 
     return {"order_id": bestellung_id, "order_number": nummer,
-            "warenwert": warenwert, "versand": versand, "gesamt": gesamt}
+            "warenwert": warenwert, "versand": versand, "gesamt": gesamt,
+            "nicht_ausgebucht": nicht_ausgebucht}

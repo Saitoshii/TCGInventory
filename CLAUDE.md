@@ -42,6 +42,13 @@ Dragonshield-CSV
   → "verkauft" entfernt exakt diese Zeile
 ```
 
+## Zwei Wege zu einer Bestellung
+Neben der Cardmarket-Mail gibt es den **Direktverkauf** (Flohmarkt, von Hand
+zu Hand): `direktverkauf.py` legt ihn in **denselben** Tabellen an, nur mit
+`quelle = 'manuell'` und einem `verkaufskanal`. Kein zweiter Bestellweg —
+Beileger, API und Buchhaltung laufen unverändert weiter. Details:
+`docs/ORDERS.md`, Abschnitt 6.
+
 ## Prinzipien (wichtig)
 1. **Nie blind raten.** Bei mehrdeutigem Karten-Match oder geparster
    Käuferadresse: die Kandidaten bzw. Werte zur Bestätigung anzeigen, niemals

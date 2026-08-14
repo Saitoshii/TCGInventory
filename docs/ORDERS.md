@@ -75,8 +75,81 @@ as long as they exist in `default-cards.db`.
 - Condition markers (e.g. "[NM]", "[EX]")
 - Extra whitespace and punctuation
 
+## 6. Direktverkauf — Bestellungen ohne Cardmarket
+
+**Dateien:** `direktverkauf.py`, `quittung.py`, `templates/direktverkauf_*.html`
+
+Nicht jeder Verkauf läuft über Cardmarket. Auf dem Flohmarkt oder von Hand zu
+Hand entsteht keine Bestellmail — der Verkauf soll trotzdem denselben Weg
+gehen: Bestellung, Beleg, Lagerplatz frei, Umsatz in der Buchhaltung.
+
+**Kein zweiter Bestellweg.** Ein Direktverkauf landet in denselben Tabellen
+(`orders`, `order_items`), nur mit `quelle = 'manuell'`. Alles Nachgelagerte —
+Beileger, API, Buchhaltung — funktioniert dadurch unverändert.
+
+### Zwei neue Spalten an `orders`
+
+| Spalte | Werte | Zweck |
+|---|---|---|
+| `quelle` | `cardmarket`, `manuell` | woher die Bestellung stammt |
+| `verkaufskanal` | `cardmarket`, `direktverkauf`, `flohmarkt` | entscheidet in der Buchhaltung über Geldkonto und Gebühr |
+
+Beide sind nicht-zerstörend ergänzt; vorhandene Zeilen bekommen über den
+Vorgabewert `cardmarket`.
+
+### Zwei Einstiege
+
+* **Bestellungen → „＋ Direktverkauf"** für den vollständigen Vorgang
+* **Kartenübersicht → „Verkauft"** fragt nach: mit Beleg (Formular) oder nur
+  ausbuchen wie bisher
+
+### Zwei Belege
+
+| | Format | Adresse | wofür |
+|---|---|---|---|
+| Beileger (`shipping_note.py`) | A4 | nötig | Versand, Fensterkuvert |
+| Quittung (`quittung.py`) | A5 quer | keine | Verkauf vor Ort |
+
+Die Quittung ist ein eigenes Dokument, kein beschnittener Beileger: ohne
+Anrede, ohne Bewertungssatz, ohne Adressfeld. Schrift, Farben und Absender
+kommen aus `shipping_note` — es gibt nur **einen** Ort fürs Erscheinungsbild.
+
+Ausdrücklich **keine** Rechnung im steuerlichen Sinn.
+
+### Regeln, die der Code durchsetzt
+
+* **Preise werden nicht geraten.** Der Einkaufspreis ist nicht der
+  Verkaufspreis; jede Position bekommt ihren Preis von Hand.
+* **Alles oder nichts.** Erst wird jede Position geprüft, dann geschrieben,
+  dann ausgebucht. Reicht bei einer Position der Bestand nicht, entsteht weder
+  eine Bestellung noch verschwindet eine Karte.
+* **Status sofort `sold`.** Der Verkauf ist gelaufen; stünde er als „offen" in
+  der Liste, könnte ein zweiter Klick auf „verkauft" dieselbe Karte noch
+  einmal ausbuchen. Gedruckt wird von der Abschlussseite `/orders/<id>/beleg`.
+* **Gescheitertes Ausbuchen wird gemeldet**, nicht verschluckt: sonst stünde
+  ein Verkauf im System, während die Karte weiter im Regal liegt.
+* Eigene Nummernfolge `DV-JJJJ-NNNN`, damit man auf dem Papier die Herkunft
+  sieht.
+
+### Weg in die Buchhaltung
+
+`api_v1` liefert `verkaufskanal` und `quelle` mit. Die Buchhaltung entscheidet
+daraus:
+
+| Kanal | Geldkonto | Plattformgebühr |
+|---|---|---|
+| `cardmarket` | Cardmarket | ja |
+| `flohmarkt`, `direktverkauf` | Barkasse | keine |
+
+⚠️ **Nicht doppelt erfassen:** Wer Direktverkäufe einzeln erfasst, darf für
+dieselben Verkäufe keinen Flohmarkt-Tagesabschluss in der Buchhaltung buchen.
+Die Oberfläche warnt an drei Stellen, und die Prüfliste der Auswertung meldet
+es, falls es doch passiert.
+
 ## Tests
 
+- **`test_direktverkauf.py`** — Anlegen, Bestandsführung, Preisprüfung,
+  Formular, Quittung, Kanal durch die API, gescheitertes Ausbuchen.
 - **`test_order_matching.py`** — `test_find_card_in_inventory`,
   `test_find_card_partial_match`, `test_find_card_not_in_inventory`,
   `test_get_image_from_default_db`.

@@ -2503,6 +2503,16 @@ def direktverkauf_neu():
                 datum=request.form.get("datum") or None,
                 benutzer=session.get("user", "system"),
             )
+            # Konnte eine Karte nicht ausgebucht werden, steht der Verkauf im
+            # System, während sie weiter im Regal liegt. Das muss gesagt
+            # werden — sonst fällt es erst beim nächsten Zählen auf.
+            if ergebnis.get("nicht_ausgebucht"):
+                flash(
+                    "Achtung: "
+                    + ", ".join(sorted(set(ergebnis["nicht_ausgebucht"])))
+                    + " konnte(n) nicht aus dem Bestand ausgebucht werden. "
+                      "Der Verkauf ist erfasst — bitte den Bestand von Hand "
+                      "prüfen.", "warning")
             return redirect(url_for("direktverkauf_beleg",
                                     order_id=ergebnis["order_id"]))
         except direktverkauf.DirektverkaufFehler as exc:
