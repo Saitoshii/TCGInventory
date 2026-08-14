@@ -4,6 +4,7 @@ import os
 import sys
 import types
 import sqlite3
+from pathlib import Path
 
 import pytest
 
@@ -43,7 +44,81 @@ def test_config_has_real_sender_address():
     assert cfg["zip_city"] == "24983 Handewitt"
     assert cfg["city"] == "Handewitt"
     assert cfg["footer_sender_line"].endswith("Deutschland")
-    assert cfg["badge_path"].endswith("cardmarket_seal.png")
+    assert cfg["badge_path"].endswith("cardmarket_professional_seller.jpg")
+
+
+# ---------------------------------------------------------------------------
+# Badge: die Breite folgt dem Bild
+# ---------------------------------------------------------------------------
+
+def test_badge_seitenverhaeltnis_kommt_aus_der_datei():
+    """Das quadratische Professional-Siegel darf nicht gestaucht werden.
+
+    Vorher stand das Verhaeltnis des alten, hochformatigen Siegels als
+    Konstante im Code — ein neues Badge waere damit verzerrt gelandet.
+    """
+    from TCGInventory.shipping_note import _DEFAULT_BADGE, bild_seitenverhaeltnis
+    assert Path(_DEFAULT_BADGE).exists()
+    assert bild_seitenverhaeltnis(_DEFAULT_BADGE) == pytest.approx(1.0, abs=0.01)
+
+
+def test_badge_seitenverhaeltnis_liest_png_und_jpeg(tmp_path):
+    """Beide Formate, ohne zusaetzliche Bibliothek."""
+    from TCGInventory.shipping_note import bild_seitenverhaeltnis
+
+    # PNG 40x20: Kopf mit IHDR, der Rest darf Stueckwerk sein.
+    png = (b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR"
+           + (40).to_bytes(4, "big") + (20).to_bytes(4, "big") + b"\x08\x06\x00\x00\x00")
+    p = tmp_path / "a.png"
+    p.write_bytes(png)
+    assert bild_seitenverhaeltnis(p) == pytest.approx(2.0)
+
+    # Logo und Badge aus dem Repo.
+    img = Path(__file__).resolve().parent.parent / "static" / "img"
+    assert bild_seitenverhaeltnis(img / "cardmarket_professional_seller.jpg") \
+        == pytest.approx(1.0)
+    assert bild_seitenverhaeltnis(img / "logo.png") > 0
+
+
+def test_badge_seitenverhaeltnis_faellt_zurueck(tmp_path):
+    """Kaputte oder fehlende Datei: der Beileger entsteht trotzdem."""
+    from TCGInventory.shipping_note import bild_seitenverhaeltnis
+    kaputt = tmp_path / "kaputt.png"
+    kaputt.write_bytes(b"das ist kein Bild")
+    assert bild_seitenverhaeltnis(kaputt) == 1.0
+    assert bild_seitenverhaeltnis(tmp_path / "gibtsnicht.png") == 1.0
+
+
+def test_beileger_enthaelt_das_quadratische_badge(tmp_path):
+    """Im PDF muss das quadratische Professional-Siegel stecken.
+
+    Byteweise vergleichen geht nicht: fpdf2 schreibt den JPEG-Kopf neu.
+    Geprueft wird deshalb, was zaehlt — ein eingebettetes JPEG mit dem
+    Seitenverhaeltnis des neuen Siegels. Das alte war hochformatig und wuerde
+    hier auffallen.
+    """
+    pypdf = pytest.importorskip("pypdf")
+    import io
+    from TCGInventory.shipping_note import bild_seitenverhaeltnis
+
+    pdf = render_shipping_note(
+        recipient_lines=["Max Mustermann", "01159 Dresden"],
+        order_number="1", buyer_name="tester",
+        positions=[{"quantity": 1, "name": "Sol Ring", "set_name": "CMR",
+                    "condition": "NM", "unit_price": 2.0}],
+        totals={"shipping": 1.55},
+    )
+    seite = pypdf.PdfReader(io.BytesIO(pdf)).pages[0]
+
+    verhaeltnisse = []
+    for nr, bild in enumerate(seite.images):
+        datei = tmp_path / f"bild{nr}"
+        datei.write_bytes(bild.data)
+        verhaeltnisse.append(bild_seitenverhaeltnis(datei))
+
+    assert verhaeltnisse, "Im Beileger steckt ueberhaupt kein Bild"
+    assert any(abs(v - 1.0) < 0.02 for v in verhaeltnisse), (
+        f"Kein quadratisches Siegel gefunden, gefunden: {verhaeltnisse}")
 
 
 def test_footer_has_badge_and_no_contact_line():

@@ -24,11 +24,12 @@ import re
 _BASE = Path(__file__).resolve().parent
 _FONT_DIR = _BASE / "static" / "fonts"
 _DEFAULT_LOGO = _BASE / "static" / "img" / "logo.png"
-_DEFAULT_BADGE = _BASE / "static" / "img" / "cardmarket_seal.png"
+_DEFAULT_BADGE = _BASE / "static" / "img" / "cardmarket_professional_seller.jpg"
 
-# Cardmarket "Private Seller" seal in the footer (aspect ratio ~247:285).
+# Cardmarket seal in the footer. The width follows from the image itself —
+# a hard-coded aspect ratio would squash the next badge we get handed.
 FOOTER_BADGE_HEIGHT_MM = 16
-_BADGE_ASPECT = 247 / 285
+_BADGE_FALLBACK_ASPECT = 1.0
 
 # ---------------------------------------------------------------------------
 # Page grid
@@ -115,6 +116,48 @@ _MONTHS_EN = ["January", "February", "March", "April", "May", "June", "July",
 # the country line is omitted for domestic recipients.
 _GERMANY = {"deutschland", "germany", "de", "deu", "ger", "allemagne",
             "duitsland", "germania", "tyskland", "alemania"}
+
+
+# ---------------------------------------------------------------------------
+# Bildmasse
+# ---------------------------------------------------------------------------
+def bild_seitenverhaeltnis(pfad) -> float:
+    """Breite geteilt durch Höhe, gelesen aus dem Dateikopf.
+
+    Damit richtet sich die Breite des Badges nach dem Bild und nicht nach
+    einer Konstante im Code: das quadratische Professional-Seller-Siegel wäre
+    mit dem Verhältnis des alten, hochformatigen Siegels gestaucht worden.
+
+    Bewusst ohne Pillow — für zwei Zahlen aus einem Dateikopf lohnt keine
+    weitere Abhängigkeit auf dem Pi. Lässt sich das Bild nicht lesen, kommt
+    ein quadratisches Verhältnis zurück; das Siegel ist dann höchstens
+    unscharf platziert, aber der Beileger entsteht trotzdem.
+    """
+    try:
+        with open(pfad, "rb") as datei:
+            kopf = datei.read(2)
+            if kopf == b"\x89P":                      # PNG
+                datei.seek(16)
+                breite = int.from_bytes(datei.read(4), "big")
+                hoehe = int.from_bytes(datei.read(4), "big")
+                return breite / hoehe if hoehe else _BADGE_FALLBACK_ASPECT
+            if kopf == b"\xff\xd8":                   # JPEG
+                datei.seek(2)
+                while True:
+                    marke = datei.read(2)
+                    if len(marke) < 2 or marke[0] != 0xFF:
+                        break
+                    laenge = int.from_bytes(datei.read(2), "big")
+                    # SOF0..SOF15 tragen die Masse; SOF4/SOF12 sind keine.
+                    if 0xC0 <= marke[1] <= 0xCF and marke[1] not in (0xC4, 0xC8, 0xCC):
+                        datei.read(1)                 # Genauigkeit
+                        hoehe = int.from_bytes(datei.read(2), "big")
+                        breite = int.from_bytes(datei.read(2), "big")
+                        return breite / hoehe if hoehe else _BADGE_FALLBACK_ASPECT
+                    datei.seek(laenge - 2, 1)
+    except (OSError, ValueError, ZeroDivisionError):
+        pass
+    return _BADGE_FALLBACK_ASPECT
 
 
 # ---------------------------------------------------------------------------
@@ -429,7 +472,7 @@ def render_shipping_note(
     badge_y = hairline_y + 2
     if badge and Path(badge).exists():
         try:
-            bw = FOOTER_BADGE_HEIGHT_MM * _BADGE_ASPECT
+            bw = FOOTER_BADGE_HEIGHT_MM * bild_seitenverhaeltnis(badge)
             pdf.image(badge, x=(PAGE_W_MM - bw) / 2, y=badge_y, h=FOOTER_BADGE_HEIGHT_MM)
         except Exception:
             pass
