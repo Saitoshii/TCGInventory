@@ -2482,9 +2482,8 @@ def direktverkauf_neu():
                 datum=request.form.get("datum") or None,
                 benutzer=session.get("user", "system"),
             )
-            flash(f"Direktverkauf {ergebnis['order_number']} angelegt "
-                  f"({ergebnis['gesamt']:.2f} €). Beleg jetzt drucken.", None)
-            return redirect(url_for("list_orders", highlight=ergebnis["order_id"]))
+            return redirect(url_for("direktverkauf_beleg",
+                                    order_id=ergebnis["order_id"]))
         except direktverkauf.DirektverkaufFehler as exc:
             flash(str(exc), "error")
 
@@ -2504,6 +2503,32 @@ def direktverkauf_neu():
         vorgabe=vorgabe,
         heute=datetime.now().strftime("%Y-%m-%d"),
     )
+
+
+@app.route("/orders/<int:order_id>/beleg")
+@login_required
+def direktverkauf_beleg(order_id: int):
+    """Abschlussseite nach einem Direktverkauf: welcher Beleg soll es sein?
+
+    Der Verkauf steht bereits auf „verkauft" und taucht deshalb nicht in der
+    Liste der offenen Bestellungen auf — von hier aus wird gedruckt.
+    """
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        order = c.execute(
+            "SELECT id, order_number, buyer_name, verkaufskanal, address, "
+            "address_confirmed, amount_gesamt, amount_versand, date_completed "
+            "FROM orders WHERE id = ?", (order_id,)).fetchone()
+        if not order:
+            flash("Verkauf nicht gefunden", "error")
+            return redirect(url_for("list_orders"))
+        items = [dict(r) for r in c.execute(
+            "SELECT card_name, quantity, unit_price, set_name, condition "
+            "FROM order_items WHERE order_id = ? ORDER BY id", (order_id,))]
+    return render_template("direktverkauf_beleg.html",
+                           order=dict(order), items=items,
+                           belegarten=direktverkauf.BELEGARTEN)
 
 
 @app.route("/orders/<int:order_id>/mark_sold", methods=["POST"])

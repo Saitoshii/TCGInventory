@@ -292,8 +292,10 @@ def test_verkauf_ueber_das_formular(client, db):
         "quantity": "1", "unit_price": "3,50",
     }, follow_redirects=True)
 
+    seite = antwort.get_data(as_text=True)
     assert antwort.status_code == 200
-    assert "angelegt" in antwort.get_data(as_text=True)
+    assert "angelegt" in seite                  # Belegseite
+    assert "Quittung" in seite and "Beileger" in seite
     assert _karte(db, "Sol Ring") is None       # ausgebucht
 
 
@@ -354,11 +356,99 @@ def test_quittung_zeigt_die_positionen(client, db):
     assert "Hallo" not in text
 
 
-def test_bestellliste_zeigt_den_kanal(client, db):
-    erstelle_bestellung(
+def test_bestellliste_bietet_den_direktverkauf_an(client):
+    seite = client.get("/orders").get_data(as_text=True)
+    assert "Direktverkauf" in seite              # der neue Knopf oben
+
+
+def test_direktverkauf_steht_nicht_unter_offenen_bestellungen(client, db):
+    """Er ist bereits abgeschlossen — sonst ließe er sich doppelt ausbuchen."""
+    ergebnis = erstelle_bestellung(
         positionen=[{"card_name": "Wühlkiste", "quantity": 1, "unit_price": "2,00"}],
         kanal="flohmarkt", db_file=db)
-    seite = client.get("/orders").get_data(as_text=True)
-    assert "flohmarkt" in seite
-    assert "Quittung drucken" in seite
-    assert "Direktverkauf" in seite              # der neue Knopf oben
+
+    conn = sqlite3.connect(db)
+    status, fertig = conn.execute(
+        "SELECT status, date_completed FROM orders WHERE id = ?",
+        (ergebnis["order_id"],)).fetchone()
+    conn.close()
+    assert status == "sold" and fertig
+
+    assert ergebnis["order_number"] not in client.get("/orders").get_data(as_text=True)
+
+
+def test_belegseite_bietet_beide_dokumente(client, db):
+    ergebnis = erstelle_bestellung(
+        positionen=[{"card_name": "Wühlkiste", "quantity": 1, "unit_price": "2,00"}],
+        kanal="flohmarkt", adresse="Max Mustermann\n24103 Kiel", db_file=db)
+
+    seite = client.get(f"/orders/{ergebnis['order_id']}/beleg").get_data(as_text=True)
+    assert ergebnis["order_number"] in seite
+    assert "Quittung" in seite and "Beileger" in seite
+    assert "keinen zusätzlichen" in seite        # Warnung wegen Doppelbuchung
+
+
+def test_ohne_adresse_kein_beileger(client, db):
+    """Ein Anschreiben ohne Empfänger ergibt keinen Sinn."""
+    ergebnis = erstelle_bestellung(
+        positionen=[{"card_name": "Wühlkiste", "quantity": 1, "unit_price": "2,00"}],
+        db_file=db)
+    seite = client.get(f"/orders/{ergebnis['order_id']}/beleg").get_data(as_text=True)
+    assert "braucht eine Adresse" in seite
+    assert "disabled" in seite
+
+
+# =========================================================================
+# Weg in die Buchhaltung
+# =========================================================================
+
+def test_api_reicht_den_kanal_durch(client, db, monkeypatch):
+    """Die Buchhaltung muss Cardmarket und Direktverkauf unterscheiden können.
+
+    Vorher stand in der API-Antwort fest „cardmarket" — ein Direktverkauf wäre
+    dort mit Plattformgebühr gebucht worden.
+    """
+    monkeypatch.setenv("TCG_API_TOKEN", "test-token")
+    import TCGInventory
+    monkeypatch.setattr(TCGInventory, "DB_FILE", db, raising=False)
+
+    ergebnis = erstelle_bestellung(
+        positionen=[{"card_name": "Wühlkiste", "quantity": 1, "unit_price": "2,00"}],
+        kanal="flohmarkt", db_file=db)
+
+    antwort = client.get("/api/v1/orders",
+                         headers={"Authorization": "Bearer test-token"})
+    assert antwort.status_code == 200
+    bestellungen = antwort.get_json()["bestellungen"]
+    unsere = [b for b in bestellungen
+              if b["bestellnummer"] == ergebnis["order_number"]]
+    assert unsere, f"Direktverkauf fehlt in der API: {bestellungen}"
+
+    b = unsere[0]
+    assert b["verkaufskanal"] == "flohmarkt"     # nicht mehr fest cardmarket
+    assert b["quelle"] == "manuell"
+    assert b["betraege_cent"]["gebuehren"] == 0  # keine Plattformgebühr
+    assert b["betraege_cent"]["gesamt"] == 200
+
+
+def test_api_bleibt_bei_cardmarket_fuer_maildaten(client, db, monkeypatch):
+    monkeypatch.setenv("TCG_API_TOKEN", "test-token")
+    import TCGInventory
+    monkeypatch.setattr(TCGInventory, "DB_FILE", db, raising=False)
+
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "INSERT INTO orders (buyer_name, email_message_id, date_received, "
+        "status, date_completed, order_number, amount_gesamt, amount_versand, "
+        "amount_gebuehren) VALUES ('kartenfuchs', 'mail-1', '2026-08-10', "
+        "'sold', '2026-08-11', '4711', 12.15, 1.55, 0.07)")
+    conn.commit()
+    conn.close()
+
+    antwort = client.get("/api/v1/orders",
+                         headers={"Authorization": "Bearer test-token"})
+    b = [x for x in antwort.get_json()["bestellungen"]
+         if x["bestellnummer"] == "4711"][0]
+    assert b["verkaufskanal"] == "cardmarket"
+    assert b["quelle"] == "cardmarket"
+    assert b["betraege_cent"]["gebuehren"] == 7

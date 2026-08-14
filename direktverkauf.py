@@ -175,15 +175,19 @@ def erstelle_bestellung(
         gesamt = round(warenwert + versand, 2)
         nummer = naechste_nummer(cursor)
 
+        # Status gleich 'sold': der Verkauf ist gelaufen, das Geld da und die
+        # Karte weg. Stünde er als „offen" in der Liste, könnte ein zweiter
+        # Klick auf „verkauft" dieselbe Karte ein weiteres Mal ausbuchen.
         cursor.execute(
             "INSERT INTO orders (buyer_name, email_message_id, date_received, "
-            "status, order_number, address, address_raw, email_date, quelle, "
-            "verkaufskanal, amount_gesamtwert, amount_versand, amount_gesamt, "
-            "amount_gebuehren, amount_auszahlung, address_confirmed) "
-            "VALUES (?, ?, ?, 'open', ?, ?, ?, ?, 'manuell', ?, ?, ?, ?, 0, ?, ?)",
+            "status, date_completed, order_number, address, address_raw, "
+            "email_date, quelle, verkaufskanal, amount_gesamtwert, "
+            "amount_versand, amount_gesamt, amount_gebuehren, "
+            "amount_auszahlung, address_confirmed) "
+            "VALUES (?, ?, ?, 'sold', ?, ?, ?, ?, ?, 'manuell', ?, ?, ?, ?, 0, ?, ?)",
             (kaeufer.strip() or "Direktverkauf",
              f"manuell:{uuid.uuid4()}",       # die Spalte ist NOT NULL UNIQUE
-             tag, nummer, adresse.strip() or None, adresse.strip() or None,
+             tag, tag, nummer, adresse.strip() or None, adresse.strip() or None,
              tag, kanal, warenwert, versand, gesamt, gesamt,
              1 if adresse.strip() else 0))
         bestellung_id = cursor.lastrowid
