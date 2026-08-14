@@ -31,7 +31,8 @@ from fpdf import FPDF
 
 from .shipping_note import (
     GOLD, GREY, HAIRLINE, INK, _SANS, _SERIF, _eur, _format_date,
-    _position_fields, _register_fonts, bild_seitenverhaeltnis, get_shop_config,
+    _position_fields, _register_fonts, bild_seitenverhaeltnis, bildmasse,
+    get_shop_config,
 )
 
 # A5 quer — zwei davon auf ein A4-Blatt.
@@ -41,6 +42,11 @@ RAND_MM = 14
 INHALT_B_MM = SEITE_B_MM - 2 * RAND_MM
 
 LOGO_B_MM = 34
+#: Grenze für die Höhe. Ohne sie bestimmt allein das Seitenverhältnis der
+#: Bilddatei, wie weit das Logo herunterreicht — ein hochformatiges Logo liefe
+#: sonst in die Tabelle, so wie es auf den Folgeseiten des Beilegers passiert
+#: ist. Beim jetzigen (quadratischen) Logo ändert die Grenze nichts.
+LOGO_MAX_H_MM = 34
 KOPF_Y_MM = 12
 TABELLE_Y_MM = 46
 ZEILE_H_MM = 6.4
@@ -88,6 +94,10 @@ def render_quittung(
 
     pdf = FPDF(orientation="L", unit="mm", format=(SEITE_H_MM, SEITE_B_MM))
     pdf.set_auto_page_break(False)
+    # ``compress`` wurde bisher entgegengenommen und nicht angewandt — mit
+    # ``compress=False`` sollen Text und Bildmaße im rohen PDF lesbar sein,
+    # sonst prüfen Tests am komprimierten Strom vorbei.
+    pdf.set_compression(compress)
     pdf.add_page()
     _register_fonts(pdf)
 
@@ -101,8 +111,9 @@ def render_quittung(
     logo = cfg.get("logo_path")
     if logo:
         try:
-            pdf.image(logo, x=SEITE_B_MM - RAND_MM - LOGO_B_MM, y=KOPF_Y_MM - 4,
-                      w=LOGO_B_MM)
+            logo_b, _ = bildmasse(logo, LOGO_B_MM, LOGO_MAX_H_MM)
+            pdf.image(logo, x=SEITE_B_MM - RAND_MM - logo_b, y=KOPF_Y_MM - 4,
+                      w=logo_b)
         except Exception:
             pass
 

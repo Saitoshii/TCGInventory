@@ -57,6 +57,9 @@ RECIPIENT_LINE_H_MM = 5.6
 # ---------------------------------------------------------------------------
 LOGO_TOP_MM = 13
 LOGO_WIDTH_MM = 46           # logo top-right, address field stays free on the left
+# Höchste zulässige Logohöhe auf Seite 1. Die Breite allein genügt nicht: wie
+# hoch das Bild wird, entscheidet sonst das Seitenverhältnis der Datei.
+LOGO_MAX_H_MM = 48
 SUBJECT_TOP_MM = 92
 GREETING_TOP_MM = 104
 TABLE_TOP_MM = 126
@@ -70,10 +73,21 @@ ROW_H_MM = 11                 # Höhe einer Positionszeile
 TOTALS_H_MM = 22              # Zwischensumme + Versand + Gesamt samt Strich
 # Unterkante der Tabelle: 4 mm Luft über der Fußzeile.
 TABLE_BOTTOM_MM = PAGE_H_MM - FOOTER_HAIRLINE_FROM_BOTTOM_MM - 4
+# --- Kopf der Folgeseiten --------------------------------------------------
 # Folgeseiten brauchen kein Adressfeld — die Tabelle beginnt weiter oben.
-CONT_TITLE_TOP_MM = 20
-CONT_TABLE_TOP_MM = 36
-CONT_LOGO_W_MM = 30
+#
+# Das Logo wird hier über die **Höhe** begrenzt, nicht über die Breite. Zuvor
+# stand nur eine Breite von 30 mm im Code; das Logo ist aber nahezu
+# quadratisch, wurde damit 30 mm hoch und reichte von 13 mm bis 43 mm herunter
+# — die Goldlinie (28 mm) lief mitten hindurch, und die Spaltenköpfe (36 mm)
+# standen dahinter. Alle Werte darunter halten jetzt Abstand zur Unterkante des
+# Logos, unabhängig davon, welches Bild hinterlegt ist.
+CONT_LOGO_MAX_W_MM = 26
+CONT_LOGO_MAX_H_MM = 18
+CONT_LOGO_TOP_MM = LOGO_TOP_MM
+CONT_TITLE_TOP_MM = 19        # Titel steht neben dem Logo
+CONT_RULE_MM = 35             # Goldlinie: unter Logo (31 mm) und Titel (26 mm)
+CONT_TABLE_TOP_MM = 42
 PAGE_NUMBER_FROM_BOTTOM_MM = 10
 
 # Fold / hole marks at the left sheet edge (DIN 676).
@@ -176,6 +190,25 @@ def bild_seitenverhaeltnis(pfad) -> float:
     except (OSError, ValueError, ZeroDivisionError):
         pass
     return _BADGE_FALLBACK_ASPECT
+
+
+def bildmasse(pfad, max_breite_mm: float, max_hoehe_mm: float):
+    """Breite und Höhe eines Bildes, das in ein Feld passen muss.
+
+    ``pdf.image(..., w=30)`` gibt nur die Breite vor — wie hoch das Bild wird,
+    entscheidet dann das Seitenverhältnis der Datei. Genau daran ist der Kopf
+    der Folgeseiten gescheitert: 30 mm Breite wurden bei einem quadratischen
+    Logo zu 30 mm Höhe, und die Linie darunter lief mitten durch das Bild.
+
+    Hier wird das Bild so groß wie möglich gewählt, ohne **eine** der beiden
+    Grenzen zu überschreiten. Das Seitenverhältnis bleibt erhalten, und der
+    Platzbedarf steht fest, bevor gezeichnet wird.
+    """
+    verhaeltnis = bild_seitenverhaeltnis(pfad)
+    if verhaeltnis <= 0:
+        verhaeltnis = _BADGE_FALLBACK_ASPECT
+    breite = min(float(max_breite_mm), float(max_hoehe_mm) * verhaeltnis)
+    return breite, breite / verhaeltnis
 
 
 # ---------------------------------------------------------------------------
@@ -415,8 +448,9 @@ def render_shipping_note(
     # --- Logo top-right (transparent PNG -> no visible box) ---
     if logo and Path(logo).exists():
         try:
-            pdf.image(logo, x=PAGE_W_MM - PAGE_MARGIN_MM - LOGO_WIDTH_MM,
-                      y=LOGO_TOP_MM, w=LOGO_WIDTH_MM)
+            logo_b, _ = bildmasse(logo, LOGO_WIDTH_MM, LOGO_MAX_H_MM)
+            pdf.image(logo, x=PAGE_W_MM - PAGE_MARGIN_MM - logo_b,
+                      y=LOGO_TOP_MM, w=logo_b)
         except Exception:
             pass
 
@@ -483,19 +517,21 @@ def render_shipping_note(
         pdf.set_line_width(0.2)
         for fy in FOLD_MARKS_MM:
             pdf.line(0, fy, 5, fy)
+        logo_b = 0.0
         if logo and Path(logo).exists():
             try:
-                pdf.image(logo, x=PAGE_W_MM - PAGE_MARGIN_MM - CONT_LOGO_W_MM,
-                          y=LOGO_TOP_MM, w=CONT_LOGO_W_MM)
+                logo_b, _ = bildmasse(logo, CONT_LOGO_MAX_W_MM, CONT_LOGO_MAX_H_MM)
+                pdf.image(logo, x=PAGE_W_MM - PAGE_MARGIN_MM - logo_b,
+                          y=CONT_LOGO_TOP_MM, w=logo_b)
             except Exception:
-                pass
+                logo_b = 0.0
+        # Der Titel endet vor dem Logo, die Linie liegt unter beiden.
         text(PAGE_MARGIN_MM, CONT_TITLE_TOP_MM,
              t["continued"].format(number=order_number), _SERIF, "", 12, INK,
-             w=CONTENT_W_MM - CONT_LOGO_W_MM - 4)
+             w=CONTENT_W_MM - logo_b - 4)
         pdf.set_draw_color(*GOLD)
         pdf.set_line_width(0.4)
-        pdf.line(PAGE_MARGIN_MM, CONT_TITLE_TOP_MM + 8,
-                 PAGE_W_MM - PAGE_MARGIN_MM, CONT_TITLE_TOP_MM + 8)
+        pdf.line(PAGE_MARGIN_MM, CONT_RULE_MM, PAGE_W_MM - PAGE_MARGIN_MM, CONT_RULE_MM)
         return tabellenkopf(CONT_TABLE_TOP_MM)
 
     seitenzahl_schreiben()
