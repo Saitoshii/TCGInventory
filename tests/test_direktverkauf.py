@@ -452,3 +452,42 @@ def test_api_bleibt_bei_cardmarket_fuer_maildaten(client, db, monkeypatch):
     assert b["verkaufskanal"] == "cardmarket"
     assert b["quelle"] == "cardmarket"
     assert b["betraege_cent"]["gebuehren"] == 7
+
+
+# =========================================================================
+# Grosse Belege
+# =========================================================================
+
+def test_quittung_bricht_auf_weitere_blaetter_um():
+    """Derselbe Fehler wie beim Beileger: eine A5-Seite fasst neun Positionen."""
+    pypdf = pytest.importorskip("pypdf")
+    import io
+    from TCGInventory.quittung import render_quittung
+
+    positionen = [{"quantity": 1, "name": f"Artikel {i:02d}", "set_name": "TST",
+                   "condition": "NM", "unit_price": 1.00} for i in range(1, 31)]
+    pdf = render_quittung(positionen=positionen, beleg_nummer="DV-2026-0001",
+                          kanal="flohmarkt")
+    seiten = pypdf.PdfReader(io.BytesIO(pdf)).pages
+    assert len(seiten) > 1
+
+    text = "".join(s.extract_text() for s in seiten)
+    for i in range(1, 31):
+        assert f"Artikel {i:02d}" in text, f"Position {i} fehlt"
+    # Summe und Bestaetigung stehen auf dem letzten Blatt.
+    letzte = seiten[-1].extract_text()
+    assert "Gesamt" in letzte and "30,00" in letzte
+    assert "dankend erhalten" in letzte
+    # Folgeblaetter tragen die Belegnummer.
+    for s in seiten[1:]:
+        assert "DV-2026-0001" in s.extract_text()
+
+
+def test_kleine_quittung_bleibt_einseitig():
+    pypdf = pytest.importorskip("pypdf")
+    import io
+    from TCGInventory.quittung import render_quittung
+    pdf = render_quittung(
+        positionen=[{"quantity": 1, "name": "Sol Ring", "unit_price": 3.50}],
+        beleg_nummer="DV-2026-0002")
+    assert len(pypdf.PdfReader(io.BytesIO(pdf)).pages) == 1
