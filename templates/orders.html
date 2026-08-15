@@ -3,6 +3,10 @@
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <h2 class="page-title mb-0">Offene Bestellungen <small>· {{ orders|length }}</small></h2>
   <div class="d-flex align-items-center gap-2 flex-wrap">
+    {# Nach „Verkauft" verschwindet die Bestellung hier — der Nachdruck liegt
+       dahinter, deshalb der Verweis direkt neben der Liste. #}
+    <a href="{{ url_for('verkaufte_bestellungen') }}" class="btn btn-outline-secondary">
+      Verkaufte Bestellungen</a>
     <a href="{{ url_for('direktverkauf_neu') }}" class="btn btn-success">
       ＋ Direktverkauf</a>
     <form method="post" action="{{ url_for('sync_orders') }}">
@@ -189,7 +193,7 @@
         {% endfor %}
 
         <form method="post" action="{{ url_for('mark_order_sold', order_id=order.id) }}" class="mt-2"
-              onsubmit="return confirm('Bestellung als versendet/verkauft markieren? Die zugeordneten Karten werden abgezogen.')">
+              onsubmit="return confirm('Beileger schon gedruckt?\n\nBestellung als versendet/verkauft markieren? Die zugeordneten Karten werden abgezogen.\n\nNachdrucken geht weiterhin unter „Verkaufte Bestellungen“.')">
           <button type="submit" class="btn btn-success">Versendet / Verkauft</button>
         </form>
       </div>
