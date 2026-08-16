@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block content %}
+{#
+  Nachdruck bereits verkaufter Bestellungen.
+
+  Die Übersicht zeigt nur offene Bestellungen — nach „Verkauft" gibt es sonst
+  keinen Weg mehr zum Beileger, obwohl alle Angaben erhalten bleiben.
+
+  Diese Seite ändert nichts am Bestand: kein „Verkauft", kein Löschen, keine
+  Zuordnung von Karten. Nur Drucken, und weil ohne bestätigte Adresse kein
+  Beileger entsteht, das Bestätigen der Adresse.
+#}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h2 class="page-title mb-0">Verkaufte Bestellungen <small>· {{ gesamt }}</small></h2>
+  <a href="{{ url_for('list_orders') }}" class="btn btn-outline-secondary btn-sm">
+    ← Offene Bestellungen</a>
+</div>
+
+<form method="get" class="d-flex gap-2 mb-3 flex-wrap" action="{{ url_for('verkaufte_bestellungen') }}">
+  <input type="search" name="q" value="{{ suche }}" class="form-control" style="max-width:320px;"
+         placeholder="Bestellnummer oder Käufer…" aria-label="Suchen">
+  <button class="btn btn-outline-primary" type="submit">Suchen</button>
+  {% if suche %}
+  <a class="btn btn-outline-secondary" href="{{ url_for('verkaufte_bestellungen') }}">Zurücksetzen</a>
+  {% endif %}
+</form>
+
+{% if not bestellungen %}
+<div class="empty-state">
+  <span class="ico">📦</span>
+  {% if suche %}Keine verkaufte Bestellung passt zu „{{ suche }}".
+  {% else %}Noch keine verkaufte Bestellung.{% endif %}
+</div>
+{% endif %}
+
+{% for b in bestellungen %}
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div>
+      <strong>{{ b.buyer_name }}</strong>
+      {% if b.order_number %}
+      <span class="text-muted">· Bestellung {{ b.order_number }}</span>
+      {% else %}
+      <span class="text-muted">· ohne Bestellnummer (interne ID {{ b.id }})</span>
+      {% endif %}
+      <span class="text-muted small ms-2">{{ b.abschluss[:10] if b.abschluss }}</span>
+      {% if b.verkaufskanal and b.verkaufskanal != 'cardmarket' %}
+      <span class="badge bg-success ms-1">{{ b.verkaufskanal }}</span>
+      {% endif %}
+    </div>
+    <div class="text-muted small">
+      {{ b.stueck }} Karte{{ '' if b.stueck == 1 else 'n' }} ·
+      Warenwert €{{ '%.2f'|format(b.warenwert) }}
+      {% if b.ohne_preis %}
+      <span class="text-warning" title="Bei {{ b.ohne_preis }} Position(en) fehlt der Preis — sie sind hier nicht mitgerechnet.">
+        (unvollständig)</span>
+      {% endif %}
+    </div>
+  </div>
+  <div class="card-body">
+    <div class="d-flex gap-2 flex-wrap align-items-center mb-2">
+      {% if b.address_confirmed %}
+      <a class="btn btn-outline-info btn-sm" target="_blank" rel="noopener"
+         href="{{ url_for('shipping_note_pdf', order_id=b.id) }}">🖨️ Beileger drucken</a>
+      {% else %}
+      <button class="btn btn-outline-info btn-sm" type="button" disabled
+              title="Ohne bestätigte Adresse wird kein Beileger gedruckt">🖨️ Beileger drucken</button>
+      {% endif %}
+      <a class="btn btn-outline-secondary btn-sm" target="_blank" rel="noopener"
+         href="{{ url_for('quittung_pdf', order_id=b.id) }}">🧾 Quittung drucken</a>
+
+      {# Sprache: der Beileger wird in der gespeicherten Sprache gedruckt. #}
+      <span class="text-muted small ms-2">Sprache</span>
+      <div class="btn-group btn-group-sm" role="group">
+        {% for code in ['de', 'en'] %}
+        <form method="post" action="{{ url_for('set_order_language', order_id=b.id) }}">
+          <input type="hidden" name="language" value="{{ code }}">
+          <input type="hidden" name="zurueck" value="verkauft">
+          <input type="hidden" name="q" value="{{ suche }}">
+          <input type="hidden" name="seite" value="{{ seite }}">
+          <button type="submit" class="btn btn-sm {% if b.language == code %}btn-primary{% else %}btn-outline-secondary{% endif %}">{{ code|upper }}</button>
+        </form>
+        {% endfor %}
+      </div>
+    </div>
+
+    {% if not b.address_confirmed %}
+    <details class="mb-2">
+      <summary class="small text-warning">Adresse ist nicht bestätigt — für den Beileger hier bestätigen</summary>
+      <form method="post" class="mt-2" action="{{ url_for('update_order_address', order_id=b.id) }}">
+        <textarea name="address" class="form-control" rows="4"
+                  placeholder="Adresse…">{{ b.address }}</textarea>
+        <input type="hidden" name="zurueck" value="verkauft">
+        <input type="hidden" name="q" value="{{ suche }}">
+        <input type="hidden" name="seite" value="{{ seite }}">
+        <button class="btn btn-outline-primary btn-sm mt-2" type="submit">Adresse speichern</button>
+      </form>
+    </details>
+    {% endif %}
+
+    <details>
+      <summary class="small text-muted">Positionen anzeigen</summary>
+      <div class="table-responsive mt-2">
+        <table class="table table-sm align-middle mb-0">
+          <thead><tr>
+            <th style="width:4rem;">Menge</th><th>Karte</th><th>Zustand</th>
+            <th class="text-end">Preis</th></tr></thead>
+          <tbody>
+          {% for p in b.positionen %}
+          <tr>
+            <td>{{ p.quantity }}×</td>
+            <td>
+              {{ p.card_name }}{% if p.foil %} <span class="foil-star-inline" title="Foil">★</span>{% endif %}
+              {% if p.set_name %}<div class="tcg-card__meta"><span>{{ p.set_name }}</span></div>{% endif %}
+            </td>
+            <td>{{ p.condition or '—' }}</td>
+            <td class="text-end">
+              {% if p.unit_price is not none %}€{{ '%.2f'|format(p.unit_price) }}
+              {% else %}<span class="text-muted" title="Kein Preis gespeichert">—</span>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+</div>
+{% endfor %}
+
+{% if letzte_seite > 1 %}
+<nav class="d-flex justify-content-between align-items-center mt-3">
+  {% if seite > 1 %}
+  <a class="btn btn-outline-secondary btn-sm"
+     href="{{ url_for('verkaufte_bestellungen', q=suche or None, seite=seite - 1) }}">← Neuere</a>
+  {% else %}<span></span>{% endif %}
+  <span class="text-muted small">Seite {{ seite }} von {{ letzte_seite }}</span>
+  {% if seite < letzte_seite %}
+  <a class="btn btn-outline-secondary btn-sm"
+     href="{{ url_for('verkaufte_bestellungen', q=suche or None, seite=seite + 1) }}">Ältere →</a>
+  {% else %}<span></span>{% endif %}
+</nav>
+{% endif %}
+{% endblock %}

@@ -2230,6 +2230,124 @@ def list_orders():
     )
 
 
+#: Verkaufte Bestellungen je Seite im Archiv.
+VERKAUFTE_JE_SEITE = 25
+
+
+@app.route("/orders/verkauft")
+@login_required
+def verkaufte_bestellungen():
+    """Bereits verkaufte Bestellungen — zum Nachdrucken.
+
+    Die Übersicht zeigt nur **offene** Bestellungen: wer auf „Verkauft" drückt,
+    verliert damit den Weg zum Beileger, obwohl alle Angaben noch da sind
+    (``mark_order_sold`` setzt nur den Status und zieht die Karten ab, die
+    Positionen bleiben unverändert). Genau dieser Weg fehlte, wenn der Ausdruck
+    vergessen wurde.
+
+    Bewusst **ohne** die Frist ``ORDER_CUTOFF_DAYS`` der offenen Liste: hier
+    geht es gerade um Zurückliegendes. Stattdessen seitenweise, mit Suche nach
+    Bestellnummer oder Käufer.
+
+    Diese Seite ändert nichts am Bestand. Sie bietet keinen „Verkauft"-Knopf
+    und kein Löschen — nur Drucken und, weil ohne bestätigte Adresse kein
+    Beileger entsteht, das Bestätigen der Adresse.
+    """
+    suche = (request.args.get("q") or "").strip()
+    try:
+        seite = max(1, int(request.args.get("seite", 1)))
+    except (TypeError, ValueError):
+        seite = 1
+
+    bedingung = "o.status = 'sold'"
+    werte: list = []
+    if suche:
+        # LIKE mit Platzhaltern des Benutzers ist hier harmlos: es weitet
+        # höchstens die eigene Suche aus, die Werte bleiben Parameter.
+        bedingung += " AND (COALESCE(o.order_number, '') LIKE ? OR o.buyer_name LIKE ?)"
+        werte += [f"%{suche}%", f"%{suche}%"]
+
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute(f"SELECT COUNT(*) FROM orders o WHERE {bedingung}", werte)
+        gesamt = c.fetchone()[0]
+
+        c.execute(
+            f"""
+            SELECT o.id, o.buyer_name, o.order_number, o.address, o.address_confirmed,
+                   o.print_language, o.amount_versand, o.quelle, o.verkaufskanal,
+                   COALESCE(o.date_completed, o.email_date, o.date_received) AS abschluss
+            FROM orders o
+            WHERE {bedingung}
+            ORDER BY abschluss DESC, o.id DESC
+            LIMIT ? OFFSET ?
+            """,
+            werte + [VERKAUFTE_JE_SEITE, (seite - 1) * VERKAUFTE_JE_SEITE],
+        )
+        zeilen = c.fetchall()
+
+        bestellungen = []
+        for zeile in zeilen:
+            c.execute(
+                "SELECT card_name, quantity, set_name, condition, unit_price, foil "
+                "FROM order_items WHERE order_id = ? ORDER BY card_name",
+                (zeile["id"],),
+            )
+            positionen = [dict(r) for r in c.fetchall()]
+            # Der Warenwert wird aus den Positionen gebildet — dasselbe, was der
+            # Beileger druckt. Fehlt bei einer Position der Preis, wird das
+            # gesagt und nicht als 0,00 € verrechnet.
+            ohne_preis = sum(1 for p in positionen if p["unit_price"] is None)
+            warenwert = sum(
+                (p["unit_price"] or 0) * (p["quantity"] or 1)
+                for p in positionen if p["unit_price"] is not None
+            )
+            bestellungen.append({
+                "id": zeile["id"],
+                "buyer_name": zeile["buyer_name"],
+                "order_number": zeile["order_number"],
+                "abschluss": zeile["abschluss"],
+                "address": zeile["address"] or "",
+                "address_confirmed": bool(zeile["address_confirmed"]),
+                "language": zeile["print_language"] or detect_language(
+                    [ln.strip() for ln in (zeile["address"] or "").splitlines() if ln.strip()]
+                ),
+                "quelle": zeile["quelle"] or "cardmarket",
+                "verkaufskanal": zeile["verkaufskanal"] or "cardmarket",
+                "positionen": positionen,
+                "stueck": sum(p["quantity"] or 1 for p in positionen),
+                "warenwert": warenwert,
+                "ohne_preis": ohne_preis,
+            })
+
+    letzte_seite = max(1, -(-gesamt // VERKAUFTE_JE_SEITE))   # aufgerundet
+    return render_template(
+        "orders_sold.html",
+        bestellungen=bestellungen,
+        suche=suche,
+        seite=seite,
+        letzte_seite=letzte_seite,
+        gesamt=gesamt,
+    )
+
+
+def _zurueck_nach_speichern():
+    """Wohin nach dem Speichern — offene Liste oder Archiv.
+
+    Das Ziel kommt aus einem festen Formularfeld mit bekanntem Wert, nicht aus
+    einer freien URL: so lässt sich die Weiterleitung nicht auf eine fremde
+    Adresse umbiegen.
+    """
+    if request.form.get("zurueck") == "verkauft":
+        return redirect(url_for(
+            "verkaufte_bestellungen",
+            q=(request.form.get("q") or "").strip() or None,
+            seite=(request.form.get("seite") or "").strip() or None,
+        ))
+    return redirect(url_for("list_orders"))
+
+
 def _order_item_candidates(cursor, card_name):
     """Return available inventory cards that could match an order position.
 
@@ -2325,7 +2443,7 @@ def update_order_address(order_id: int):
         )
         conn.commit()
     flash("Adresse gespeichert und bestätigt.")
-    return redirect(url_for("list_orders"))
+    return _zurueck_nach_speichern()
 
 
 @app.route("/orders/<int:order_id>/number", methods=["POST"])
@@ -2357,13 +2475,13 @@ def set_order_language(order_id: int):
     lang = (request.form.get("language", "") or "").strip().lower()
     if lang not in ("de", "en"):
         flash("Ungültige Sprache", "error")
-        return redirect(url_for("list_orders"))
+        return _zurueck_nach_speichern()
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         c.execute("UPDATE orders SET print_language = ? WHERE id = ?", (lang, order_id))
         conn.commit()
     flash(f"Beileger-Sprache auf {lang.upper()} gesetzt.")
-    return redirect(url_for("list_orders"))
+    return _zurueck_nach_speichern()
 
 
 @app.route("/orders/<int:order_id>/shipping_note")
@@ -2609,14 +2727,20 @@ def mark_order_sold(order_id: int):
         )
         conn.commit()
 
+    # Der Beileger bleibt danach druckbar — das steht dabei, weil die
+    # Bestellung aus dieser Liste verschwindet und der Weg dorthin sonst
+    # nicht zu erraten ist.
+    nachdruck = " Noch nicht gedruckt? Unter Bestellungen → Verkaufte Bestellungen."
     if not_linked:
         flash(
             f"Als verkauft markiert. {cards_sold} Karte(n) abgezogen. "
-            f"Nicht zugeordnet (bitte prüfen): {', '.join(not_linked)}",
+            f"Nicht zugeordnet (bitte prüfen): {', '.join(not_linked)}."
+            f"{nachdruck}",
             "warning",
         )
     else:
-        flash(f"Als verkauft markiert und {cards_sold} Karte(n) abgezogen.", "success")
+        flash(f"Als verkauft markiert und {cards_sold} Karte(n) abgezogen."
+              f"{nachdruck}", "success")
 
     return redirect(url_for("list_orders"))
 

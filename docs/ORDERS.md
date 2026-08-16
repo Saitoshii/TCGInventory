@@ -146,8 +146,37 @@ dieselben Verkäufe keinen Flohmarkt-Tagesabschluss in der Buchhaltung buchen.
 Die Oberfläche warnt an drei Stellen, und die Prüfliste der Auswertung meldet
 es, falls es doch passiert.
 
+## 7. Nachdrucken verkaufter Bestellungen
+
+Die Übersicht unter `/orders` zeigt bewusst nur **offene** Bestellungen. Wer
+auf „Versendet / Verkauft" drückt, verliert damit den Weg zum Beileger — die
+Angaben selbst bleiben aber vollständig: `mark_order_sold` setzt nur den Status
+und zieht die Karten ab, `order_items` wird nicht angerührt.
+
+`/orders/verkauft` schließt diese Lücke:
+
+- verkaufte Bestellungen, neueste zuerst, **ohne** die Frist
+  `ORDER_CUTOFF_DAYS` der offenen Liste — hier geht es gerade um
+  Zurückliegendes;
+- Suche nach Bestellnummer oder Käufer, seitenweise
+  (`VERKAUFTE_JE_SEITE = 25`);
+- Beileger und Quittung drucken, Sprache umschalten;
+- die Adresse bestätigen, falls das vor dem Verkauf vergessen wurde — **ohne
+  bestätigte Adresse wird auch hier kein Beileger gedruckt**.
+
+Die Seite ändert **nichts am Bestand**: kein „Verkauft", kein Löschen, keine
+Kartenzuordnung. Ein Test hält den Bestand vor und nach dem Aufruf gegen.
+
+Die Formulare für Adresse und Sprache kommen von beiden Seiten. Wohin danach
+weitergeleitet wird, entscheidet ein Formularfeld `zurueck` mit dem festen Wert
+`verkauft` — keine freie URL, damit sich die Weiterleitung nicht auf eine
+fremde Adresse biegen lässt.
+
 ## Tests
 
+- **`test_verkaufte_bestellungen.py`** — Archiv findet Verkauftes und nur
+  Verkauftes, Nachdruck von Beileger und Quittung, Suche, Blättern,
+  unsinnige Seitenzahlen, Adresse bestätigen mit Rückweg, Bestand unverändert.
 - **`test_direktverkauf.py`** — Anlegen, Bestandsführung, Preisprüfung,
   Formular, Quittung, Kanal durch die API, gescheitertes Ausbuchen.
 - **`test_order_matching.py`** — `test_find_card_in_inventory`,
