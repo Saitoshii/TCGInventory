@@ -2257,8 +2257,7 @@ def betraege_von_hand(order_id: int):
                 conn, order_id, werte, session.get("user", "system"),
                 bestellnummer=request.form.get("order_number"))
         if not fehler:
-            flash(f"{gesetzt} Betrag/Betraege von Hand erfasst. In der "
-                  f"Buchhaltung jetzt erneut importieren.", "success")
+            flash(f"{gesetzt} Betrag/Betraege von Hand erfasst.", "success")
 
     for meldung in fehler:
         flash(meldung, "error")

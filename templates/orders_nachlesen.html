@@ -85,6 +85,10 @@
         Zahl ist <strong>keine Quelle, sondern eine Entscheidung</strong> —
         sie bleibt als solche gekennzeichnet. Bitte von der
         Cardmarket-Abrechnung abschreiben, nicht schätzen.
+        <br>
+        Hier stehen nur die Angaben der Bestellung, wie sie auf Beileger und
+        Quittung gedruckt werden. <strong>Plattformgebühr und Auszahlung
+        gehören nicht hierher</strong> — die werden in der Buchhaltung erfasst.
       </div>
       <form method="post" action="{{ url_for('betraege_von_hand', order_id=l.id) }}"
             class="row g-2 align-items-end">
@@ -109,20 +113,10 @@
           <input type="text" name="versand" class="form-control form-control-sm"
                  value="{{ l.werte.versand }}" placeholder="1,55" inputmode="decimal">
         </div>
-        <div class="col-6 col-md-4 col-lg-2">
-          <label class="form-label small mb-0">Gebühr</label>
-          <input type="text" name="gebuehren" class="form-control form-control-sm"
-                 value="{{ l.werte.gebuehren }}" placeholder="0,07" inputmode="decimal">
-        </div>
-        <div class="col-6 col-md-4 col-lg-2">
-          <label class="form-label small mb-0">Auszahlung</label>
-          <input type="text" name="auszahlung" class="form-control form-control-sm"
-                 value="{{ l.werte.auszahlung }}" placeholder="2,54" inputmode="decimal">
-        </div>
         <div class="col-12">
           <button class="btn btn-outline-primary btn-sm" type="submit">Speichern</button>
           <span class="text-muted small ms-2">
-            Gesamtbetrag = Warenwert + Versand · Auszahlung = Gesamtbetrag − Gebühr
+            Gesamtbetrag = Warenwert + Versand
           </span>
         </div>
       </form>
