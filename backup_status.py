@@ -57,6 +57,9 @@ def lies_status(jetzt: Optional[datetime] = None) -> Dict:
         "archiv": None,
         "meldung": "Es liegt noch kein Backup-Bericht vor.",
         "warnung": True,
+        # Ein Lauf kann gelingen und trotzdem das Falsche sichern — etwa wenn
+        # die Buchhaltung eingerichtet, aber nicht eingeschlossen ist.
+        "warnungen": [],
         "schwelle_stunden": WARNSCHWELLE_STUNDEN,
         "pfad": str(pfad),
     }
@@ -84,6 +87,7 @@ def lies_status(jetzt: Optional[datetime] = None) -> Dict:
         "archiv": daten.get("archiv"),
         "datenbanken": daten.get("datenbanken") or [],
         "meldung": daten.get("meldung") or "",
+        "warnungen": [str(w) for w in (daten.get("warnungen") or [])],
     })
     # Gewarnt wird, wenn der letzte Lauf fehlschlug oder der letzte Erfolg zu
     # lange her ist. Ein fehlender Zeitstempel gilt ebenfalls als Warnung.

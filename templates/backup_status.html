@@ -24,6 +24,14 @@
 </div>
 {% endif %}
 
+{# Der Lauf kann gelungen sein und trotzdem etwas Wichtiges auslassen.
+   Deshalb eigene Meldung, unabhaengig von Erfolg oder Misserfolg. #}
+{% for warnung in status.warnungen %}
+<div class="alert alert-warning">
+  <strong>⚠ Nicht in der Sicherung</strong><br>{{ warnung }}
+</div>
+{% endfor %}
+
 <div class="card" style="max-width: 720px;">
   <div class="card-header"><h5 class="mb-0">Letzter Lauf</h5></div>
   <div class="card-body">
