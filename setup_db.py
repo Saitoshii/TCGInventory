@@ -192,6 +192,13 @@ def initialize_database() -> None:
             # Plattformgebühren an, bei einem Direktverkauf nicht — deshalb
             # muss die Buchhaltung die beiden auseinanderhalten können.
             "verkaufskanal": "TEXT DEFAULT 'cardmarket'",
+            # Betraege von Hand erfasst statt aus der Mail gelesen. Notwendig
+            # fuer alte Bestellungen, deren Mail die Zahlen nicht hergibt.
+            # Bleibt sichtbar: eine von Hand gesetzte Zahl ist keine Quelle,
+            # sondern eine Entscheidung, und die Buchhaltung soll das anzeigen.
+            "betraege_manuell": "INTEGER DEFAULT 0",
+            "betraege_von": "TEXT",
+            "betraege_am": "TEXT",
         }
         for col, coltype in order_new_cols.items():
             if col not in order_columns:

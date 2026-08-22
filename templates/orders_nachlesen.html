@@ -53,25 +53,83 @@
     Übernehmen</button>
 </form>
 
-<div class="table-responsive">
-  <table class="table table-sm align-middle">
-    <thead><tr>
-      <th>Bestellung</th><th>Käufer</th><th>Fehlt</th><th>Mail</th>
-    </tr></thead>
-    <tbody>
-    {% for l in luecken %}
-    <tr>
-      <td>{% if l.order_number and l.order_number != 'None' %}{{ l.order_number }}
-          {% else %}<span class="text-muted">ohne Nummer (ID {{ l.id }})</span>{% endif %}</td>
-      <td>{{ l.buyer_name }}</td>
-      <td class="small">{{ l.fehlend|join(', ')|replace('amount_', '') }}</td>
-      <td>{% if l.hat_mail %}<span class="text-muted small">vorhanden</span>
-          {% else %}<span class="text-warning small">keine Message-ID</span>{% endif %}</td>
-    </tr>
-    {% endfor %}
-    </tbody>
-  </table>
+{% for l in luecken %}
+<div class="card mb-2">
+  <div class="card-body py-2">
+    <div class="d-flex justify-content-between flex-wrap gap-2">
+      <div>
+        <strong>
+          {% if l.order_number and l.order_number != 'None' %}{{ l.order_number }}
+          {% else %}<span class="text-muted">ohne Bestellnummer</span>{% endif %}
+        </strong>
+        <span class="text-muted">· {{ l.buyer_name }}</span>
+        <span class="text-muted small ms-1">· interne ID {{ l.id }}</span>
+      </div>
+      <div class="small">
+        fehlt: <span class="text-warning">{{ l.fehlend|join(', ')|replace('amount_', '')|replace('order_number', 'Bestellnummer') }}</span>
+        {% if not l.hat_mail %}
+        <span class="text-danger ms-2" title="Ohne Message-ID lässt sich die Mail nicht nachlesen">· keine Mail hinterlegt</span>
+        {% endif %}
+      </div>
+    </div>
+
+    {#
+      Von Hand erfassen ist die Ausnahme, nicht der Regelweg — deshalb
+      zugeklappt und mit deutlichem Hinweis. Geprueft wird mit denselben
+      Kontrollrechnungen wie in der Buchhaltung.
+    #}
+    <details class="mt-2">
+      <summary class="small text-muted">Beträge von Hand eintragen</summary>
+      <div class="alert alert-warning small mt-2 mb-2">
+        Nur, wenn die Mail die Zahlen nicht hergibt. Eine von Hand gesetzte
+        Zahl ist <strong>keine Quelle, sondern eine Entscheidung</strong> —
+        sie bleibt als solche gekennzeichnet. Bitte von der
+        Cardmarket-Abrechnung abschreiben, nicht schätzen.
+      </div>
+      <form method="post" action="{{ url_for('betraege_von_hand', order_id=l.id) }}"
+            class="row g-2 align-items-end">
+        <div class="col-6 col-md-4 col-lg-2">
+          <label class="form-label small mb-0">Bestellnummer</label>
+          <input type="text" name="order_number" class="form-control form-control-sm"
+                 value="{% if l.order_number and l.order_number != 'None' %}{{ l.order_number }}{% endif %}"
+                 placeholder="z. B. 1287799674">
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+          <label class="form-label small mb-0">Gesamtbetrag</label>
+          <input type="text" name="gesamt" class="form-control form-control-sm"
+                 value="{{ l.werte.gesamt }}" placeholder="2,61" inputmode="decimal">
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+          <label class="form-label small mb-0">Warenwert</label>
+          <input type="text" name="warenwert" class="form-control form-control-sm"
+                 value="{{ l.werte.warenwert }}" placeholder="1,06" inputmode="decimal">
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+          <label class="form-label small mb-0">Versand</label>
+          <input type="text" name="versand" class="form-control form-control-sm"
+                 value="{{ l.werte.versand }}" placeholder="1,55" inputmode="decimal">
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+          <label class="form-label small mb-0">Gebühr</label>
+          <input type="text" name="gebuehren" class="form-control form-control-sm"
+                 value="{{ l.werte.gebuehren }}" placeholder="0,07" inputmode="decimal">
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+          <label class="form-label small mb-0">Auszahlung</label>
+          <input type="text" name="auszahlung" class="form-control form-control-sm"
+                 value="{{ l.werte.auszahlung }}" placeholder="2,54" inputmode="decimal">
+        </div>
+        <div class="col-12">
+          <button class="btn btn-outline-primary btn-sm" type="submit">Speichern</button>
+          <span class="text-muted small ms-2">
+            Gesamtbetrag = Warenwert + Versand · Auszahlung = Gesamtbetrag − Gebühr
+          </span>
+        </div>
+      </form>
+    </details>
+  </div>
 </div>
+{% endfor %}
 {% else %}
 <div class="empty-state"><span class="ico">✅</span>
   Bei keiner Bestellung fehlen Angaben.</div>
