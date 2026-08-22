@@ -2230,6 +2230,99 @@ def list_orders():
     )
 
 
+@app.route("/orders/<int:order_id>/betraege", methods=["POST"])
+@login_required
+def betraege_von_hand(order_id: int):
+    """Betraege einer Bestellung von Hand erfassen.
+
+    Nur fuer die Faelle, in denen die Mail sie nicht hergibt. Geprueft wird
+    mit denselben Kontrollrechnungen wie in der Buchhaltung, damit eine
+    Eingabe nicht erst dort scheitert. Bei einem Fehler wird nichts
+    geschrieben.
+    """
+    from TCGInventory import betraege as betraege_modul
+
+    werte = {}
+    fehler = []
+    for schluessel in betraege_modul.FELDER:
+        try:
+            werte[schluessel] = betraege_modul.parse_betrag(
+                request.form.get(schluessel, ""))
+        except betraege_modul.BetragFehler as exc:
+            fehler.append(f"{betraege_modul.BESCHRIFTUNG[schluessel]}: {exc}")
+
+    if not fehler:
+        with sqlite3.connect(DB_FILE) as conn:
+            gesetzt, fehler = betraege_modul.speichere(
+                conn, order_id, werte, session.get("user", "system"),
+                bestellnummer=request.form.get("order_number"))
+        if not fehler:
+            flash(f"{gesetzt} Betrag/Betraege von Hand erfasst. In der "
+                  f"Buchhaltung jetzt erneut importieren.", "success")
+
+    for meldung in fehler:
+        flash(meldung, "error")
+    return redirect(url_for("bestellungen_nachlesen"))
+
+
+@app.route("/orders/nachlesen", methods=["GET", "POST"])
+@login_required
+def bestellungen_nachlesen():
+    """Fehlende Betraege aus den Original-Mails nachtragen.
+
+    Die Buchhaltung bucht nur, was in der Bestellmail steht. Aelteren
+    Bestellungen fehlen die Betraege — beim Einlesen wurden sie damals noch
+    nicht erfasst. Die Roh-Mail ist nicht gespeichert, die Gmail-Message-ID
+    aber schon: damit laesst sich dieselbe Quelle ein zweites Mal lesen.
+
+    Standardmaessig nur Vorschau. Geschrieben wird erst auf ausdruecklichen
+    Knopfdruck, und auch dann werden **nur leere** Felder gefuellt.
+    """
+    from TCGInventory import nachlesen as nachlesen_modul
+
+    ergebnis = None
+    geschrieben = False
+    if request.method == "POST":
+        schreiben = request.form.get("aktion") == "uebernehmen"
+        with sqlite3.connect(DB_FILE) as conn:
+            ergebnis = nachlesen_modul.lese_nach(conn, schreiben=schreiben)
+        geschrieben = schreiben
+        if schreiben:
+            flash(f"{ergebnis.ergaenzt} Bestellung(en) ergaenzt, "
+                  f"{ergebnis.unveraendert} unveraendert, "
+                  f"{ergebnis.ohne_mail} ohne abrufbare Mail.")
+
+    from TCGInventory import betraege as betraege_modul
+
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        offen = nachlesen_modul.offene_bestellungen(conn)
+        luecken = []
+        for zeile in offen:
+            fehlend = [name for name in nachlesen_modul.BETRAGSFELDER
+                       if nachlesen_modul._fehlt(zeile[name])]
+            if nachlesen_modul._fehlt(zeile["order_number"]):
+                fehlend.append("order_number")
+            # Vorhandene Betraege ins Formular vorbelegen, damit nur die
+            # Luecken einzutragen sind und nichts versehentlich verlorengeht.
+            vorbelegt = {}
+            for schluessel, spalte in betraege_modul.FELDER.items():
+                wert = zeile[spalte]
+                vorbelegt[schluessel] = (
+                    f"{wert:.2f}".replace(".", ",") if wert is not None else "")
+            luecken.append({
+                "id": zeile["id"],
+                "order_number": zeile["order_number"],
+                "buyer_name": zeile["buyer_name"],
+                "hat_mail": bool(zeile["email_message_id"]),
+                "fehlend": fehlend,
+                "werte": vorbelegt,
+            })
+
+    return render_template("orders_nachlesen.html", luecken=luecken,
+                           ergebnis=ergebnis, geschrieben=geschrieben)
+
+
 #: Verkaufte Bestellungen je Seite im Archiv.
 VERKAUFTE_JE_SEITE = 25
 

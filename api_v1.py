@@ -36,7 +36,11 @@ api_v1 = Blueprint("api_v1", __name__, url_prefix="/api/v1")
 #: Lieferadresse soll die Buchhaltung nicht beunruhigen.
 HASH_FELDER = ("order_number", "status", "date_completed", "amount_gesamt",
                "amount_gesamtwert", "amount_versand", "amount_gebuehren",
-               "amount_auszahlung")
+               "amount_auszahlung",
+               # Ohne dieses Feld bliebe der Hash gleich, wenn nur die
+               # Kennzeichnung wechselt — die Buchhaltung wuerde die
+               # Bestellung dann als unveraendert durchwinken.
+               "betraege_manuell")
 
 
 def _token() -> str:
@@ -148,6 +152,10 @@ def _bestellung(zeile: sqlite3.Row, conn: sqlite3.Connection,
         # können, deshalb steht hier der echte Kanal statt einer Konstante.
         "verkaufskanal": _spalte(zeile, "verkaufskanal") or "cardmarket",
         "quelle": _spalte(zeile, "quelle") or "cardmarket",
+        # Betraege von Hand erfasst statt aus der Mail gelesen. Die Buchhaltung
+        # soll das anzeigen koennen: eine von Hand gesetzte Zahl ist keine
+        # Quelle, sondern eine Entscheidung.
+        "betraege_manuell": bool(_spalte(zeile, "betraege_manuell")),
     }
     daten["inhalt_hash"] = inhalt_hash(dict(zeile))
     if mit_positionen:
