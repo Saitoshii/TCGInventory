@@ -136,6 +136,31 @@ def fetch_cardmarket_emails(service, processed_message_ids=None):
         return []
 
 
+def hole_nachricht(service, message_id):
+    """Eine einzelne Mail anhand ihrer Gmail-ID holen.
+
+    Gebraucht zum Nachlesen: an jeder Bestellung steht die Message-ID der Mail,
+    aus der sie entstanden ist. Fehlende Betraege lassen sich damit aus der
+    Quelle nachtragen, statt sie zu schaetzen.
+
+    Anders als ``fetch_cardmarket_emails`` wird hier **nicht** nach ungelesenen
+    oder unmarkierten Mails gesucht: bereits verarbeitete Mails sind genau die,
+    um die es geht. Gibt ``None`` zurueck, wenn die Mail nicht mehr existiert —
+    geloescht, verschoben oder aus einem anderen Postfach.
+    """
+    if not message_id:
+        return None
+    try:
+        return service.users().messages().get(
+            userId='me',
+            id=message_id,
+            format='full'
+        ).execute()
+    except HttpError as error:
+        print(f'Mail {message_id} nicht abrufbar: {error}')
+        return None
+
+
 def mark_message_processed(service, message_id):
     """
     Mark a Gmail message as processed by adding a custom label.

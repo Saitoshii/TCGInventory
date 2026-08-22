@@ -2230,6 +2230,53 @@ def list_orders():
     )
 
 
+@app.route("/orders/nachlesen", methods=["GET", "POST"])
+@login_required
+def bestellungen_nachlesen():
+    """Fehlende Betraege aus den Original-Mails nachtragen.
+
+    Die Buchhaltung bucht nur, was in der Bestellmail steht. Aelteren
+    Bestellungen fehlen die Betraege — beim Einlesen wurden sie damals noch
+    nicht erfasst. Die Roh-Mail ist nicht gespeichert, die Gmail-Message-ID
+    aber schon: damit laesst sich dieselbe Quelle ein zweites Mal lesen.
+
+    Standardmaessig nur Vorschau. Geschrieben wird erst auf ausdruecklichen
+    Knopfdruck, und auch dann werden **nur leere** Felder gefuellt.
+    """
+    from TCGInventory import nachlesen as nachlesen_modul
+
+    ergebnis = None
+    geschrieben = False
+    if request.method == "POST":
+        schreiben = request.form.get("aktion") == "uebernehmen"
+        with sqlite3.connect(DB_FILE) as conn:
+            ergebnis = nachlesen_modul.lese_nach(conn, schreiben=schreiben)
+        geschrieben = schreiben
+        if schreiben:
+            flash(f"{ergebnis.ergaenzt} Bestellung(en) ergaenzt, "
+                  f"{ergebnis.unveraendert} unveraendert, "
+                  f"{ergebnis.ohne_mail} ohne abrufbare Mail.")
+
+    with sqlite3.connect(DB_FILE) as conn:
+        offen = nachlesen_modul.offene_bestellungen(conn)
+        luecken = []
+        for zeile in offen:
+            fehlend = [name for name in nachlesen_modul.BETRAGSFELDER
+                       if nachlesen_modul._fehlt(zeile[name])]
+            if nachlesen_modul._fehlt(zeile["order_number"]):
+                fehlend.append("order_number")
+            luecken.append({
+                "id": zeile["id"],
+                "order_number": zeile["order_number"],
+                "buyer_name": zeile["buyer_name"],
+                "hat_mail": bool(zeile["email_message_id"]),
+                "fehlend": fehlend,
+            })
+
+    return render_template("orders_nachlesen.html", luecken=luecken,
+                           ergebnis=ergebnis, geschrieben=geschrieben)
+
+
 #: Verkaufte Bestellungen je Seite im Archiv.
 VERKAUFTE_JE_SEITE = 25
 

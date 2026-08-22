@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block content %}
+{#
+  Nachlesen fehlender Betraege aus den Original-Bestellmails.
+
+  Kein Schaetzen und kein Ueberschreiben: gefuellt werden ausschliesslich
+  leere Felder, und die Quelle ist dieselbe Mail wie beim ersten Einlesen.
+#}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h2 class="page-title mb-0">Beträge nachlesen <small>· {{ luecken|length }}</small></h2>
+  <a href="{{ url_for('list_orders') }}" class="btn btn-outline-secondary btn-sm">
+    ← Offene Bestellungen</a>
+</div>
+
+<div class="alert alert-secondary">
+  Die Buchhaltung bucht nur, was in der Bestellmail steht. Fehlt ein Betrag,
+  wird die Bestellung nicht gebucht — geraten wird nicht.
+  <br>
+  Hier wird die <strong>Original-Mail erneut gelesen</strong> (die Message-ID
+  steht an jeder Bestellung). Ergänzt werden <strong>nur leere Felder</strong>;
+  ein vorhandener Wert bleibt unangetastet. Bestand und Bestellpositionen
+  werden nicht berührt.
+</div>
+
+{% if ergebnis %}
+<div class="card mb-4">
+  <div class="card-header">
+    <h5 class="mb-0">{% if geschrieben %}Übernommen{% else %}Vorschau{% endif %}</h5>
+  </div>
+  <div class="card-body">
+    <p class="mb-2">
+      {{ ergebnis.geprueft }} geprüft ·
+      <strong>{{ ergebnis.ergaenzt }}</strong>
+      {% if geschrieben %}ergänzt{% else %}zu ergänzen{% endif %} ·
+      {{ ergebnis.unveraendert }} ohne neue Angabe ·
+      {{ ergebnis.ohne_mail }} ohne abrufbare Mail
+    </p>
+    {% if ergebnis.meldungen %}
+    <ul class="small text-muted mb-0">
+      {% for m in ergebnis.meldungen %}<li>{{ m }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% if luecken %}
+<form method="post" class="d-flex gap-2 mb-3 flex-wrap">
+  <button class="btn btn-outline-primary" type="submit" name="aktion" value="vorschau">
+    Vorschau — nichts ändern</button>
+  <button class="btn btn-primary" type="submit" name="aktion" value="uebernehmen"
+          onclick="return confirm('Fehlende Beträge aus den Mails übernehmen?\n\nVorhandene Werte bleiben unverändert.')">
+    Übernehmen</button>
+</form>
+
+<div class="table-responsive">
+  <table class="table table-sm align-middle">
+    <thead><tr>
+      <th>Bestellung</th><th>Käufer</th><th>Fehlt</th><th>Mail</th>
+    </tr></thead>
+    <tbody>
+    {% for l in luecken %}
+    <tr>
+      <td>{% if l.order_number and l.order_number != 'None' %}{{ l.order_number }}
+          {% else %}<span class="text-muted">ohne Nummer (ID {{ l.id }})</span>{% endif %}</td>
+      <td>{{ l.buyer_name }}</td>
+      <td class="small">{{ l.fehlend|join(', ')|replace('amount_', '') }}</td>
+      <td>{% if l.hat_mail %}<span class="text-muted small">vorhanden</span>
+          {% else %}<span class="text-warning small">keine Message-ID</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state"><span class="ico">✅</span>
+  Bei keiner Bestellung fehlen Angaben.</div>
+{% endif %}
+{% endblock %}
