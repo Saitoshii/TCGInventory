@@ -375,6 +375,79 @@ def schreibe_log(cfg: Config, zeile: str) -> None:
         pass          # Ein nicht schreibbares Log darf das Backup nicht stoppen
 
 
+#: Von der Buchhaltung angelegt; enthaelt auch Geheimnisse — gelesen wird
+#: ausschliesslich die Zeile mit dem Datenverzeichnis.
+BUCH_ENV_DATEI = Path("/etc/buchhaltung.env")
+
+#: Uebliches Datenverzeichnis, wenn scripts/einrichten.sh der Buchhaltung
+#: ohne eigene Vorgabe gelaufen ist.
+BUCH_STANDARD = "buchhaltung-daten"
+
+
+def _buch_dir_aus_env(env_datei: Optional[Path] = None) -> Optional[Path]:
+    """``BUCH_DATA_DIR`` aus der Env-Datei der Buchhaltung lesen.
+
+    Nur diese eine Zeile wird ausgewertet. In derselben Datei stehen
+    Sitzungsschluessel und Zugangstoken; die haben hier nichts zu suchen und
+    landen weder im Status noch im Log.
+    """
+    datei = env_datei or BUCH_ENV_DATEI
+    try:
+        text = datei.read_text(encoding="utf-8")
+    except OSError:
+        return None                    # nicht lesbar ist kein Fehler
+    for zeile in text.splitlines():
+        zeile = zeile.strip()
+        if zeile.startswith("BUCH_DATA_DIR="):
+            wert = zeile.split("=", 1)[1].strip().strip("\"'")
+            if wert:
+                return Path(wert)
+    return None
+
+
+def finde_buchhaltung(cfg: Config, heim: Optional[Path] = None) -> Optional[Path]:
+    """Ein Datenverzeichnis der Buchhaltung, das **nicht** gesichert wird.
+
+    Die Buchhaltung ist ein eigener Dienst mit eigener Datenbank. Ist sie
+    eingerichtet, aber ``TCG_BACKUP_BUCH_DIR``/``BUCH_DATA_DIR`` fehlt in der
+    Backup-Umgebung, ueberspringt der Lauf sie stillschweigend — und das sind
+    ausgerechnet die steuerrelevanten Daten. Lieber einmal zu viel warnen als
+    ein Jahr lang das Falsche sichern.
+
+    Gibt ``None`` zurueck, wenn nichts gefunden wird oder das Gefundene
+    ohnehin schon in der Sicherung liegt.
+    """
+    kandidaten = []
+    aus_env = _buch_dir_aus_env()
+    if aus_env:
+        kandidaten.append(aus_env)
+    kandidaten.append(Path(heim or Path.home()) / BUCH_STANDARD)
+
+    gesichert = cfg.buch_dir.resolve() if cfg.buch_dir else None
+    for kandidat in kandidaten:
+        if not (kandidat / "buchhaltung.db").is_file():
+            continue
+        try:
+            if gesichert and kandidat.resolve() == gesichert:
+                return None            # liegt bereits in der Sicherung
+        except OSError:
+            pass
+        return kandidat
+    return None
+
+
+def warnungen(cfg: Config, heim: Optional[Path] = None) -> List[str]:
+    """Was am Lauf zwar gelingt, aber trotzdem falsch ist."""
+    offen = finde_buchhaltung(cfg, heim=heim)
+    if not offen:
+        return []
+    return [
+        f"Die Buchhaltung unter {offen} wird NICHT gesichert. "
+        f"Dort liegen Buchungen und Belege. Abhilfe: TCG_BACKUP_BUCH_DIR={offen} "
+        f"in die Backup-Umgebung eintragen und den naechsten Lauf pruefen."
+    ]
+
+
 def schreibe_status(cfg: Config, status: Dict) -> None:
     cfg.status_file.parent.mkdir(parents=True, exist_ok=True)
     tmp = cfg.status_file.with_suffix(".tmp")
@@ -403,6 +476,8 @@ def run_backup(cfg: Optional[Config] = None, store: Optional[RemoteStore] = None
         "dauer_sekunden": 0,
         "entfernt": [],
         "meldung": "",
+        # Ein Lauf kann gelingen und trotzdem das Falsche sichern.
+        "warnungen": warnungen(cfg),
     }
     arbeit = cfg.work_dir / zeitstempel
     try:
@@ -468,6 +543,8 @@ def run_backup(cfg: Optional[Config] = None, store: Optional[RemoteStore] = None
     finally:
         status["dauer_sekunden"] = round(time.time() - begonnen, 1)
         schreibe_status(cfg, status)
+        for warnung in status.get("warnungen", []):
+            schreibe_log(cfg, f"WARNUNG {warnung}")
         schreibe_log(
             cfg,
             f"{status['ergebnis'].upper()} archiv={status['archiv']} "
