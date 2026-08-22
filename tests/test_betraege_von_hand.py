@@ -19,6 +19,7 @@ import os
 import sqlite3
 import sys
 import types
+from pathlib import Path
 
 import pytest
 
@@ -74,9 +75,8 @@ def test_kein_fliesskomma_bei_krummen_betraegen():
 # ---------------------------------------------------------------------------
 # Kontrollrechnungen — wortgleich zur Buchhaltung
 # ---------------------------------------------------------------------------
-def _werte(gesamt=261, warenwert=106, versand=155, gebuehren=7, auszahlung=254):
-    return {"gesamt": gesamt, "warenwert": warenwert, "versand": versand,
-            "gebuehren": gebuehren, "auszahlung": auszahlung}
+def _werte(gesamt=261, warenwert=106, versand=155):
+    return {"gesamt": gesamt, "warenwert": warenwert, "versand": versand}
 
 
 def test_stimmige_betraege_gehen_durch():
@@ -84,24 +84,33 @@ def test_stimmige_betraege_gehen_durch():
 
 
 def test_pflichtfelder_werden_verlangt():
-    fehler = pruefe(_werte(gesamt=None, versand=None, gebuehren=None))
-    assert len(fehler) == 3
+    fehler = pruefe(_werte(gesamt=None, versand=None))
+    assert len(fehler) == 2
     assert any("Gesamtbetrag" in f for f in fehler)
     assert any("Versandkosten" in f for f in fehler)
-    assert any("Gebühr" in f for f in fehler)
 
 
-def test_auszahlung_muss_aufgehen():
-    fehler = pruefe(_werte(auszahlung=200))
-    assert len(fehler) == 1
-    assert "Kontrollrechnung" in fehler[0]
-    assert "2,54 €" in fehler[0]        # gerechnet: 261 - 7
+def test_gebuehr_und_auszahlung_gehoeren_nicht_hierher():
+    """Die beiden beschreiben, was Cardmarket einbehaelt — Sache der Buchhaltung.
+
+    Laegen sie hier, muesste dieselbe Finanzregel an zwei Orten gepflegt
+    werden. Genau diese Verflechtung soll die eigenstaendige Buchhaltung
+    aufloesen.
+    """
+    assert "gebuehren" not in betraege.FELDER
+    assert "auszahlung" not in betraege.FELDER
+    quelle = (Path(betraege.__file__).read_text(encoding="utf-8"))
+    assert "amount_gebuehren" not in quelle
+    assert "amount_auszahlung" not in quelle
 
 
 def test_warenwert_plus_versand_muss_den_gesamtbetrag_ergeben():
-    """Genau der Fall aus dem Betrieb: 182 + 155 gegen 182."""
-    fehler = pruefe(_werte(gesamt=182, warenwert=182, versand=155,
-                           gebuehren=3, auszahlung=179))
+    """Genau der Fall aus dem Betrieb: 182 + 155 gegen 182.
+
+    Das ist eine Regel der Bestellung selbst, keine Buchhaltungsregel: die
+    drei Zahlen stehen so auf Beileger und Quittung.
+    """
+    fehler = pruefe(_werte(gesamt=182, warenwert=182, versand=155))
     assert len(fehler) == 1
     assert "3,37 €" in fehler[0]        # 182 + 155
     assert "1,82 €" in fehler[0]
@@ -112,18 +121,9 @@ def test_warenwert_darf_fehlen():
     assert pruefe(_werte(warenwert=None)) == []
 
 
-def test_auszahlung_darf_fehlen():
-    assert pruefe(_werte(auszahlung=None)) == []
-
-
 def test_gesamtbetrag_null_ist_kein_gueltiger_verkauf():
     fehler = pruefe(_werte(gesamt=0))
     assert any("größer als null" in f for f in fehler)
-
-
-def test_vorschlag_fuer_die_auszahlung():
-    assert betraege.vorschlag_auszahlung(261, 7) == 254
-    assert betraege.vorschlag_auszahlung(None, 7) is None
 
 
 # ---------------------------------------------------------------------------
@@ -157,11 +157,14 @@ def test_speichern_setzt_betraege_und_kennzeichnung(db):
             conn, 1, _werte(), "melvin", bestellnummer="1287799674")
 
     assert fehler == []
-    assert gesetzt == 5
+    assert gesetzt == 3
     zeile = _zeile(db)
     assert zeile["amount_gesamt"] == 2.61
-    assert zeile["amount_gebuehren"] == 0.07
+    assert zeile["amount_versand"] == 1.55
     assert zeile["order_number"] == "1287799674"
+    # Nicht angefasst: die beiden gehoeren der Buchhaltung.
+    assert zeile["amount_gebuehren"] is None
+    assert zeile["amount_auszahlung"] is None
     assert zeile["betraege_manuell"] == 1
     assert zeile["betraege_von"] == "melvin"
     assert zeile["betraege_am"]
@@ -171,7 +174,7 @@ def test_bei_fehlern_wird_nichts_geschrieben(db):
     """Halb erfasst waere schlimmer als gar nicht erfasst."""
     with sqlite3.connect(db) as conn:
         gesetzt, fehler = betraege.speichere(
-            conn, 1, _werte(auszahlung=999), "melvin")
+            conn, 1, _werte(warenwert=999), "melvin")
 
     assert fehler and gesetzt == 0
     zeile = _zeile(db)
@@ -201,7 +204,7 @@ def test_formular_speichert_und_meldet(db):
     klient = _klient()
     antwort = klient.post("/orders/1/betraege", data={
         "order_number": "1287799674", "gesamt": "2,61", "warenwert": "1,06",
-        "versand": "1,55", "gebuehren": "0,07", "auszahlung": "2,54",
+        "versand": "1,55",
     }, follow_redirects=True)
 
     assert antwort.status_code == 200
@@ -211,11 +214,10 @@ def test_formular_speichert_und_meldet(db):
 def test_formular_lehnt_unstimmige_eingabe_ab(db):
     klient = _klient()
     antwort = klient.post("/orders/1/betraege", data={
-        "gesamt": "2,61", "warenwert": "1,06", "versand": "1,55",
-        "gebuehren": "0,07", "auszahlung": "9,99",
+        "gesamt": "2,61", "warenwert": "9,99", "versand": "1,55",
     }, follow_redirects=True)
 
-    assert "Kontrollrechnung" in antwort.get_data(as_text=True)
+    assert "Gesamtbetrag" in antwort.get_data(as_text=True)
     assert _zeile(db)["amount_gesamt"] is None
 
 
@@ -260,12 +262,33 @@ def test_nachlesen_ueberschreibt_die_handeingabe_nicht(db):
         betraege.speichere(conn, 1, _werte(), "melvin",
                            bestellnummer="1287799674")
 
-    # Vollstaendig erfasst -> das Nachlesen fasst sie gar nicht mehr an.
-    with sqlite3.connect(db) as conn:
-        assert nachlesen.offene_bestellungen(conn) == []
-
-    # Und selbst wenn: gefuellt werden nur leere Felder.
     with sqlite3.connect(db) as conn:
         ergebnis = nachlesen.lese_nach(conn, service=None, schreiben=True)
+
     assert ergebnis.ergaenzt == 0
-    assert _zeile(db)["amount_gesamt"] == 2.61
+    zeile = _zeile(db)
+    assert zeile["amount_gesamt"] == 2.61
+    assert zeile["amount_versand"] == 1.55
+    assert zeile["betraege_manuell"] == 1
+
+
+def test_gebuehr_bleibt_offen_und_das_ist_richtig(db):
+    """Die Bestellung bleibt in der Liste, bis auch die Mail gelesen wurde.
+
+    Gebuehr und Auszahlung kann dieses System nur aus der Mail beziehen, nicht
+    von Hand setzen. Dass sie weiter als offen gefuehrt werden, ist kein
+    Versehen — es zeigt an, dass der Botendienst noch nicht alles geliefert
+    hat.
+    """
+    from TCGInventory import nachlesen
+
+    with sqlite3.connect(db) as conn:
+        betraege.speichere(conn, 1, _werte(), "melvin",
+                           bestellnummer="1287799674")
+    with sqlite3.connect(db) as conn:
+        offen = nachlesen.offene_bestellungen(conn)
+
+    assert len(offen) == 1
+    fehlend = [s for s in nachlesen.BETRAGSFELDER
+               if nachlesen._fehlt(offen[0][s])]
+    assert fehlend == ["amount_gebuehren", "amount_auszahlung"]
