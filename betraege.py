@@ -9,14 +9,19 @@ Bestellungen geht das nicht mehr —
   stehen,
 * die Mail ist im Postfach nicht mehr auffindbar.
 
-Dann ist eine Eingabe von Hand die einzige Möglichkeit, die Bestellung
-überhaupt zu buchen. Sie ist aber **keine Quelle, sondern eine Entscheidung**
-— und wird deshalb dauerhaft als solche gekennzeichnet (``betraege_manuell``),
-mit Benutzer und Zeitpunkt.
+Erfasst werden hier **nur die Angaben der Bestellung selbst**: Gesamtbetrag,
+Warenwert und Versandkosten. Das sind die Zahlen, die auf Beileger und
+Quittung gedruckt werden und im Verkaufs-Export stehen — sie gehören zum
+Vorgang „Bestellung", nicht zur Buchhaltung.
 
-Geprüft wird hier mit **denselben** Kontrollrechnungen wie in der Buchhaltung.
-Sonst nimmt das Formular eine Eingabe an, die drüben abgelehnt wird — und
-niemand versteht, warum.
+**Nicht** hier: Plattformgebühr und Auszahlungsbetrag. Die braucht dieses
+System nirgends; sie beschreiben, was Cardmarket einbehält und überweist. Wo
+die fehlen, entscheidet das die Buchhaltung — sonst läge dieselbe
+Finanzregel an zwei Orten und müsste synchron gehalten werden.
+
+Was aus der Mail gelesen wird, reicht dieses System unverändert weiter, auch
+Gebühr und Auszahlung. Lesen und Weitergeben ist Botendienst; das Festlegen
+eines Betrags ist eine Entscheidung.
 """
 
 from __future__ import annotations
@@ -25,24 +30,22 @@ import sqlite3
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
-#: Eingabefelder und ihre Spalte in ``orders``.
+#: Eingabefelder und ihre Spalte in ``orders``. Bewusst nur die Angaben, die
+#: dieses System selbst braucht — siehe Modulkopf.
 FELDER = {
     "gesamt": "amount_gesamt",
     "warenwert": "amount_gesamtwert",
     "versand": "amount_versand",
-    "gebuehren": "amount_gebuehren",
-    "auszahlung": "amount_auszahlung",
 }
 
-#: Ohne diese drei bucht die Buchhaltung nicht.
-PFLICHT = ("gesamt", "versand", "gebuehren")
+#: Ohne diese beiden ist die Bestellung unvollständig: der Versand steht auf
+#: dem Beileger, der Gesamtbetrag in Übersicht und Export.
+PFLICHT = ("gesamt", "versand")
 
 BESCHRIFTUNG = {
     "gesamt": "Gesamtbetrag",
     "warenwert": "Warenwert",
     "versand": "Versandkosten",
-    "gebuehren": "Cardmarket-Gebühr",
-    "auszahlung": "Auszahlungsbetrag",
 }
 
 
@@ -81,17 +84,15 @@ def parse_betrag(roh: str) -> Optional[int]:
 
 
 def pruefe(werte: Dict[str, Optional[int]]) -> List[str]:
-    """Dieselben Kontrollrechnungen wie in der Buchhaltung.
+    """Ist die Bestellung in sich stimmig?
 
-    Wortgleich gehalten: was hier durchgeht, muss dort buchbar sein. Weicht
-    eine der beiden Seiten ab, nimmt das Formular eine Eingabe an, die drüben
-    scheitert.
+    Geprüft wird ausschliesslich, was die Bestellung selbst betrifft:
+    Warenwert und Versand müssen den Gesamtbetrag ergeben. Was Cardmarket
+    davon einbehält, wird hier nicht bewertet — das ist Sache der Buchhaltung.
     """
     fehler: List[str] = []
     gesamt = werte.get("gesamt")
     versand = werte.get("versand")
-    gebuehren = werte.get("gebuehren")
-    auszahlung = werte.get("auszahlung")
     warenwert = werte.get("warenwert")
 
     for schluessel in PFLICHT:
@@ -102,11 +103,6 @@ def pruefe(werte: Dict[str, Optional[int]]) -> List[str]:
     if fehler:
         return fehler
 
-    if auszahlung is not None and gesamt - gebuehren != auszahlung:
-        fehler.append(
-            f"Kontrollrechnung geht nicht auf: Gesamtbetrag minus Gebühr "
-            f"ergibt {_euro(gesamt - gebuehren)}, angegeben ist "
-            f"{_euro(auszahlung)}.")
     if warenwert is not None and warenwert + versand != gesamt:
         fehler.append(
             f"Warenwert und Versand ergeben nicht den Gesamtbetrag: "
@@ -120,19 +116,6 @@ def _euro(cent: int) -> str:
     vorzeichen = "-" if cent < 0 else ""
     cent = abs(int(cent))
     return f"{vorzeichen}{cent // 100},{cent % 100:02d} €"
-
-
-def vorschlag_auszahlung(gesamt: Optional[int],
-                         gebuehren: Optional[int]) -> Optional[int]:
-    """Was die Auszahlung rechnerisch sein müsste — nur als Hinweis.
-
-    Bewusst kein automatisches Ausfüllen: der Wert steht auf der
-    Cardmarket-Abrechnung und soll von dort abgeschrieben werden, nicht aus
-    einer Rechnung entstehen.
-    """
-    if gesamt is None or gebuehren is None:
-        return None
-    return gesamt - gebuehren
 
 
 def speichere(conn: sqlite3.Connection, order_id: int,

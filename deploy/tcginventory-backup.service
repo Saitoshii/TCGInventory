@@ -1,21 +1,31 @@
+# Vorlage. BENUTZER und die Pfade müssen zu Ihrer Installation passen —
+# der Standardbenutzer eines Raspberry Pi heißt `pi`, Ihrer vielleicht nicht.
+# Den richtigen Wert zeigen `id -un` und `echo $HOME`.
+#
+# Kopieren und anpassen:
+#   sudo cp deploy/tcginventory-backup.service /etc/systemd/system/
+#   sudo sed -i "s|BENUTZER|$(id -un)|g; s|/home/$(id -un)/TCGInventory|$PWD|g" \
+#       /etc/systemd/system/tcginventory-backup.service
+#   sudo systemctl daemon-reload
+
 [Unit]
 Description=TCGInventory – verschlüsseltes Backup nach OneDrive
-Documentation=file:///home/pi/TCGInventory/docs/BACKUP.md
+Documentation=file:///home/BENUTZER/TCGInventory/docs/BACKUP.md
 # Ohne Netz kein Upload – der Timer holt den Lauf dann später nach.
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=pi
-Group=pi
-WorkingDirectory=/home/pi/TCGInventory
+User=BENUTZER
+Group=BENUTZER
+WorkingDirectory=/home/BENUTZER/TCGInventory
 
 # Pfade und Ziel stehen ausschließlich hier, nie im Repository.
 # Datei mit 600 anlegen: sudo install -m 600 /dev/null /etc/tcginventory-backup.env
 EnvironmentFile=/etc/tcginventory-backup.env
 
-ExecStart=/usr/bin/python3 /home/pi/TCGInventory/scripts/backup.py
+ExecStart=/usr/bin/python3 /home/BENUTZER/TCGInventory/scripts/backup.py
 
 # Der Pi soll durch das Backup nicht ausgebremst werden.
 Nice=10
@@ -23,11 +33,13 @@ IOSchedulingClass=idle
 TimeoutStartSec=3600
 
 # Etwas Härtung – das Skript braucht nur sein Arbeitsverzeichnis.
+# Ist BUCH_DATA_DIR gesetzt, gehört dessen Pfad hier ebenfalls hinein,
+# sonst kann das Backup das Verzeichnis der Buchhaltung nicht lesen.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=read-only
-ReadWritePaths=/home/pi/TCGInventory/data
+ReadWritePaths=/home/BENUTZER/TCGInventory/data
 
 [Install]
 WantedBy=multi-user.target
