@@ -2400,9 +2400,49 @@ def assign_order_item(item_id: int):
             "storage_code = ?, image_url = COALESCE(image_url, ?) WHERE id = ?",
             (int(card_id), where, card[1], item_id),
         )
+        # Die Wahl merken, damit dasselbe Produkt beim naechsten Mal von
+        # selbst erkannt wird. Displays, Precons und Zubehoer stehen nicht in
+        # der Scryfall-Datenbank -- ohne das landen sie jedes Mal wieder hier.
+        if request.form.get("merken"):
+            c.execute("SELECT card_name, set_name FROM order_items WHERE id = ?",
+                      (item_id,))
+            position = c.fetchone()
+            c.execute("SELECT name, set_code, language FROM cards WHERE id = ?",
+                      (int(card_id),))
+            ziel = c.fetchone()
+            if position and ziel:
+                from TCGInventory import produkt_alias
+                produkt_alias.merke(conn, position[0], position[1],
+                                    ziel[0], ziel[1], ziel[2],
+                                    benutzer=session.get("user", ""))
+                flash(f"Zuordnung gemerkt: „{position[0]}" + '"' + f" wird künftig "
+                      f"als „{ziel[0]}" + '"' + " erkannt.")
         conn.commit()
     flash("Position zugeordnet.")
     return redirect(url_for("list_orders"))
+
+
+@app.route("/zuordnungen")
+@login_required
+def zuordnungen_view():
+    """Die gelernten Produkt-Zuordnungen ansehen und loeschen."""
+    from TCGInventory import produkt_alias
+    with sqlite3.connect(DB_FILE) as conn:
+        eintraege = produkt_alias.alle(conn)
+    return render_template("zuordnungen.html", eintraege=eintraege)
+
+
+@app.route("/zuordnungen/<int:alias_id>/loeschen", methods=["POST"])
+@login_required
+def zuordnung_loeschen(alias_id: int):
+    from TCGInventory import produkt_alias
+    with sqlite3.connect(DB_FILE) as conn:
+        if produkt_alias.entferne(conn, alias_id):
+            conn.commit()
+            flash("Zuordnung gelöscht.")
+        else:
+            flash("Diese Zuordnung gibt es nicht mehr.", "warning")
+    return redirect(url_for("zuordnungen_view"))
 
 
 @app.route("/orders/items/<int:item_id>/condition", methods=["POST"])

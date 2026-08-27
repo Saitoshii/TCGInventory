@@ -244,6 +244,51 @@ class OrderIngestionService:
             print(f"Database error saving order: {e}")
             return False
 
+    def _aus_zuordnung(self, cursor, item):
+        """Treffer ueber eine gelernte Zuordnung, sonst ``None``.
+
+        Gesucht wird ueber die **Identitaet** (Name, Set, Sprache), nicht ueber
+        eine gespeicherte Zeilennummer: ein neuer Karton ist eine neue Zeile,
+        das Produkt bleibt dasselbe.
+
+        Bei einem von Cardmarket gekuerzten Namen wird zusaetzlich geprueft, ob
+        der Anfang im Bestand eindeutig ist. Ein Set hat oft vier
+        Commander-Decks mit gleichem Anfang; ohne diese Pruefung wuerde ab dem
+        zweiten still das falsche ausgebucht.
+        """
+        from TCGInventory import produkt_alias
+
+        conn = cursor.connection
+        zuordnung = produkt_alias.finde(conn, item.get("name", ""),
+                                        item.get("set_name"))
+        if not zuordnung:
+            return None
+        if not produkt_alias.anfang_ist_eindeutig(conn, item.get("name", "")):
+            return None
+
+        abfrage = ("SELECT id, storage_code, image_url, location_hint FROM cards "
+                   "WHERE LOWER(name) = LOWER(?)")
+        werte = [zuordnung["ziel_name"]]
+        if zuordnung["ziel_set_code"]:
+            abfrage += " AND LOWER(set_code) = LOWER(?)"
+            werte.append(zuordnung["ziel_set_code"])
+        if zuordnung["ziel_language"]:
+            abfrage += " AND LOWER(language) = LOWER(?)"
+            werte.append(zuordnung["ziel_language"])
+        abfrage += " AND status = 'verfügbar' AND quantity > 0"
+        zeilen = cursor.execute(abfrage, werte).fetchall()
+        if len(zeilen) != 1:
+            # Nichts oder mehrdeutig -> wie bisher zur Handauswahl.
+            return None
+        zeile = zeilen[0]
+        return {
+            "card_id": zeile[0],
+            "match_status": "matched",
+            "storage_code": zeile[1] or (zeile[3] if len(zeile) > 3 else None),
+            "image_url": zeile[2],
+            "set_code": zuordnung["ziel_set_code"],
+        }
+
     def _match_item(self, cursor, item):
         """Match a parsed position against inventory by identity (WP1b/WP2a).
 
@@ -267,6 +312,14 @@ class OrderIngestionService:
             "image_url": None,
             "set_code": set_code,
         }
+
+        # Zuerst nachsehen, ob diese Schreibweise schon einmal zugeordnet
+        # wurde. Das ist keine Vermutung, sondern eine gespeicherte
+        # Entscheidung -- und der einzige Weg fuer Displays, Precons und
+        # Zubehoer, die in der Scryfall-Datenbank gar nicht vorkommen.
+        gelernt = self._aus_zuordnung(cursor, item)
+        if gelernt:
+            return gelernt
 
         # Only auto-match when the line is clean AND the set resolved confidently.
         if not uncertain and set_code and confidence == "high":
