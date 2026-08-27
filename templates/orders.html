@@ -180,6 +180,15 @@
                       </span>
                     </label>
                     {% endfor %}
+                    {# Einmal zuordnen, danach erkennt es das System selbst.
+                       Fuer Displays, Precons und Zubehoer der einzige Weg --
+                       sie stehen nicht in der Scryfall-Datenbank. #}
+                    <label class="d-flex align-items-center gap-2 mt-1 small text-muted">
+                      <input type="checkbox" name="merken" value="1" checked
+                             class="form-check-input">
+                      Diese Zuordnung merken, damit „{{ item.card_name }}“ künftig
+                      von selbst erkannt wird
+                    </label>
                     <button class="btn btn-sm btn-outline-primary mt-1" type="submit">Zuordnen</button>
                   </form>
                   {% else %}

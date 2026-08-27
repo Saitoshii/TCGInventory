@@ -204,6 +204,25 @@ def initialize_database() -> None:
             if col not in order_columns:
                 cursor.execute(f"ALTER TABLE orders ADD COLUMN {col} {coltype}")
 
+        # Gelernte Zuordnungen: Cardmarket-Schreibweise -> eigene Schreibweise.
+        # Displays, Precons und Zubehoer stehen nicht in der Scryfall-Datenbank;
+        # statt zu raten merkt sich das System eine einmal getroffene Wahl.
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS produkt_alias (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mail_text TEXT NOT NULL,
+                mail_set TEXT,
+                ziel_name TEXT NOT NULL,
+                ziel_set_code TEXT,
+                ziel_language TEXT,
+                angelegt_von TEXT,
+                angelegt_am TEXT,
+                UNIQUE (mail_text, mail_set)
+            )
+            """
+        )
+
         # Tabelle 5: Order items (cards in orders)
         cursor.execute(
             """

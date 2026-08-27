@@ -26,11 +26,12 @@
             <a class="nav-link {% if ep == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}">Dashboard</a>
           </li>
           <li class="nav-item dropdown">
-            <a class="nav-link dropdown-toggle {% if ep in ['list_cards', 'list_folders_view'] %}active{% endif %}"
+            <a class="nav-link dropdown-toggle {% if ep in ['list_cards', 'list_folders_view', 'zuordnungen_view'] %}active{% endif %}"
                href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Inventar</a>
             <ul class="dropdown-menu">
               <li><a class="dropdown-item" href="{{ url_for('list_cards') }}">Karten</a></li>
               <li><a class="dropdown-item" href="{{ url_for('list_folders_view') }}">Ordner</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('zuordnungen_view') }}">Gelernte Zuordnungen</a></li>
             </ul>
           </li>
           <li class="nav-item dropdown">

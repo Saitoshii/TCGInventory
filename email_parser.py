@@ -3,7 +3,8 @@
 import re
 from typing import Dict, List, Optional, Tuple
 
-from TCGInventory.dragonshield import normalize_language
+from TCGInventory.dragonshield import (CONDITION_ALIASES, LANGUAGE_ALIASES,
+                                     normalize_language)
 
 # Blacklist of common email signatures and greetings that should not be used as buyer names
 # All comparisons are case-insensitive (lowercase)
@@ -383,6 +384,39 @@ def parse_address_block(email_body: str) -> Tuple[List[str], str]:
     return non_empty, raw
 
 
+def _suffix_einsortieren(parts):
+    """Die Teile hinter dem Namen danach einsortieren, **was** sie sind.
+
+    Bei Einzelkarten steht dort ``- M - Englisch - NM``: Seltenheit, Sprache,
+    Zustand, immer in dieser Reihenfolge. Nach der Stelle zu gehen ging
+    deshalb lange gut.
+
+    Bei versiegelter Ware steht nur ein Teil da:
+
+        1x The Hobbit Play Booster Box (The Hobbit) - English 168,00 EUR
+
+    Nach der Stelle gelesen wurde daraus die Seltenheit „English" und gar keine
+    Sprache — eine englische und eine deutsche Booster Box waren damit nicht
+    auseinanderzuhalten.
+
+    Sprachen und Zustände sind jeweils eine feste, kurze Liste. Ein Teil, der
+    dort vorkommt, ist eindeutig zuzuordnen; alles andere bleibt Seltenheit.
+    Das ist kein Raten, sondern Nachschlagen.
+    """
+    rarity = language = condition = None
+    for teil in parts:
+        schluessel = teil.strip().lower()
+        if language is None and schluessel in LANGUAGE_ALIASES:
+            language = LANGUAGE_ALIASES[schluessel]
+            continue
+        if condition is None and schluessel in CONDITION_ALIASES:
+            condition = CONDITION_ALIASES[schluessel]
+            continue
+        if rarity is None:
+            rarity = teil.strip()
+    return rarity, language, condition
+
+
 def parse_position_line(line: str) -> Optional[Dict]:
     """Parse a single Cardmarket position line into structured fields.
 
@@ -440,12 +474,7 @@ def parse_position_line(line: str) -> Optional[Dict]:
         # Parse the "- C - Englisch - NM" suffix (all parts optional).
         if suffix:
             parts = [p.strip() for p in suffix.split("-") if p.strip()]
-            if len(parts) >= 1:
-                rarity = parts[0]
-            if len(parts) >= 2:
-                language = normalize_language(parts[1])
-            if len(parts) >= 3:
-                condition = parts[2]
+            rarity, language, condition = _suffix_einsortieren(parts)
 
     if set_name and ("..." in set_name or "…" in set_name):
         uncertain = True
