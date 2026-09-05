@@ -42,6 +42,11 @@ HASH_FELDER = ("order_number", "status", "date_completed", "amount_gesamt",
                # Bestellung dann als unveraendert durchwinken.
                "betraege_manuell")
 
+#: Zusaetzlich in den Fingerabdruck: wird eine Position herausgenommen, aendert
+#: sich an ``orders`` nichts -- ohne diesen Anteil hielte die Buchhaltung die
+#: Bestellung fuer unveraendert und erfuehre nie von der Erstattung.
+HASH_ZUSATZ = ("erstattung_cent",)
+
 
 def _token() -> str:
     return os.environ.get("TCG_API_TOKEN", "")
@@ -76,16 +81,30 @@ def inhalt_hash(bestellung: Dict) -> str:
     Die Buchhaltung erkennt daran, ob sich eine bereits importierte Bestellung
     im Quellsystem verändert hat — ohne alle Felder vergleichen zu müssen.
     """
-    daten = {k: bestellung.get(k) for k in HASH_FELDER}
+    daten = {k: bestellung.get(k) for k in HASH_FELDER + HASH_ZUSATZ}
     roh = json.dumps(daten, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(roh.encode("utf-8")).hexdigest()
 
 
+def _entfernt_bekannt(conn: sqlite3.Connection) -> bool:
+    """Kennt diese Datenbank die Kennzeichnung fuer herausgenommene Positionen?
+
+    Aeltere Datenbanken haben die Spalte nicht. Dann verhaelt sich die
+    Schnittstelle wie zuvor, statt mit einem Fehler abzubrechen.
+    """
+    return "entfernt" in {z[1] for z in
+                          conn.execute("PRAGMA table_info(order_items)")}
+
+
 def _positionen(conn: sqlite3.Connection, order_id: int) -> List[Dict]:
+    entfernt_spalte = ("COALESCE(entfernt, 0)" if _entfernt_bekannt(conn)
+                       else "0")
     zeilen = conn.execute(
-        "SELECT card_name, quantity, unit_price, set_name, set_code, language, "
-        "condition, foil, card_id, match_status FROM order_items "
-        "WHERE order_id = ? ORDER BY id", (order_id,)).fetchall()
+        f"SELECT card_name, quantity, unit_price, set_name, set_code, language, "
+        f"condition, foil, card_id, match_status, {entfernt_spalte} AS entfernt, "
+        f"{'entfernt_grund' if _entfernt_bekannt(conn) else 'NULL'} AS entfernt_grund "
+        f"FROM order_items WHERE order_id = ? ORDER BY id",
+        (order_id,)).fetchall()
     return [
         {
             "name": z["card_name"],
@@ -98,6 +117,11 @@ def _positionen(conn: sqlite3.Connection, order_id: int) -> List[Dict]:
             "foil": bool(z["foil"]),
             "inventar_karte_id": z["card_id"],
             "zuordnung": z["match_status"],
+            # Ware war nicht lieferbar und wurde dem Kaeufer erstattet. Die
+            # Position bleibt sichtbar -- der Verkauf war echt und wird nur
+            # gemindert, das ist eine Erstattung und kein Storno.
+            "entfernt": bool(z["entfernt"]),
+            "entfernt_grund": z["entfernt_grund"],
         }
         for z in zeilen
     ]
@@ -122,6 +146,33 @@ def _cent(wert) -> Optional[int]:
         return None
     from decimal import Decimal, ROUND_HALF_UP
     return int((Decimal(str(wert)) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+def _erstattung_cent(conn: sqlite3.Connection, order_id: int) -> int:
+    """Wert der herausgenommenen Positionen, in Cent.
+
+    Positionen ohne hinterlegten Einzelpreis zaehlen mit null -- dass etwas
+    fehlt, meldet ``erstattung_unvollstaendig``.
+    """
+    if not _entfernt_bekannt(conn):
+        return 0
+    summe = 0
+    for menge, preis in conn.execute(
+            "SELECT quantity, unit_price FROM order_items WHERE order_id = ? "
+            "AND COALESCE(entfernt, 0) = 1", (order_id,)):
+        if preis is None:
+            continue
+        summe += round(float(preis) * 100) * (menge or 1)
+    return summe
+
+
+def _erstattung_ohne_preis(conn: sqlite3.Connection, order_id: int) -> List[str]:
+    """Herausgenommene Positionen, fuer die kein Einzelpreis bekannt ist."""
+    if not _entfernt_bekannt(conn):
+        return []
+    return [z[0] for z in conn.execute(
+        "SELECT card_name FROM order_items WHERE order_id = ? "
+        "AND COALESCE(entfernt, 0) = 1 AND unit_price IS NULL", (order_id,))]
 
 
 def _bestellung(zeile: sqlite3.Row, conn: sqlite3.Connection,
@@ -156,8 +207,21 @@ def _bestellung(zeile: sqlite3.Row, conn: sqlite3.Connection,
         # soll das anzeigen koennen: eine von Hand gesetzte Zahl ist keine
         # Quelle, sondern eine Entscheidung.
         "betraege_manuell": bool(_spalte(zeile, "betraege_manuell")),
+        # Wert der Positionen, die nicht lieferbar waren und dem Kaeufer
+        # erstattet wurden. Die Betraege oben bleiben, wie Cardmarket sie
+        # berechnet hat -- die Erstattung ist ein eigener Vorgang und mindert
+        # den Umsatz, statt den Verkauf umzuschreiben.
+        "erstattung_cent": _erstattung_cent(conn, zeile["id"]),
+        # Herausgenommene Positionen ohne hinterlegten Einzelpreis. Ihr Anteil
+        # fehlt in der Summe oben; geraten wird er nicht.
+        "erstattung_unvollstaendig": _erstattung_ohne_preis(conn, zeile["id"]),
     }
-    daten["inhalt_hash"] = inhalt_hash(dict(zeile))
+    # Der Fingerabdruck muss die Erstattung einschliessen: sie steht nicht in
+    # ``orders``, und ohne sie hielte die Buchhaltung die Bestellung fuer
+    # unveraendert.
+    fuer_hash = dict(zeile)
+    fuer_hash["erstattung_cent"] = daten["erstattung_cent"]
+    daten["inhalt_hash"] = inhalt_hash(fuer_hash)
     if mit_positionen:
         daten["positionen"] = _positionen(conn, zeile["id"])
     return daten

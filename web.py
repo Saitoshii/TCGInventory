@@ -55,6 +55,7 @@ from TCGInventory.auth import (
 )
 from TCGInventory.repo_updater import update_repo
 from TCGInventory.order_service import get_order_service
+from TCGInventory import positionen as positionen_modul
 from TCGInventory.shipping_note import render_shipping_note, detect_language
 from TCGInventory.quittung import render_quittung
 from TCGInventory import direktverkauf
@@ -2178,10 +2179,12 @@ def list_orders():
                 """
                 SELECT id, card_name, quantity, image_url, storage_code, card_id,
                        match_status, set_name, set_code, language, condition, foil,
-                       uncertain, variant
+                       uncertain, variant, unit_price,
+                       COALESCE(entfernt, 0) AS entfernt, entfernt_grund,
+                       entfernt_von, entfernt_am
                 FROM order_items
                 WHERE order_id = ?
-                ORDER BY card_name
+                ORDER BY COALESCE(entfernt, 0), card_name
                 """,
                 (order_id,)
             )
@@ -2384,12 +2387,8 @@ def verkaufte_bestellungen():
 
         bestellungen = []
         for zeile in zeilen:
-            c.execute(
-                "SELECT card_name, quantity, set_name, condition, unit_price, foil "
-                "FROM order_items WHERE order_id = ? ORDER BY card_name",
-                (zeile["id"],),
-            )
-            positionen = [dict(r) for r in c.fetchall()]
+            positionen = positionen_modul.positionen(conn, zeile["id"],
+                                                      nur_gelieferte=True)
             # Der Warenwert wird aus den Positionen gebildet — dasselbe, was der
             # Beileger druckt. Fehlt bei einer Position der Preis, wird das
             # gesagt und nicht als 0,00 € verrechnet.
@@ -2481,6 +2480,54 @@ def _order_item_candidates(cursor, card_name):
         (f"%{suchtext}%", f"%{suchtext}%"),
     )
     return [dict(r) for r in cursor.fetchall()]
+
+
+@app.route("/orders/items/<int:item_id>/entfernen", methods=["POST"])
+@login_required
+def order_item_entfernen(item_id: int):
+    """Eine Position aus der Bestellung nehmen (Ware nicht lieferbar).
+
+    Die Zeile wird gekennzeichnet, nicht geloescht: der Beleg laesst sie weg,
+    der Bestand zieht sie nicht ab, und die Buchhaltung braucht den Betrag
+    noch fuer die Erstattung.
+    """
+    grund = request.form.get("grund", "")
+    bestand = bool(request.form.get("bestand_korrigieren"))
+    with sqlite3.connect(DB_FILE) as conn:
+        try:
+            ergebnis = positionen_modul.entferne(
+                conn, item_id, grund, benutzer=session.get("user", "system"),
+                bestand_korrigieren=bestand)
+        except positionen_modul.PositionFehler as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("list_orders"))
+    meldung = ("Position aus der Bestellung genommen. Sie erscheint nicht mehr "
+               "auf dem Beleg und wird nicht abgezogen.")
+    if ergebnis["bestand_korrigiert"]:
+        meldung += (f" Bestand um {ergebnis['bestand_korrigiert']} "
+                    f"gesenkt.")
+    meldung += " Den erstatteten Betrag in der Buchhaltung erfassen."
+    flash(meldung)
+    return redirect(url_for("list_orders"))
+
+
+@app.route("/orders/items/<int:item_id>/zurueck", methods=["POST"])
+@login_required
+def order_item_zurueck(item_id: int):
+    """Eine herausgenommene Position wieder aufnehmen.
+
+    Der Bestand wird dabei nicht wieder erhoeht -- ob die Karte inzwischen
+    aufgetaucht ist, weiss das Programm nicht.
+    """
+    with sqlite3.connect(DB_FILE) as conn:
+        try:
+            positionen_modul.stelle_zurueck(conn, item_id)
+        except positionen_modul.PositionFehler as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("list_orders"))
+    flash("Position wieder aufgenommen. Der Bestand wurde nicht verändert — "
+          "bitte prüfen, ob die Menge stimmt.")
+    return redirect(url_for("list_orders"))
 
 
 @app.route("/orders/items/<int:item_id>/zuordnen")
@@ -2665,16 +2712,15 @@ def shipping_note_pdf(order_id: int):
             )
             return redirect(url_for("list_orders"))
 
-        c.execute(
-            "SELECT card_name, quantity, set_name, condition, unit_price, foil "
-            "FROM order_items WHERE order_id = ? ORDER BY card_name",
-            (order_id,),
-        )
+        # Herausgenommene Positionen gehoeren nicht auf den Beleg: der Kaeufer
+        # bekommt sie nicht und hat den Betrag dafuer zurueck.
         positions = [
             {"quantity": r["quantity"], "name": r["card_name"], "set_name": r["set_name"],
              "condition": r["condition"], "unit_price": r["unit_price"], "foil": r["foil"]}
-            for r in c.fetchall()
+            for r in positionen_modul.positionen(conn, order_id, nur_gelieferte=True)
         ]
+        entfernt_zeilen, entfernt_stueck = positionen_modul.anzahl_entfernt(
+            conn, order_id)
 
     recipient_lines = [ln.strip() for ln in order["address"].splitlines() if ln.strip()]
     # Language: manual override if set, otherwise auto-detect from the country.
@@ -2689,6 +2735,7 @@ def shipping_note_pdf(order_id: int):
         # they stay consistent (the mail's "Gesamtwert" is the grand total, not
         # the item subtotal). Only shipping is taken from the order.
         totals={"shipping": order["amount_versand"]},
+        entfallene_positionen=entfernt_zeilen,
     )
     filename = f"beileger_{order['order_number'] or order_id}.pdf"
     return Response(
@@ -2716,14 +2763,11 @@ def quittung_pdf(order_id: int):
         if not order:
             flash("Bestellung nicht gefunden", "error")
             return redirect(url_for("list_orders"))
-        c.execute(
-            "SELECT card_name, quantity, set_name, condition, unit_price, foil "
-            "FROM order_items WHERE order_id = ? ORDER BY card_name", (order_id,))
         positions = [
             {"quantity": r["quantity"], "name": r["card_name"],
              "set_name": r["set_name"], "condition": r["condition"],
              "unit_price": r["unit_price"], "foil": r["foil"]}
-            for r in c.fetchall()
+            for r in positionen_modul.positionen(conn, order_id, nur_gelieferte=True)
         ]
 
     pdf_bytes = render_quittung(
@@ -2855,11 +2899,11 @@ def mark_order_sold(order_id: int):
             flash("Bestellung ist bereits als verkauft markiert – kein erneuter Abzug.", "warning")
             return redirect(url_for("list_orders"))
 
-        c.execute(
-            "SELECT card_id, quantity, card_name FROM order_items WHERE order_id = ?",
-            (order_id,),
-        )
-        items = c.fetchall()
+        # Herausgenommene Positionen werden nicht abgezogen -- verkauft wurden
+        # sie nicht, und der Bestand wurde beim Herausnehmen entschieden.
+        items = [(z["card_id"], z["quantity"], z["card_name"])
+                 for z in positionen_modul.positionen(conn, order_id,
+                                                      nur_gelieferte=True)]
 
     cards_sold = 0
     not_linked = []

@@ -241,6 +241,15 @@ def initialize_database() -> None:
             "uncertain": "INTEGER DEFAULT 0",
             "unit_price": "REAL",
             "variant": "TEXT",
+            # Position aus der Bestellung genommen, weil die Ware nicht
+            # lieferbar war und der Betrag erstattet wurde. Bewusst ein
+            # Kennzeichen statt einer Loeschung: die Zeile bleibt als Nachweis,
+            # der Beleg laesst sie weg, und die Buchhaltung braucht den Betrag
+            # noch fuer die Erstattung.
+            "entfernt": "INTEGER DEFAULT 0",
+            "entfernt_grund": "TEXT",
+            "entfernt_von": "TEXT",
+            "entfernt_am": "TEXT",
         }
         for col, coltype in item_new_cols.items():
             if col not in item_columns:
