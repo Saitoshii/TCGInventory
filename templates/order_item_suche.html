@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block content %}
+{#
+  Freie Suche im Bestand für eine Bestellposition.
+
+  Die Kandidatenliste in der Bestellübersicht sucht über den Namen aus der
+  Mail. Bei Displays, Precons und Zubehör heißt der Artikel im Bestand aber
+  oft ganz anders — dann bleibt sie leer und es geht nicht weiter.
+#}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h2 class="page-title mb-0">Position zuordnen</h2>
+  <a href="{{ url_for('list_orders') }}" class="btn btn-outline-secondary btn-sm">
+    ← Zurück zu den Bestellungen</a>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header">Aus der Bestellmail</div>
+  <div class="card-body">
+    <div><strong>{{ position.quantity }}× {{ position.card_name }}</strong></div>
+    <div class="tcg-card__meta">
+      {% if position.set_name %}<span>{{ position.set_name }}</span>{% endif %}
+      {% if position.language %}<span class="sep">·</span><span>{{ position.language|upper }}</span>{% endif %}
+      {% if position.condition %}<span class="sep">·</span><span>{{ position.condition }}</span>{% endif %}
+    </div>
+    <div class="text-muted small mt-1">
+      Bestellung {{ position.order_number or '—' }} · {{ position.buyer_name }}
+    </div>
+    {% if '...' in position.card_name or '…' in position.card_name %}
+    <div class="alert alert-warning small mt-2 mb-0">
+      Cardmarket hat den Namen gekürzt — der vollständige steht nicht in der
+      Mail. Suchen Sie nach dem Anfang oder nach Ihrem eigenen Namen für den
+      Artikel.
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<form method="get" class="d-flex gap-2 mb-3 flex-wrap">
+  <input type="search" name="q" value="{{ suche }}" class="form-control"
+         style="max-width:420px;" autofocus
+         placeholder="Name im Bestand oder Cardmarket-Name…">
+  <button class="btn btn-primary" type="submit">Suchen</button>
+</form>
+
+{% if suche and not treffer %}
+<div class="empty-state"><span class="ico">🔍</span>
+  Nichts gefunden zu „{{ suche }}".
+  <div class="small mt-2">
+    Ist der Artikel überhaupt im Bestand? Displays und Zubehör legen Sie unter
+    <a href="{{ url_for('add_card_view') }}">Artikel hinzufügen</a> an — dort
+    können Sie gleich den Namen aus der Bestellmail hinterlegen, dann wird es
+    beim nächsten Mal von selbst erkannt.
+  </div>
+</div>
+{% endif %}
+
+{% if treffer %}
+<div class="table-responsive">
+  <table class="table table-sm align-middle">
+    <thead><tr>
+      <th></th><th>Artikel</th><th>Typ</th><th>Wo</th>
+      <th class="text-end">Bestand</th><th></th>
+    </tr></thead>
+    <tbody>
+    {% for k in treffer %}
+    <tr>
+      <td style="width:44px;">
+        {% if k.image_url %}
+        <img src="{{ k.image_url }}" style="width:34px;height:46px;object-fit:cover;border-radius:3px;"
+             alt="{{ k.name }}">
+        {% endif %}
+      </td>
+      <td>
+        <strong>{{ k.name }}</strong>
+        {% if k.foil %} <span class="foil-star-inline" title="Foil">★</span>{% endif %}
+        <div class="tcg-card__meta">
+          {% if k.set_code %}<span>{{ k.set_code|upper }}</span>{% endif %}
+          {% if k.language %}<span class="sep">·</span><span>{{ k.language|upper }}</span>{% endif %}
+          {% if k.condition %}<span class="sep">·</span><span>{{ k.condition }}</span>{% endif %}
+        </div>
+        {% if k.cardmarket_name %}
+        <div class="small text-muted">Cardmarket: {{ k.cardmarket_name }}</div>
+        {% endif %}
+      </td>
+      <td class="small">{{ k.item_type }}</td>
+      <td>
+        {% if k.storage_code %}<span class="storage-badge">{{ k.storage_code }}</span>
+        {% elif k.location_hint %}<span class="small">{{ k.location_hint }}</span>
+        {% else %}<span class="text-muted small">—</span>{% endif %}
+      </td>
+      <td class="text-end">{{ k.quantity }}</td>
+      <td class="text-end">
+        <form method="post" action="{{ url_for('assign_order_item', item_id=position.id) }}">
+          <input type="hidden" name="card_id" value="{{ k.id }}">
+          <button class="btn btn-sm btn-outline-primary" type="submit">Zuordnen</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

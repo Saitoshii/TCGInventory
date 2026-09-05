@@ -222,7 +222,8 @@ def get_card(card_id: int):
         c.execute(
             "SELECT id, name, set_code, language, condition, price, quantity, "
             "storage_code, cardmarket_id, folder_id, collector_number, "
-            "scryfall_id, image_url, foil, item_type, location_hint FROM cards WHERE id = ?",
+            "scryfall_id, image_url, foil, item_type, location_hint, "
+            "cardmarket_name FROM cards WHERE id = ?",
             (card_id,),
         )
         return c.fetchone()
@@ -874,6 +875,7 @@ def add_card_view():
             bool(request.form.get("foil")),
             item_type,
             location_hint,
+            cardmarket_name=request.form.get("cardmarket_name", ""),
             user=session.get("user", "system"),
         )
         if success:
@@ -921,6 +923,7 @@ def edit_card_view(card_id: int):
             foil=bool(request.form.get("foil")),
             item_type=item_type,
             location_hint=location_hint,
+            cardmarket_name=request.form.get("cardmarket_name", ""),
         )
         flash("Card updated")
         return redirect(url_for("list_cards"))
@@ -2455,14 +2458,72 @@ def _order_item_candidates(cursor, card_name):
         (card_name,),
     )
     rows = [dict(r) for r in cursor.fetchall()]
-    if not rows:
-        cursor.execute(
-            f"SELECT {cols} FROM cards WHERE LOWER(name) LIKE LOWER(?) "
-            "AND status = 'verfügbar' AND quantity > 0 ORDER BY name, set_code LIMIT 12",
-            (f"%{card_name}%",),
-        )
-        rows = [dict(r) for r in cursor.fetchall()]
-    return rows
+    if rows:
+        return rows
+
+    # Cardmarket kuerzt lange Produktnamen mit "...". Mit den Punkten drin
+    # findet die Suche nichts — deshalb nur den Anfang davor verwenden.
+    suchtext = card_name or ""
+    for marke in ("...", "…"):
+        if marke in suchtext:
+            suchtext = suchtext.split(marke, 1)[0]
+            break
+    suchtext = suchtext.strip()
+    if not suchtext:
+        return []
+
+    # Auch der hinterlegte Cardmarket-Name zaehlt: bei Displays und Precons ist
+    # er oft der einzige Anhaltspunkt, weil der interne Name ein anderer ist.
+    cursor.execute(
+        f"SELECT {cols} FROM cards WHERE (LOWER(name) LIKE LOWER(?) "
+        "OR LOWER(COALESCE(cardmarket_name, '')) LIKE LOWER(?)) "
+        "AND status = 'verfügbar' AND quantity > 0 ORDER BY name, set_code LIMIT 12",
+        (f"%{suchtext}%", f"%{suchtext}%"),
+    )
+    return [dict(r) for r in cursor.fetchall()]
+
+
+@app.route("/orders/items/<int:item_id>/zuordnen")
+@login_required
+def order_item_suche(item_id: int):
+    """Eine Bestellposition von Hand aus dem ganzen Bestand waehlen.
+
+    Die Kandidatenliste in der Bestelluebersicht sucht ueber den Namen aus der
+    Mail. Bei versiegelter Ware heisst der Artikel im Bestand aber oft ganz
+    anders — dann bleibt die Liste leer und es gibt keinen Weg weiter. Hier
+    laesst sich frei suchen.
+
+    Rein lesend; zugeordnet wird ueber die bestehende Route.
+    """
+    suche = (request.args.get("q") or "").strip()
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute(
+            "SELECT i.id, i.card_name, i.set_name, i.quantity, i.condition, "
+            "       i.language, i.order_id, o.order_number, o.buyer_name "
+            "FROM order_items i JOIN orders o ON o.id = i.order_id "
+            "WHERE i.id = ?", (item_id,))
+        position = c.fetchone()
+        if not position:
+            flash("Diese Position gibt es nicht.", "error")
+            return redirect(url_for("list_orders"))
+
+        treffer = []
+        if suche:
+            c.execute(
+                "SELECT id, name, set_code, language, foil, condition, "
+                "       collector_number, storage_code, location_hint, "
+                "       image_url, quantity, item_type, cardmarket_name "
+                "FROM cards WHERE (LOWER(name) LIKE LOWER(?) "
+                "   OR LOWER(COALESCE(cardmarket_name, '')) LIKE LOWER(?)) "
+                "AND status = 'verfügbar' AND quantity > 0 "
+                "ORDER BY name, set_code LIMIT 50",
+                (f"%{suche}%", f"%{suche}%"))
+            treffer = [dict(r) for r in c.fetchall()]
+
+    return render_template("order_item_suche.html", position=dict(position),
+                           treffer=treffer, suche=suche)
 
 
 @app.route("/orders/items/<int:item_id>/assign", methods=["POST"])
@@ -2492,49 +2553,9 @@ def assign_order_item(item_id: int):
             "storage_code = ?, image_url = COALESCE(image_url, ?) WHERE id = ?",
             (int(card_id), where, card[1], item_id),
         )
-        # Die Wahl merken, damit dasselbe Produkt beim naechsten Mal von
-        # selbst erkannt wird. Displays, Precons und Zubehoer stehen nicht in
-        # der Scryfall-Datenbank -- ohne das landen sie jedes Mal wieder hier.
-        if request.form.get("merken"):
-            c.execute("SELECT card_name, set_name FROM order_items WHERE id = ?",
-                      (item_id,))
-            position = c.fetchone()
-            c.execute("SELECT name, set_code, language FROM cards WHERE id = ?",
-                      (int(card_id),))
-            ziel = c.fetchone()
-            if position and ziel:
-                from TCGInventory import produkt_alias
-                produkt_alias.merke(conn, position[0], position[1],
-                                    ziel[0], ziel[1], ziel[2],
-                                    benutzer=session.get("user", ""))
-                flash(f"Zuordnung gemerkt: „{position[0]}" + '"' + f" wird künftig "
-                      f"als „{ziel[0]}" + '"' + " erkannt.")
         conn.commit()
     flash("Position zugeordnet.")
     return redirect(url_for("list_orders"))
-
-
-@app.route("/zuordnungen")
-@login_required
-def zuordnungen_view():
-    """Die gelernten Produkt-Zuordnungen ansehen und loeschen."""
-    from TCGInventory import produkt_alias
-    with sqlite3.connect(DB_FILE) as conn:
-        eintraege = produkt_alias.alle(conn)
-    return render_template("zuordnungen.html", eintraege=eintraege)
-
-
-@app.route("/zuordnungen/<int:alias_id>/loeschen", methods=["POST"])
-@login_required
-def zuordnung_loeschen(alias_id: int):
-    from TCGInventory import produkt_alias
-    with sqlite3.connect(DB_FILE) as conn:
-        if produkt_alias.entferne(conn, alias_id):
-            conn.commit()
-            flash("Zuordnung gelöscht.")
-        else:
-            flash("Diese Zuordnung gibt es nicht mehr.", "warning")
-    return redirect(url_for("zuordnungen_view"))
 
 
 @app.route("/orders/items/<int:item_id>/condition", methods=["POST"])

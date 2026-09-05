@@ -244,49 +244,76 @@ class OrderIngestionService:
             print(f"Database error saving order: {e}")
             return False
 
-    def _aus_zuordnung(self, cursor, item):
-        """Treffer ueber eine gelernte Zuordnung, sonst ``None``.
+    @staticmethod
+    def _mailname_bedingung(name):
+        """SQL-Bedingung und Wert fuer den Abgleich auf ``cardmarket_name``.
 
-        Gesucht wird ueber die **Identitaet** (Name, Set, Sprache), nicht ueber
-        eine gespeicherte Zeilennummer: ein neuer Karton ist eine neue Zeile,
-        das Produkt bleibt dasselbe.
-
-        Bei einem von Cardmarket gekuerzten Namen wird zusaetzlich geprueft, ob
-        der Anfang im Bestand eindeutig ist. Ein Set hat oft vier
-        Commander-Decks mit gleichem Anfang; ohne diese Pruefung wuerde ab dem
-        zweiten still das falsche ausgebucht.
+        Cardmarket kuerzt lange Produktnamen in der Mail mit ``...``. Der volle
+        Name steht dort nicht und laesst sich nicht rekonstruieren -- also wird
+        auf den Anfang verglichen. Ist der Name nicht gekuerzt, wird er ganz
+        verglichen.
         """
-        from TCGInventory import produkt_alias
+        text = (name or "").strip()
+        for marke in ("...", "…"):
+            if marke in text:
+                anfang = text.split(marke, 1)[0].strip()
+                if not anfang:
+                    return None, None
+                # Die Platzhalter von LIKE unschaedlich machen: ein Prozent
+                # oder Unterstrich im Produktnamen soll ein Zeichen sein und
+                # kein Suchmuster.
+                gefiltert = (anfang.lower()
+                             .replace("\\", "\\\\")
+                             .replace("%", "\\%")
+                             .replace("_", "\\_"))
+                return ("LOWER(cardmarket_name) LIKE ? ESCAPE '\\'",
+                        gefiltert + "%")
+        return "LOWER(cardmarket_name) = LOWER(?)", text
 
-        conn = cursor.connection
-        zuordnung = produkt_alias.finde(conn, item.get("name", ""),
-                                        item.get("set_name"))
-        if not zuordnung:
-            return None
-        if not produkt_alias.anfang_ist_eindeutig(conn, item.get("name", "")):
+    def _als_produkt(self, cursor, item):
+        """Treffer ueber den hinterlegten Cardmarket-Namen, sonst ``None``.
+
+        Displays, Precons und Zubehoer stehen nicht in der Scryfall-Datenbank.
+        Fuer sie traegt der Identitaetspfad nicht; erkennbar sind sie nur ueber
+        den Namen, den jemand beim Anlegen des Artikels bewusst hinterlegt hat.
+
+        Ausdruecklich **nur** fuer Produkte. Bei Einzelkarten bliebe der Name
+        allein zu wenig -- die Mail sagt dort nichts ueber Foil, und ein
+        Treffer auf den blossen Namen wuerde Foil und Normal verwechseln.
+
+        Wie ueberall gilt: genau ein Treffer oder gar keiner. Mehrere sind
+        mehrdeutig und gehen zur Handauswahl.
+        """
+        bedingung, wert = self._mailname_bedingung(item.get("name"))
+        if not bedingung:
             return None
 
-        abfrage = ("SELECT id, storage_code, image_url, location_hint FROM cards "
-                   "WHERE LOWER(name) = LOWER(?)")
-        werte = [zuordnung["ziel_name"]]
-        if zuordnung["ziel_set_code"]:
-            abfrage += " AND LOWER(set_code) = LOWER(?)"
-            werte.append(zuordnung["ziel_set_code"])
-        if zuordnung["ziel_language"]:
+        abfrage = (
+            "SELECT id, storage_code, image_url, location_hint FROM cards "
+            f"WHERE item_type <> 'card' AND cardmarket_name IS NOT NULL "
+            f"AND TRIM(cardmarket_name) <> '' AND {bedingung} "
+            "AND status = 'verfügbar' AND quantity > 0"
+        )
+        werte = [wert]
+        sprache = item.get("language")
+        if sprache:
             abfrage += " AND LOWER(language) = LOWER(?)"
-            werte.append(zuordnung["ziel_language"])
-        abfrage += " AND status = 'verfügbar' AND quantity > 0"
-        zeilen = cursor.execute(abfrage, werte).fetchall()
+            werte.append(sprache)
+        try:
+            zeilen = cursor.execute(abfrage, werte).fetchall()
+        except sqlite3.OperationalError:
+            # Aeltere Datenbank ohne die Spalte -- dann gibt es hier nichts zu
+            # finden, und der uebliche Weg laeuft unveraendert weiter.
+            return None
         if len(zeilen) != 1:
-            # Nichts oder mehrdeutig -> wie bisher zur Handauswahl.
             return None
         zeile = zeilen[0]
         return {
             "card_id": zeile[0],
             "match_status": "matched",
-            "storage_code": zeile[1] or (zeile[3] if len(zeile) > 3 else None),
+            "storage_code": zeile[1] or zeile[3],
             "image_url": zeile[2],
-            "set_code": zuordnung["ziel_set_code"],
+            "set_code": None,
         }
 
     def _match_item(self, cursor, item):
@@ -313,13 +340,11 @@ class OrderIngestionService:
             "set_code": set_code,
         }
 
-        # Zuerst nachsehen, ob diese Schreibweise schon einmal zugeordnet
-        # wurde. Das ist keine Vermutung, sondern eine gespeicherte
-        # Entscheidung -- und der einzige Weg fuer Displays, Precons und
-        # Zubehoer, die in der Scryfall-Datenbank gar nicht vorkommen.
-        gelernt = self._aus_zuordnung(cursor, item)
-        if gelernt:
-            return gelernt
+        # Versiegelte Ware zuerst: sie steht nicht in der Scryfall-Datenbank,
+        # also greift der Identitaetspfad darunter fuer sie nie.
+        produkt = self._als_produkt(cursor, item)
+        if produkt:
+            return produkt
 
         # Only auto-match when the line is clean AND the set resolved confidently.
         if not uncertain and set_code and confidence == "high":
