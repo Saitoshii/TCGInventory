@@ -68,6 +68,13 @@ def initialize_database() -> None:
         if "foil" not in columns:
             cursor.execute("ALTER TABLE cards ADD COLUMN foil INTEGER DEFAULT 0")
         # New fields for improved data model
+        # So heisst der Artikel in der Cardmarket-Bestellmail. Displays,
+        # Precons und Zubehoer stehen nicht in der Scryfall-Datenbank -- ohne
+        # diese Angabe gibt es nichts, woran der Mail-Abgleich sie erkennen
+        # koennte. Bei Einzelkarten bleibt das Feld leer: dort traegt der
+        # Identitaetspfad (set_code + collector_number + language + foil).
+        if "cardmarket_name" not in columns:
+            cursor.execute("ALTER TABLE cards ADD COLUMN cardmarket_name TEXT")
         if "item_type" not in columns:
             cursor.execute("ALTER TABLE cards ADD COLUMN item_type TEXT DEFAULT 'card'")
         if "reserved_until" not in columns:
@@ -204,25 +211,6 @@ def initialize_database() -> None:
             if col not in order_columns:
                 cursor.execute(f"ALTER TABLE orders ADD COLUMN {col} {coltype}")
 
-        # Gelernte Zuordnungen: Cardmarket-Schreibweise -> eigene Schreibweise.
-        # Displays, Precons und Zubehoer stehen nicht in der Scryfall-Datenbank;
-        # statt zu raten merkt sich das System eine einmal getroffene Wahl.
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS produkt_alias (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                mail_text TEXT NOT NULL,
-                mail_set TEXT,
-                ziel_name TEXT NOT NULL,
-                ziel_set_code TEXT,
-                ziel_language TEXT,
-                angelegt_von TEXT,
-                angelegt_am TEXT,
-                UNIQUE (mail_text, mail_set)
-            )
-            """
-        )
-
         # Tabelle 5: Order items (cards in orders)
         cursor.execute(
             """
@@ -253,6 +241,15 @@ def initialize_database() -> None:
             "uncertain": "INTEGER DEFAULT 0",
             "unit_price": "REAL",
             "variant": "TEXT",
+            # Position aus der Bestellung genommen, weil die Ware nicht
+            # lieferbar war und der Betrag erstattet wurde. Bewusst ein
+            # Kennzeichen statt einer Loeschung: die Zeile bleibt als Nachweis,
+            # der Beleg laesst sie weg, und die Buchhaltung braucht den Betrag
+            # noch fuer die Erstattung.
+            "entfernt": "INTEGER DEFAULT 0",
+            "entfernt_grund": "TEXT",
+            "entfernt_von": "TEXT",
+            "entfernt_am": "TEXT",
         }
         for col, coltype in item_new_cols.items():
             if col not in item_columns:

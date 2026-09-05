@@ -50,6 +50,7 @@ ALLOWED_FIELDS = {
     "item_type",
     "reserved_until",
     "location_hint",
+    "cardmarket_name",
     "rarity",
     "date_bought",
     "market_price",
@@ -113,6 +114,7 @@ def add_card(
     rarity="",
     date_bought="",
     market_price=None,
+    cardmarket_name="",
 ):
     """Add a card or display item and reserve a storage slot if available.
 
@@ -150,8 +152,8 @@ def add_card(
         INSERT INTO cards (name, set_code, language, condition, price, quantity, storage_code,
                            cardmarket_id, date_added, folder_id, collector_number,
                            scryfall_id, image_url, foil, item_type, location_hint,
-                           rarity, date_bought, market_price)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                           rarity, date_bought, market_price, cardmarket_name)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 name,
@@ -173,6 +175,7 @@ def add_card(
                 rarity,
                 date_bought,
                 market_price,
+                (cardmarket_name or "").strip(),
             ),
         )
 
@@ -233,6 +236,7 @@ def add_or_increment_card(
     rarity="",
     date_bought="",
     market_price=None,
+    cardmarket_name="",
 ):
     """Add a card, or increment the quantity of an identical one in the same folder.
 
@@ -281,6 +285,7 @@ def add_or_increment_card(
         rarity=rarity,
         date_bought=date_bought,
         market_price=market_price,
+        cardmarket_name=cardmarket_name,
     )
 
 

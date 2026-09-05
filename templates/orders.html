@@ -118,7 +118,9 @@
       <!-- Positions -->
       <div class="col-lg-8">
         {% for item in order['items'] %}
-        <div class="card mb-2">
+        {# Herausgenommene Positionen bleiben sichtbar, aber abgesetzt: sie
+           gehoeren nicht mehr auf den Beleg und werden nicht abgezogen. #}
+        <div class="card mb-2{% if item.entfernt %} opacity-50{% endif %}">
           <div class="card-body py-2">
             <div class="d-flex gap-3 align-items-start">
               <div>
@@ -130,7 +132,8 @@
               <div class="flex-grow-1">
                 <div class="d-flex justify-content-between flex-wrap gap-2">
                   <div>
-                    <strong>{{ item.quantity }}× {{ item.card_name }}</strong>
+                    <strong{% if item.entfernt %} class="text-decoration-line-through"{% endif %}>{{ item.quantity }}× {{ item.card_name }}</strong>
+                    {% if item.entfernt %}<span class="badge bg-warning text-dark">herausgenommen</span>{% endif %}
                     {% if item.uncertain %}<span class="chip">unsicher</span>{% endif %}
                     <div class="tcg-card__meta">
                       {% if item.set_name %}<span>{{ item.set_name }}</span>{% endif %}
@@ -162,7 +165,47 @@
                   </div>
                 </div>
 
-                {% if not item.card_id %}
+                {% if item.entfernt %}
+                <div class="small text-warning mt-2">
+                  Herausgenommen{% if item.entfernt_am %} am {{ item.entfernt_am[:10] }}{% endif %}{% if item.entfernt_von %} von {{ item.entfernt_von }}{% endif %}:
+                  {{ item.entfernt_grund }}
+                  <form method="post" class="d-inline"
+                        action="{{ url_for('order_item_zurueck', item_id=item.id) }}">
+                    <button class="btn btn-link btn-sm p-0 align-baseline" type="submit">wieder aufnehmen</button>
+                  </form>
+                </div>
+                {% else %}
+                <details class="mt-2">
+                  <summary class="small text-muted">Nicht lieferbar — aus der Bestellung nehmen</summary>
+                  <div class="small text-muted mt-1 mb-2">
+                    Für Ware, die nicht da ist und dem Käufer erstattet wird.
+                    Die Position verschwindet vom Beleg und wird nicht
+                    abgezogen; die Zeile bleibt als Nachweis stehen.
+                    <strong>Den erstatteten Betrag danach in der Buchhaltung
+                    erfassen.</strong>
+                  </div>
+                  <form method="post" class="row g-2 align-items-end"
+                        action="{{ url_for('order_item_entfernen', item_id=item.id) }}">
+                    <div class="col-12 col-md-6">
+                      <input type="text" name="grund" class="form-control form-control-sm"
+                             placeholder="Grund, z. B. nicht auffindbar" required>
+                    </div>
+                    <div class="col-12 col-md-6">
+                      <label class="d-flex align-items-center gap-2 small">
+                        <input type="checkbox" name="bestand_korrigieren" value="1"
+                               class="form-check-input">
+                        Auch den Bestand senken (die Ware fehlt wirklich)
+                      </label>
+                    </div>
+                    <div class="col-12">
+                      <button class="btn btn-outline-warning btn-sm" type="submit">
+                        Aus der Bestellung nehmen</button>
+                    </div>
+                  </form>
+                </details>
+                {% endif %}
+
+                {% if not item.card_id and not item.entfernt %}
                   {% if item.candidates %}
                   <form method="post" action="{{ url_for('assign_order_item', item_id=item.id) }}" class="mt-2">
                     <div class="tcg-card__meta mb-1">Kandidaten – bitte die richtige Karte wählen:</div>
@@ -180,19 +223,18 @@
                       </span>
                     </label>
                     {% endfor %}
-                    {# Einmal zuordnen, danach erkennt es das System selbst.
-                       Fuer Displays, Precons und Zubehoer der einzige Weg --
-                       sie stehen nicht in der Scryfall-Datenbank. #}
-                    <label class="d-flex align-items-center gap-2 mt-1 small text-muted">
-                      <input type="checkbox" name="merken" value="1" checked
-                             class="form-check-input">
-                      Diese Zuordnung merken, damit „{{ item.card_name }}“ künftig
-                      von selbst erkannt wird
-                    </label>
                     <button class="btn btn-sm btn-outline-primary mt-1" type="submit">Zuordnen</button>
                   </form>
+                  <a class="small" href="{{ url_for('order_item_suche', item_id=item.id) }}">
+                    Nichts davon? Im Bestand suchen →</a>
                   {% else %}
-                  <div class="text-muted small mt-2">Keine passende Karte im Bestand gefunden.</div>
+                  {# Bei Displays und Precons heisst der Artikel im Bestand oft
+                     anders als in der Mail — dann findet die Kandidatensuche
+                     nichts und es braucht einen Weg von Hand. #}
+                  <div class="text-muted small mt-2">
+                    Keine passende Karte im Bestand gefunden.
+                    <a href="{{ url_for('order_item_suche', item_id=item.id) }}">Im Bestand suchen →</a>
+                  </div>
                   {% endif %}
                 {% endif %}
               </div>

@@ -32,9 +32,30 @@
   </div>
 
   <!-- Standort für Displays / Zubehör / Sonstiges (keine Ordnerplätze) -->
-  <div class="mb-3 d-none" id="location-hint-section">
-    <label class="form-label">Standort (Regal / Box)</label>
-    <input class="form-control" name="location_hint" value="{{ card[15] if card else '' }}" placeholder="z. B. Regal A, Box 3">
+  <div class="d-none" id="location-hint-section">
+    <div class="mb-3">
+      <label class="form-label">Standort (Regal / Box)</label>
+      <input class="form-control" name="location_hint" value="{{ card[15] if card else '' }}" placeholder="z. B. Regal A, Box 3">
+    </div>
+    {#
+      Displays, Precons und Zubehör stehen nicht in der Scryfall-Datenbank.
+      Ohne diese Angabe gibt es beim Bestelleingang nichts, woran sie zu
+      erkennen wären. Bei Einzelkarten bleibt das Feld weg — dort trägt der
+      Identitätspfad aus Set, Nummer, Sprache und Foil.
+    #}
+    <div class="mb-3">
+      <label class="form-label">Name in der Cardmarket-Bestellmail</label>
+      <input class="form-control" name="cardmarket_name"
+             value="{{ card[16] if card and card|length > 16 else '' }}"
+             placeholder="z. B. The Hobbit Play Booster Box">
+      <div class="form-text">
+        Genau so, wie der Artikel in der Bestellmail steht — dann wird die
+        Position beim Bestelleingang von selbst zugeordnet. Leer lassen, wenn
+        Sie das nicht wissen: die Position landet dann in der Handzuordnung.
+        <br>
+        Kürzt Cardmarket den Namen mit „…", genügt der Anfang davor.
+      </div>
+    </div>
   </div>
 
   <!-- Nur für Einzelkarten relevante Felder -->

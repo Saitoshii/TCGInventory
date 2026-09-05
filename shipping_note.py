@@ -124,6 +124,8 @@ TEXTS = {
         "col_qty": "MENGE", "col_card": "KARTE", "col_cond": "ZUSTAND", "col_price": "PREIS",
         "subtotal": "Zwischensumme", "shipping": "Versand", "total": "Gesamt",
         "review": "Über eine Bewertung auf Cardmarket freuen wir uns sehr.",
+        "entfallen_eine": "Eine Position war leider nicht lieferbar und wurde erstattet.",
+        "entfallen_mehrere": "{n} Positionen waren leider nicht lieferbar und wurden erstattet.",
         "continued": "Bestellung {number} — Fortsetzung",
         "page": "Seite {n} von {gesamt}",
     },
@@ -136,6 +138,8 @@ TEXTS = {
         "col_qty": "QTY", "col_card": "CARD", "col_cond": "CONDITION", "col_price": "PRICE",
         "subtotal": "Subtotal", "shipping": "Shipping", "total": "Total",
         "review": "We would greatly appreciate a rating on Cardmarket.",
+        "entfallen_eine": "One item was unfortunately unavailable and has been refunded.",
+        "entfallen_mehrere": "{n} items were unfortunately unavailable and have been refunded.",
         "continued": "Order {number} — continued",
         "page": "Page {n} of {gesamt}",
     },
@@ -391,6 +395,7 @@ def render_shipping_note(
     logo_path: Optional[str] = None,
     badge_path: Optional[str] = None,
     compress: bool = True,
+    entfallene_positionen: int = 0,
 ) -> bytes:
     """Render the branded A4 shipping note and return the PDF as bytes.
 
@@ -408,6 +413,9 @@ def render_shipping_note(
         lang: force ``"de"`` / ``"en"``; otherwise auto-detected from the country.
         config/logo_path/badge_path: branding overrides.
         compress: set ``False`` in tests so text is greppable in the raw PDF.
+        entfallene_positionen: Anzahl der Positionen, die nicht lieferbar waren
+            und erstattet wurden. Sie stehen nicht in ``positions`` — der Satz
+            erklärt dem Käufer, warum die Summe niedriger ist als bestellt.
     """
     cfg = config or get_shop_config()
     logo = logo_path or cfg.get("logo_path")
@@ -588,6 +596,15 @@ def render_shipping_note(
     pdf.set_line_width(0.4)
     pdf.line(_TOTALS_LABEL_RIGHT_X - 60, y + 13.5, _PRICE_RIGHT_X, y + 13.5)
     total_row(y + 15, t["total"], total, bold=True)
+
+    # Ohne diesen Satz steht auf dem Beileger eine niedrigere Summe als in der
+    # Bestellbestätigung, und niemand weiß warum. Die entfallenen Positionen
+    # selbst stehen bewusst nicht darauf — geliefert wurden sie nicht.
+    if entfallene_positionen > 0:
+        satz = (t["entfallen_eine"] if entfallene_positionen == 1
+                else t["entfallen_mehrere"].format(n=entfallene_positionen))
+        text(PAGE_MARGIN_MM, y + 24, satz, _SERIF, "I", 9.5, GREY,
+             w=CONTENT_W_MM)
 
     # --- Footer: hairline, Cardmarket seal, review sentence, return address ---
     hairline_y = PAGE_H_MM - FOOTER_HAIRLINE_FROM_BOTTOM_MM
