@@ -172,8 +172,34 @@ weitergeleitet wird, entscheidet ein Formularfeld `zurueck` mit dem festen Wert
 `verkauft` — keine freie URL, damit sich die Weiterleitung nicht auf eine
 fremde Adresse biegen lässt.
 
+## 8. Lange Namen auf Beileger und Quittung
+
+`pdf.cell()` schneidet nichts ab und bricht nichts um. Ein langer Artikelname
+lief deshalb quer über „Zustand" und „Preis" hinaus, eine lange Adresszeile aus
+dem Fenster des Kuverts ins Logo — vor allem bei Precons, Displays und Zubehör.
+
+- **Artikel und Set** werden an der Spaltenbreite umbrochen
+  (`shipping_note.umbrechen`); die Tabellenzeile wächst um die zusätzlichen
+  Textzeilen. Menge, Zustand und Preis bleiben auf der ersten Zeile.
+- **Kurze Namen sehen aus wie bisher** — gleiche Zeilenhöhe, gleicher
+  Seitenumbruch.
+- **Die Seitenzahl** („Seite 1 von 3") rechnet mit den tatsächlichen
+  Zeilenhöhen (`positionslayout` → `seitenanzahl`), nicht mehr mit der Anzahl
+  der Positionen.
+- **Anschrift:** fehlt nur wenig, wird die Schrift etwas kleiner (nie unter
+  10 pt); sonst wird die Zeile umbrochen. Die DIN-Maße des Adressfelds sind
+  unverändert.
+- **Obergrenze:** höchstens vier Namens- und zwei Set-Zeilen; darüber wird
+  sichtbar mit „…" gekürzt. Echte Namen erreichen das nicht.
+- „— Foil" bleibt über ein geschütztes Leerzeichen zusammen.
+
+Die Quittung nutzt dieselbe Funktion mit ihrer eigenen Spaltenbreite.
+
 ## Tests
 
+- **`test_lange_namen.py`** — Umbruch hält die Spaltenbreite ein und verliert
+  kein Wort, überlange Wörter, Obergrenze, Seitenzahl bei hohen Zeilen,
+  Anschrift im Fenster, Quittung.
 - **`test_verkaufte_bestellungen.py`** — Archiv findet Verkauftes und nur
   Verkauftes, Nachdruck von Beileger und Quittung, Suche, Blättern,
   unsinnige Seitenzahlen, Adresse bestätigen mit Rückweg, Bestand unverändert.
