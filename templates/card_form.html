@@ -1,22 +1,46 @@
 {% extends "base.html" %}
 {% block content %}
+{# Vorbelegung beim Anlegen (Artikelart, Bestellposition); beim Bearbeiten leer. #}
+{% set vorgabe = vorgabe or {} %}
 <h2 class="page-title mb-4">{{ 'Artikel bearbeiten' if card else 'Artikel hinzufügen' }}</h2>
+{% if vorgabe.position %}
+<div class="alert alert-info">
+  Aus der Bestellung {{ vorgabe.bestellnummer or '—' }}{% if vorgabe.kaeufer %} ({{ vorgabe.kaeufer }}){% endif %}:
+  Name und Sprache stehen so in der Bestellmail und sind schon eingetragen.
+  Bitte <strong>Menge</strong> (was wirklich im Regal steht) und
+  <strong>Standort</strong> ergänzen. Nach dem Speichern geht es zurück zur
+  Position.
+  {% if vorgabe.gekuerzt %}
+  <div class="mt-1">
+    Cardmarket hat den Namen in der Mail gekürzt — eingetragen ist der Anfang.
+    Gibt es mehrere Artikel mit diesem Anfang (etwa vier Commander-Decks eines
+    Sets), bitte den Namen vervollständigen.
+  </div>
+  {% endif %}
+</div>
+{% endif %}
 <form method="post">
+  {% if vorgabe.position %}<input type="hidden" name="aus_position" value="{{ vorgabe.position }}">{% endif %}
   <div class="mb-3">
     <label class="form-label">Typ</label>
-    {% set type = card[14] if card else 'card' %}
+    {% set type = card[14] if card else (vorgabe.item_type or 'card') %}
     <select class="form-select" name="item_type" id="item-type-select">
       <option value="card" {% if type=='card' %}selected{% endif %}>Karte</option>
-      <option value="display" {% if type=='display' %}selected{% endif %}>Display</option>
-      <option value="zubehoer" {% if type=='zubehoer' %}selected{% endif %}>Zubehör</option>
+      <option value="display" {% if type=='display' %}selected{% endif %}>Versiegelte Ware (Display, Precon, Booster)</option>
+      <option value="zubehoer" {% if type=='zubehoer' %}selected{% endif %}>Zubehör (Sleeves, Spielmatten, Boxen)</option>
       <option value="sonstiges" {% if type=='sonstiges' %}selected{% endif %}>Sonstiges</option>
     </select>
     <div class="form-text" id="type-hint"></div>
   </div>
   <div class="mb-3 position-relative">
     <label class="form-label">Name</label>
-    <input id="name-input" class="form-control" autocomplete="off" name="name" value="{{ card[1] if card else '' }}" required>
+    <input id="name-input" class="form-control" autocomplete="off" name="name" value="{{ card[1] if card else vorgabe.name or '' }}" required>
     <div id="name-suggestions" class="dropdown-menu w-100"></div>
+    <div class="form-text d-none" id="product-name-hint">
+      Beim Tippen erscheinen Ihre eigenen Artikel: was schon im Lager liegt
+      (dort die Menge erhöhen statt doppelt anlegen) und was früher einmal da
+      war (als Vorlage übernehmen).
+    </div>
   </div>
   <img id="preview-image" class="img-thumbnail mb-3{% if not card or not card[12] %} d-none{% endif %}" style="max-width:200px;" src="{{ card[12] if card else '' }}">
 
@@ -39,7 +63,7 @@
     <div class="col-md-4 mb-3">
       <label class="form-label">Sprache</label>
       <select class="form-select" name="language" id="language-select">
-        {% set lang = card[3] if card else '' %}
+        {% set lang = card[3] if card else (vorgabe.language or '') %}
         <option value="">– keine –</option>
         {% for l in ['de', 'en', 'fr', 'it', 'es', 'ja'] %}
         <option value="{{ l }}" {% if lang==l %}selected{% endif %}>{{ l.upper() }}</option>
@@ -67,8 +91,8 @@
     #}
     <div class="mb-3">
       <label class="form-label">Name in der Cardmarket-Bestellmail</label>
-      <input class="form-control" name="cardmarket_name"
-             value="{{ card[16] if card and card|length > 16 else '' }}"
+      <input class="form-control" name="cardmarket_name" id="cardmarket-name-input"
+             value="{{ card[16] if card and card|length > 16 else vorgabe.cardmarket_name or '' }}"
              placeholder="z. B. The Hobbit Play Booster Box">
       <div class="form-text">
         Genau so, wie der Artikel in der Bestellmail steht — dann wird die
@@ -77,6 +101,30 @@
         <br>
         Kürzt Cardmarket den Namen mit „…", genügt der Anfang davor.
       </div>
+      {#
+        Wie hieß dieser Artikel in Bestellungen? Quelle sind nur Positionen,
+        die ihm zugeordnet wurden. „Übernehmen" setzt die Felder — gespeichert
+        wird erst mit dem Knopf unten. Die Entscheidung fällt damit hier am
+        Artikel und nicht nebenbei beim Zuordnen einer Bestellung.
+      #}
+      {% if mailnamen %}
+      <div class="border rounded p-2 mt-2">
+        <div class="small text-muted mb-1">So stand dieser Artikel in Bestellungen:</div>
+        {% for m in mailnamen %}
+        <div class="d-flex align-items-center gap-2 flex-wrap small mb-1">
+          <span><strong>{{ m.mailname }}</strong>{% if m.language %} · {{ m.language|upper }}{% endif %}
+            <span class="text-muted">· zuletzt {{ m.zuletzt or '—' }}{% if m.anzahl > 1 %} · {{ m.anzahl }}×{% endif %}</span></span>
+          {% if m.passt %}
+          <span class="status-badge status-badge--verfuegbar">wird von selbst erkannt</span>
+          {% else %}
+          <button type="button" class="btn btn-sm btn-outline-primary mailname-uebernehmen"
+                  data-name="{{ m.vorschlag }}" data-language="{{ m.language }}">Übernehmen</button>
+          {% if m.gekuerzt %}<span class="text-muted">(gekürzt — nur der Anfang)</span>{% endif %}
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
     </div>
   </div>
 
@@ -169,6 +217,65 @@ document.addEventListener('DOMContentLoaded', function() {
   const locationHintSection = document.getElementById('location-hint-section');
   const typeHint = document.getElementById('type-hint');
   let timeout = null;
+  const IST_BEARBEITEN = {{ 'true' if card else 'false' }};
+  const cardmarketNameInput = document.getElementById('cardmarket-name-input');
+  const languageSelect = document.getElementById('language-select');
+
+  function setzeSprache(code) {
+    if (!languageSelect) return;
+    for (const opt of languageSelect.options) {
+      if (opt.value === (code || '')) { opt.selected = true; break; }
+    }
+  }
+
+  // „Übernehmen" neben einem Namen aus einer Bestellung: nur die Felder
+  // setzen, gespeichert wird mit dem Knopf unten.
+  document.querySelectorAll('.mailname-uebernehmen').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (cardmarketNameInput) cardmarketNameInput.value = btn.dataset.name || '';
+      if (btn.dataset.language) setzeSprache(btn.dataset.language);
+      if (cardmarketNameInput) cardmarketNameInput.focus();
+    });
+  });
+
+  // Produkte: Vorschläge aus dem eigenen Bestand statt aus Scryfall.
+  function zeigeProduktVorschlaege(liste) {
+    suggestions.innerHTML = '';
+    liste.forEach(p => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'dropdown-item text-wrap';
+      const kopf = document.createElement('div');
+      const zusatz = document.createElement('div');
+      zusatz.className = 'small text-muted';
+      const sprache = p.language ? ' · ' + p.language.toUpperCase() : '';
+      if (p.vorhanden) {
+        kopf.textContent = 'Schon im Lager: ' + p.name + sprache;
+        zusatz.textContent = p.quantity + '× · ' + (p.location_hint || 'ohne Standort')
+          + ' — öffnen und dort die Menge erhöhen';
+        item.addEventListener('click', () => { window.location.href = p.edit_url; });
+      } else {
+        kopf.textContent = 'Wie früher: ' + p.name + sprache;
+        zusatz.textContent = (p.cardmarket_name ? 'Cardmarket: ' + p.cardmarket_name : 'ohne Cardmarket-Namen')
+          + ' — als Vorlage übernehmen';
+        item.addEventListener('click', () => {
+          nameInput.value = p.name;
+          if (cardmarketNameInput) cardmarketNameInput.value = p.cardmarket_name || '';
+          setzeSprache(p.language);
+          for (const opt of itemTypeSelect.options) {
+            if (opt.value === p.item_type) { opt.selected = true; break; }
+          }
+          const ort = document.querySelector('input[name=location_hint]');
+          if (ort && !ort.value) ort.value = p.location_hint || '';
+          updateItemTypeVisibility();
+        });
+      }
+      item.appendChild(kopf);
+      item.appendChild(zusatz);
+      suggestions.appendChild(item);
+    });
+    suggestions.classList.toggle('show', liste.length > 0);
+  }
 
   // Cards use binder slots + the identity fields; products (display / accessory
   // / other) use a free-text location instead and hide the card-only fields.
@@ -181,6 +288,9 @@ document.addEventListener('DOMContentLoaded', function() {
       : 'Produkt – kein Ordnerplatz, nur ein freier Standort (Regal/Box).';
     const languageHint = document.getElementById('language-hint');
     if (languageHint) languageHint.classList.toggle('d-none', isCard);
+    const productNameHint = document.getElementById('product-name-hint');
+    if (productNameHint) productNameHint.classList.toggle('d-none', isCard || IST_BEARBEITEN);
+    suggestions.classList.remove('show');
   }
 
   itemTypeSelect.addEventListener('change', updateItemTypeVisibility);
@@ -189,8 +299,19 @@ document.addEventListener('DOMContentLoaded', function() {
   nameInput.addEventListener('input', function() {
     clearTimeout(timeout);
     const query = this.value.trim();
-    if (query.length < 2 || itemTypeSelect.value !== 'card') {
+    if (query.length < 2) {
       suggestions.classList.remove('show');
+      return;
+    }
+    if (itemTypeSelect.value !== 'card') {
+      // Beim Bearbeiten keine Vorschläge: der Artikel steht ja schon fest.
+      if (IST_BEARBEITEN) { suggestions.classList.remove('show'); return; }
+      timeout = setTimeout(function() {
+        fetch(`/api/produkte?q=${encodeURIComponent(query)}`)
+          .then(resp => resp.ok ? resp.json() : [])
+          .then(liste => zeigeProduktVorschlaege(Array.isArray(liste) ? liste : []))
+          .catch(() => suggestions.classList.remove('show'));
+      }, 300);
       return;
     }
     timeout = setTimeout(function() {

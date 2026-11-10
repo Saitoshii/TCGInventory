@@ -31,6 +31,7 @@ from TCGInventory.lager_manager import (
     delete_folder,
     create_binder,
     list_folders,
+    ITEM_TYPES,
 )
 from TCGInventory.card_scanner import (
     fetch_card_info_by_name,
@@ -54,7 +55,11 @@ from TCGInventory.auth import (
     login_required,
 )
 from TCGInventory.repo_updater import update_repo
-from TCGInventory.order_service import get_order_service
+from TCGInventory.order_service import (
+    get_order_service,
+    mailname_ohne_kuerzung,
+    produkt_passt,
+)
 from TCGInventory import positionen as positionen_modul
 from TCGInventory.shipping_note import render_shipping_note, detect_language
 from TCGInventory.quittung import render_quittung
@@ -287,6 +292,79 @@ def lookup_api():
     if not name:
         return jsonify([])
     return jsonify(fetch_variants(name))
+
+
+def _like_muster(text: str) -> str:
+    """``text`` als Teilstring-Muster fuer ``LIKE ... ESCAPE '\\'``.
+
+    Prozent und Unterstrich im Suchtext sollen Zeichen sein und keine
+    Platzhalter.
+    """
+    gefiltert = (text.replace("\\", "\\\\").replace("%", "\\%")
+                 .replace("_", "\\_"))
+    return f"%{gefiltert}%"
+
+
+@app.route("/api/produkte")
+@login_required
+def produkte_api():
+    """Displays, Precons und Zubehoer aus dem eigenen Bestand vorschlagen.
+
+    Einzelkarten bekommen ihre Vorschlaege aus der Scryfall-Datenbank. Fuer
+    Produkte gibt es keine solche Quelle -- wohl aber die eigenen Artikel:
+
+    * **vorhanden** -- der Artikel liegt schon im Lager. Wer ihn ein zweites
+      Mal anlegt, hat zwei gleiche Eintraege, und eine Bestellung kann sie
+      nicht unterscheiden. Das Formular verweist deshalb auf den vorhandenen.
+    * **frueher** -- der Artikel war einmal da und ist ausverkauft. Name,
+      Cardmarket-Name und Sprache lassen sich von dort uebernehmen, statt sie
+      noch einmal zu tippen.
+
+    Rein lesend, und nur fuer Produkte (``item_type <> 'card'``).
+    """
+    suche = (request.args.get("q") or "").strip()
+    if len(suche) < 2:
+        return jsonify([])
+    muster = _like_muster(suche)
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        zeilen = conn.execute(
+            "SELECT id, name, item_type, language, quantity, location_hint, "
+            "       cardmarket_name, status "
+            "FROM cards WHERE item_type <> 'card' "
+            "AND (LOWER(name) LIKE LOWER(?) ESCAPE '\\' "
+            "     OR LOWER(COALESCE(cardmarket_name, '')) LIKE LOWER(?) ESCAPE '\\') "
+            "ORDER BY (status = 'verfügbar' AND quantity > 0) DESC, id DESC "
+            "LIMIT 40", (muster, muster)).fetchall()
+
+    ergebnis = []
+    gesehen = set()
+    for z in zeilen:
+        vorhanden = z["status"] == "verfügbar" and (z["quantity"] or 0) > 0
+        # Ausverkaufte Artikel gibt es oft mehrfach (jeder Nachkauf ein
+        # Eintrag) -- als Vorlage genuegt jede Kombination einmal.
+        schluessel = (None if vorhanden else
+                      ((z["name"] or "").lower(),
+                       (z["cardmarket_name"] or "").lower(),
+                       (z["language"] or "").lower(), z["item_type"]))
+        if schluessel is not None:
+            if schluessel in gesehen:
+                continue
+            gesehen.add(schluessel)
+        ergebnis.append({
+            "id": z["id"],
+            "name": z["name"],
+            "item_type": z["item_type"],
+            "language": z["language"] or "",
+            "quantity": z["quantity"] or 0,
+            "location_hint": z["location_hint"] or "",
+            "cardmarket_name": z["cardmarket_name"] or "",
+            "vorhanden": vorhanden,
+            "edit_url": url_for("edit_card_view", card_id=z["id"]),
+        })
+        if len(ergebnis) >= 8:
+            break
+    return jsonify(ergebnis)
 
 
 @app.route("/")
@@ -837,6 +915,47 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
 
 
 
+def _vorgabe_fuer_neuen_artikel() -> dict:
+    """Vorbelegung des Formulars „Artikel hinzufuegen" aus der Adresse.
+
+    ``?typ=display`` oeffnet das Formular gleich fuer ein Produkt. ``?position=``
+    uebernimmt, was die Bestellmail ueber die Position sagt: den Namen, wie
+    Cardmarket ihn schreibt, und die Sprache. Damit findet der naechste
+    Bestelleingang den Artikel von selbst.
+
+    Bewusst **nicht** uebernommen werden Menge und Preis: bestellt wurde eine
+    Stueckzahl, im Regal steht eine andere, und der Preis in der Mail ist der
+    Verkaufspreis, nicht der Einkaufspreis.
+    """
+    vorgabe: dict = {}
+    typ = (request.args.get("typ") or "").strip()
+    if typ in ITEM_TYPES:
+        vorgabe["item_type"] = typ
+
+    position = (request.args.get("position") or "").strip()
+    if position.isdigit():
+        with sqlite3.connect(DB_FILE) as conn:
+            conn.row_factory = sqlite3.Row
+            zeile = conn.execute(
+                "SELECT i.id, i.card_name, i.language, o.order_number, "
+                "       o.buyer_name "
+                "FROM order_items i JOIN orders o ON o.id = i.order_id "
+                "WHERE i.id = ?", (int(position),)).fetchone()
+        if zeile:
+            name, gekuerzt = mailname_ohne_kuerzung(zeile["card_name"])
+            vorgabe.update({
+                "position": zeile["id"],
+                "name": name,
+                "cardmarket_name": name,
+                "language": (zeile["language"] or "").lower(),
+                "gekuerzt": gekuerzt,
+                "bestellnummer": zeile["order_number"] or "",
+                "kaeufer": zeile["buyer_name"] or "",
+            })
+            vorgabe.setdefault("item_type", "display")
+    return vorgabe
+
+
 @app.route("/cards/add", methods=["GET", "POST"])
 @login_required
 def add_card_view():
@@ -880,11 +999,21 @@ def add_card_view():
             user=session.get("user", "system"),
         )
         if success:
+            # Aus einer Bestellposition heraus angelegt: zurueck zu ihr. Dort
+            # steht der neue Artikel in der Trefferliste und wird mit einem
+            # Klick zugeordnet -- von selbst zugeordnet wird nichts.
+            aus_position = (request.form.get("aus_position") or "").strip()
+            if aus_position.isdigit():
+                flash("Artikel gespeichert. Jetzt der Bestellposition zuordnen.")
+                return redirect(url_for(
+                    "order_item_suche", item_id=int(aus_position),
+                    q=request.form["name"]))
             flash("Artikel gespeichert.")
             return redirect(url_for("list_cards"))
         flash("Kein freier Lagerplatz.", "error")
     return render_template(
-        "card_form.html", card=None, folders=folders, folder_part="", page="", slot=""
+        "card_form.html", card=None, folders=folders, folder_part="", page="",
+        slot="", vorgabe=_vorgabe_fuer_neuen_artikel(),
     )
 
 
@@ -942,7 +1071,48 @@ def edit_card_view(card_id: int):
         folder_part=folder_part,
         page=page,
         slot=slot,
+        mailnamen=_mailnamen_des_artikels(card),
     )
+
+
+def _mailnamen_des_artikels(card) -> list:
+    """Wie dieser Artikel in Bestellmails hiess -- als Vorschlag am Artikel.
+
+    Quelle sind ausschliesslich die Positionen, die diesem Artikel zugeordnet
+    wurden; geraten wird nichts. Der Vorschlag wird im Formular nur in die
+    Felder gesetzt -- gespeichert wird erst mit „Speichern". Die Entscheidung
+    faellt damit am Artikel und nicht nebenbei beim Zuordnen.
+
+    Nur fuer Produkte: bei Einzelkarten traegt der Identitaetspfad.
+    """
+    if not card or len(card) < 17 or card[14] == "card":
+        return []
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        zeilen = conn.execute(
+            "SELECT i.card_name, COALESCE(i.language, '') AS language, "
+            "       MAX(COALESCE(o.email_date, o.date_received)) AS zuletzt, "
+            "       COUNT(*) AS anzahl "
+            "FROM order_items i JOIN orders o ON o.id = i.order_id "
+            "WHERE i.card_id = ? AND TRIM(COALESCE(i.card_name, '')) <> '' "
+            "GROUP BY i.card_name, COALESCE(i.language, '') "
+            "ORDER BY zuletzt DESC LIMIT 5", (card[0],)).fetchall()
+    namen = []
+    for z in zeilen:
+        vorschlag, gekuerzt = mailname_ohne_kuerzung(z["card_name"])
+        if not vorschlag:
+            continue
+        namen.append({
+            "mailname": z["card_name"],
+            "vorschlag": vorschlag,
+            "gekuerzt": gekuerzt,
+            "language": (z["language"] or "").lower(),
+            "zuletzt": (z["zuletzt"] or "")[:10],
+            "anzahl": z["anzahl"],
+            "passt": produkt_passt(card[16], card[3], z["card_name"],
+                                   z["language"]),
+        })
+    return namen
 
 
 @app.route("/cards/<int:card_id>/delete")
@@ -2196,6 +2366,18 @@ def list_orders():
                 item["candidates"] = []
                 if not item["card_id"]:
                     item["candidates"] = _order_item_candidates(c, item["card_name"])
+                # Von Hand zugeordnetes Produkt, das der Bestelleingang nicht
+                # von selbst gefunden haette: der Hinweis fuehrt zum Artikel,
+                # wo Cardmarket-Name und Sprache nachgetragen werden.
+                item["produkt_unerkannt"] = False
+                if item["card_id"] and not item["entfernt"]:
+                    artikel = c.execute(
+                        "SELECT item_type, cardmarket_name, language "
+                        "FROM cards WHERE id = ?", (item["card_id"],)).fetchone()
+                    if artikel and artikel["item_type"] != "card":
+                        item["produkt_unerkannt"] = not produkt_passt(
+                            artikel["cardmarket_name"], artikel["language"],
+                            item["card_name"], item["language"])
                 items.append(item)
 
             recipient_lines = [ln.strip() for ln in (order["address"] or "").splitlines() if ln.strip()]

@@ -195,8 +195,72 @@ dem Fenster des Kuverts ins Logo — vor allem bei Precons, Displays und Zubehö
 
 Die Quittung nutzt dieselbe Funktion mit ihrer eigenen Spaltenbreite.
 
+## 9. Displays, Precons und Zubehör
+
+Einzelkarten „rasten ein": Name tippen, die Scryfall-Daten füllen den Rest,
+und die Bestellung findet sie über Set, Nummer, Sprache und Foil. Produkte
+stehen in keiner Kartendatenbank. Erkennbar sind sie nur über zwei Angaben
+**am Artikel**:
+
+| Feld | Bedeutung |
+|---|---|
+| `cardmarket_name` | so heißt der Artikel in der Bestellmail |
+| `language` | Sprache der Ausgabe — verglichen, sobald die Mail eine nennt |
+
+`order_service._als_produkt` ordnet zu, wenn **genau ein** verfügbarer Artikel
+passt (bei gekürzten Namen „…" zählt der Anfang). Mehrere oder keiner: die
+Position geht in die Handzuordnung. `order_service.produkt_passt` ist dieselbe
+Regel für einen einzelnen Artikel und speist nur Hinweise in der Oberfläche.
+
+### Die Sprache gilt für jede Artikelart
+
+Die Sprachauswahl stand im Formular im Block für Einzelkarten und war bei
+Produkten ausgeblendet. Gespeichert wurde eine leere Sprache — und eine
+Bestellung mit „… - English" fand den Artikel nie, auch bei exakt richtigem
+Cardmarket-Namen. Die Auswahl steht jetzt bei Preis und Menge.
+
+**Vor dieser Änderung angelegte Produkte haben eine leere Sprache.** Sie wird
+über „Artikel bearbeiten" nachgetragen; bis dahin bleibt es bei der
+Handzuordnung. Geraten wird nicht: ob die englische oder die deutsche Box im
+Regal steht, weiß das Programm nicht.
+
+### Drei Wege, ein Produkt anzulegen
+
+1. **Hinzufügen → Produkt hinzufügen** (`/cards/add?typ=display`): das Formular
+   öffnet ohne die Kartenfelder. Beim Tippen des Namens erscheinen die eigenen
+   Artikel (`/api/produkte`):
+   - *Schon im Lager* — führt zum vorhandenen Artikel, um dort die Menge zu
+     erhöhen. Zwei gleiche Einträge kann eine Bestellung nicht unterscheiden.
+   - *Wie früher* — ein ausverkaufter Artikel als Vorlage: Name,
+     Cardmarket-Name, Sprache und Art werden übernommen.
+2. **Aus der Bestellposition** („Als Produkt anlegen →" in der
+   Bestellübersicht und in der Handzuordnung, `/cards/add?position=<id>`):
+   Name und Sprache kommen aus der Mail. Menge und Preis ausdrücklich nicht —
+   bestellt ist nicht vorrätig, und der Preis in der Mail ist der
+   Verkaufspreis. Nach dem Speichern geht es zurück zur Position; zugeordnet
+   wird dort mit einem Klick, nicht von selbst.
+3. **Am vorhandenen Artikel nachtragen:** wurde ein Produkt von Hand
+   zugeordnet, das der Bestelleingang nicht selbst gefunden hätte, steht an
+   der Position „Nächstes Mal von selbst erkennen →". Der Artikel zeigt dann,
+   wie er in Bestellungen hieß („So stand dieser Artikel in Bestellungen");
+   „Übernehmen" setzt die Felder, gespeichert wird mit dem Knopf.
+
+### Was bewusst nicht passiert
+
+- **Kein Lernen beim Zuordnen.** Die frühere gelernte Zuordnung
+  (`produkt_alias`, das „Merken"-Häkchen) bleibt entfernt. Der Name aus der
+  Mail wird nur am Artikel eingetragen, und nur auf ausdrücklichen Klick.
+- **Kein stilles Zusammenführen.** Wer ein vorhandenes Produkt ein zweites
+  Mal anlegt, bekommt weiterhin einen zweiten Eintrag — mit eigenem
+  Einkaufspreis. Das Formular weist vorher auf den vorhandenen hin.
+- **Kein Produktkatalog.** Vorschläge kommen nur aus dem eigenen Bestand.
+
 ## Tests
 
+- **`test_produkt_anlegen.py`** — Sprache bei Produkten, Formular als Produkt,
+  Anlegen aus der Bestellposition samt Rückweg und Zuordnung, Vorschläge aus
+  dem eigenen Bestand, Namensvorschlag am Artikel, Hinweis in der
+  Bestellübersicht, Gleichlauf von `produkt_passt` und Bestelleingang.
 - **`test_lange_namen.py`** — Umbruch hält die Spaltenbreite ein und verliert
   kein Wort, überlange Wörter, Obergrenze, Seitenzahl bei hohen Zeilen,
   Anschrift im Fenster, Quittung.
