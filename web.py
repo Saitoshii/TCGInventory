@@ -34,7 +34,6 @@ from TCGInventory.lager_manager import (
     ITEM_TYPES,
 )
 from TCGInventory.card_scanner import (
-    fetch_card_info_by_name,
     autocomplete_names,
     fetch_variants,
     find_by_identity,
@@ -845,17 +844,86 @@ def _json_eintrag(item) -> tuple[str, dict] | None:
     return None
 
 
+#: So viele Ausgaben eines Namens werden in Needs-Review zur Auswahl gezeigt.
+#: Manche Karten gibt es weit über hundertmal; die Liste soll bedienbar bleiben.
+MAX_KANDIDATEN = 150
+
+
+def _ueber_den_namen(fields: dict, folder_id, raw: dict) -> tuple[bool, dict]:
+    """Einen Eintrag auflösen, der nur einen Kartennamen trägt.
+
+    Gibt ``(eindeutig, eintrag)`` zurück: einen Eintrag für die Warteschlange
+    oder einen für Needs-Review.
+
+    Ein Kartenname allein ist keine Identität — die meisten Karten gibt es in
+    vielen Ausgaben. Übernommen wird deshalb nur, wenn die lokale
+    Kartendatenbank **genau eine** Ausgabe kennt. Bei mehreren gehen die
+    Kandidaten nach Needs-Review und der Mensch wählt; bei keiner ebenfalls,
+    damit sich Set und Nummer nachtragen lassen.
+
+    Früher nahm dieser Weg die erste Ausgabe, die die Datenbank lieferte, und
+    fragte ohne lokalen Treffer je Karte die Scryfall-API. Beides ist hier
+    ausgeschlossen: gesucht wird ausschließlich lokal.
+    """
+    name = fields["name"]
+    ausgaben = fetch_variants(name)
+
+    if len(ausgaben) == 1:
+        ausgabe = ausgaben[0]
+        return True, {
+            "name": ausgabe.get("name") or name,
+            "set_code": ausgabe.get("set_code", ""),
+            "language": fields["language"] or ausgabe.get("language", ""),
+            "condition": fields["condition"],
+            "condition_raw": fields["condition_raw"],
+            "quantity": fields["quantity"],
+            "price": fields["price"],
+            "cardmarket_id": ausgabe.get("cardmarket_id", ""),
+            "folder_id": folder_id,
+            "collector_number": ausgabe.get("collector_number", ""),
+            "scryfall_id": ausgabe.get("scryfall_id", ""),
+            "image_url": ausgabe.get("image_url", ""),
+            "foil": fields["foil"],
+            "item_type": "card",
+            "storage_code": "",
+            "location_hint": "",
+            "rarity": fields["rarity"],
+            "date_bought": fields["date_bought"],
+            "market_price": fields["market_price"],
+            "source_list": fields["source_list"],
+        }
+
+    if ausgaben:
+        grund = f"Der Name hat {len(ausgaben)} Ausgaben – bitte eine wählen"
+    elif not card_scanner.kartendaten_vorhanden():
+        grund = ("Die lokale Kartendatenbank fehlt – bitte unter "
+                 "System → Kartendaten laden")
+    else:
+        grund = "Kein Treffer in der lokalen Kartendatenbank für diesen Namen"
+
+    eintrag = _needs_review_entry(fields, folder_id, grund, raw)
+    kandidaten = sorted(
+        ausgaben,
+        key=lambda a: (a.get("set_code") or "",
+                       sortierung.nummer(a.get("collector_number"))))
+    eintrag["kandidaten"] = [
+        {"set_code": a.get("set_code", ""),
+         "collector_number": a.get("collector_number", ""),
+         "language": a.get("language", ""),
+         "image_url": a.get("image_url", "")}
+        for a in kandidaten[:MAX_KANDIDATEN]]
+    eintrag["kandidaten_gesamt"] = len(ausgaben)
+    return False, eintrag
+
+
 def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: bytes | None) -> None:
     """Background task to process bulk upload files."""
     global BULK_PROGRESS, BULK_DONE, BULK_MESSAGE
     try:
-        folders = list_folders()
+        # Der Zielordner ist nur das Ziel. Früher wurde sein Name bei Einträgen
+        # ohne Set als Set-Code eingetragen — zusammen mit der Kartennummer
+        # irgendeiner Ausgabe. Der Set-Code kommt jetzt immer von der Karte.
         folder_id = form_data.get("folder_id")
-        set_code = ""
-        for f in folders:
-            if str(f[0]) == str(folder_id):
-                set_code = f[1]
-                break
 
         entries: list[tuple[str, object]] = []
         # Was an einer Datei nicht stimmte. Die Hinweise stehen am Ende in der
@@ -907,32 +975,18 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
 
         for idx, (kind, item) in enumerate(entries):
             if kind == "json":
-                # Nur ein Name: dieselbe Suche wie bei der Texteingabe. Was die
+                # Nur ein Name: derselbe Weg wie die Texteingabe. Was die
                 # Datei darüber hinaus sagt (Menge, Sprache, Zustand, Foil,
-                # Einkaufspreis), bleibt erhalten statt verworfen zu werden.
-                # Der Hinweis von extract_row („Set-Code fehlt") ist hier
-                # ohne Belang — gebraucht werden nur die bereinigten Felder.
+                # Einkaufspreis), bleibt erhalten. Der Hinweis von extract_row
+                # („Set-Code fehlt") ist hier ohne Belang — gebraucht werden
+                # nur die bereinigten Felder.
                 fields, _ = extract_row(item)
-                name = fields["name"]
-                info = fetch_card_info_by_name(name) or {}
-                UPLOAD_QUEUE.append(
-                    {
-                        "name": info.get("name", name),
-                        "set_code": set_code or info.get("set_code", ""),
-                        "language": fields["language"] or info.get("language", ""),
-                        "condition": fields["condition"],
-                        "condition_raw": fields["condition_raw"],
-                        "quantity": fields["quantity"],
-                        "price": fields["price"],
-                        "cardmarket_id": info.get("cardmarket_id", ""),
-                        "folder_id": folder_id,
-                        "collector_number": info.get("collector_number", ""),
-                        "scryfall_id": info.get("scryfall_id", ""),
-                        "image_url": info.get("image_url", ""),
-                        "foil": fields["foil"],
-                    }
-                )
-                added_any = True
+                eindeutig, eintrag = _ueber_den_namen(fields, folder_id, item)
+                if eindeutig:
+                    UPLOAD_QUEUE.append(eintrag)
+                    added_any = True
+                else:
+                    NEEDS_REVIEW.append(eintrag)
             elif kind == "csv":
                 row = item
                 normalized = {}
@@ -997,24 +1051,15 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
                 )
                 added_any = True
             else:
-                name = item
-                info = fetch_card_info_by_name(name) or {}
-                UPLOAD_QUEUE.append(
-                    {
-                        "name": info.get("name", name),
-                        "set_code": set_code or info.get("set_code", ""),
-                        "language": info.get("language", ""),
-                        "condition": "",
-                        "quantity": 1,
-                        "cardmarket_id": info.get("cardmarket_id", ""),
-                        "folder_id": folder_id,
-                        "collector_number": info.get("collector_number", ""),
-                        "scryfall_id": info.get("scryfall_id", ""),
-                        "image_url": info.get("image_url", ""),
-                        "foil": False,
-                    }
-                )
-                added_any = True
+                # Texteingabe „ein Name pro Zeile".
+                fields, _ = extract_row({"name": item})
+                eindeutig, eintrag = _ueber_den_namen(
+                    fields, folder_id, {"name": item})
+                if eindeutig:
+                    UPLOAD_QUEUE.append(eintrag)
+                    added_any = True
+                else:
+                    NEEDS_REVIEW.append(eintrag)
 
             BULK_PROGRESS = int((idx + 1) / total * 100)
 
@@ -1648,8 +1693,15 @@ def needs_review_retry(index: int):
         return redirect(url_for("needs_review_view"))
 
     entry = NEEDS_REVIEW[index]
-    set_code = normalize_set_code(request.form.get("set_code", entry.get("set_code", "")))
+    set_roh = request.form.get("set_code", entry.get("set_code", ""))
     collector = request.form.get("collector_number", entry.get("collector_number", "")).strip()
+    # Bei einem Namen mit mehreren Ausgaben bietet die Seite die Kandidaten zur
+    # Auswahl an. Die Auswahl gilt, solange Set und Nummer nicht von Hand
+    # eingetragen sind — was getippt wurde, hat Vorrang.
+    kandidat = (request.form.get("kandidat") or "").strip()
+    if "|" in kandidat and not (set_roh or "").strip() and not collector:
+        set_roh, collector = (teil.strip() for teil in kandidat.split("|", 1))
+    set_code = normalize_set_code(set_roh)
     language = normalize_language(request.form.get("language", entry.get("language", "")))
     folder_id = request.form.get("folder_id")
     if folder_id in (None, ""):

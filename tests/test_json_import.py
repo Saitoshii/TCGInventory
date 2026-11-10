@@ -59,20 +59,17 @@ def umgebung(monkeypatch):
     web.UPLOAD_QUEUE.clear()
     web.NEEDS_REVIEW.clear()
     web.BULK_PROGRESS, web.BULK_DONE, web.BULK_MESSAGE = 0, False, None
-    aufrufe = {"name": [], "variante": []}
+    aufrufe = {"name": []}
 
     def nach_name(name):
+        # Genau eine Ausgabe je Name: die Namenssuche ist hier eindeutig. Was
+        # bei mehreren Ausgaben geschieht, prüft test_import_nach_namen.py.
         aufrufe["name"].append(name)
-        return {"name": name, "set_code": "m11", "language": "en",
-                "cardmarket_id": "cm-1", "collector_number": "146",
-                "scryfall_id": "sc-name", "image_url": "http://img/name"}
+        return [{"name": name, "set_code": "m11", "language": "en",
+                 "cardmarket_id": "cm-1", "collector_number": "146",
+                 "scryfall_id": "sc-name", "image_url": "http://img/name"}]
 
-    def variante(name, set_code, collector_number=None):
-        aufrufe["variante"].append((name, set_code, collector_number))
-        return None
-
-    monkeypatch.setattr(web, "fetch_card_info_by_name", nach_name)
-    monkeypatch.setattr(web, "find_variant", variante, raising=False)
+    monkeypatch.setattr(web, "fetch_variants", nach_name)
     monkeypatch.setattr(web, "find_by_identity", _identitaet)
     monkeypatch.setattr(web, "list_folders", lambda: [])
     monkeypatch.setattr(web.threading, "Thread", _Sofort)

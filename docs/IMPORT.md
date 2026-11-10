@@ -80,8 +80,8 @@ falsch.
 
 ## Nicht auflösbare Zeilen
 
-Eine Zeile ohne Set-Code oder Kartennummer und eine Zeile ohne Treffer in der
-lokalen Scryfall-Datenbank landen unter
+Eine Zeile ohne Set-Code oder Kartennummer, eine Zeile ohne Treffer in der
+lokalen Scryfall-Datenbank und ein bloßer Name mit mehreren Ausgaben landen unter
 [Needs-Review](../templates/needs_review.html) — nie still im Bestand. Dort
 werden Set-Code, Kartennummer und Sprache korrigiert und die Anreicherung erneut
 versucht.
@@ -106,7 +106,7 @@ Eintrag ein:
 | Eintrag | Weg |
 |---|---|
 | nennt `set_code`/`set` **oder** `collector_number`/`card_number` | wie eine CSV-Zeile: `extract_row` → `find_by_identity`. Fehlt eines von beiden oder gibt es keinen Scryfall-Treffer → Needs-Review |
-| nur ein Name (Zeichenkette oder Objekt mit `name`) | dieselbe Namenssuche wie die Texteingabe „ein Name pro Zeile"; `quantity`, `language`, `condition`, `foil` und `price` bleiben erhalten |
+| nur ein Name (Zeichenkette oder Objekt mit `name`) | derselbe Weg wie die Texteingabe „ein Name pro Zeile" (siehe „Nur ein Name"); `quantity`, `language`, `condition`, `foil` und `price` bleiben erhalten |
 | weder Zeichenkette noch Objekt, oder ohne Namen | übersprungen und in der Meldung gezählt |
 
 Die Schlüssel werden wie CSV-Spalten gelesen (`Card Name` = `card_name` =
@@ -121,6 +121,40 @@ Needs-Review, wie beim CSV-Import.
 Ist die Datei nicht lesbar oder keine Liste, steht das in der Meldung nach dem
 Import. Eine CSV-Datei und die Texteingabe im selben Upload werden trotzdem
 verarbeitet.
+
+## Nur ein Name
+
+Die Texteingabe „Karten (ein Name pro Zeile)" und JSON-Einträge ohne Set und
+Nummer tragen nur einen Kartennamen. Ein Name ist keine Identität — die meisten
+Karten gibt es in vielen Ausgaben. `web._ueber_den_namen` sucht deshalb
+**ausschließlich in der lokalen Kartendatenbank** (`card_scanner.fetch_variants`)
+und entscheidet nach der Zahl der Treffer:
+
+| Treffer | Ergebnis |
+|---|---|
+| genau eine Ausgabe | Warteschlange, mit Set-Code, Nummer und IDs dieser Ausgabe |
+| mehrere Ausgaben | Needs-Review: „Der Name hat N Ausgaben – bitte eine wählen". Die Ausgaben stehen dort als Liste (Set-Code · Nummer · Sprache, sortiert); die Wahl füllt Set-Code und Kartennummer und zeigt das Bild |
+| keine | Needs-Review: „Kein Treffer …" — Set-Code und Nummer von Hand nachtragen. Das trifft auch übersetzte Namen („Blitzschlag"): die Datenbank kennt die Karte unter ihrem englischen Namen |
+| Kartendatenbank fehlt | Needs-Review mit dem Hinweis, sie unter *System → Kartendaten* zu laden |
+
+Mengen, Sprache, Zustand, Foil und Preis aus der Datei bleiben über den Umweg
+Needs-Review erhalten.
+
+Zwei Dinge gibt es auf diesem Weg nicht mehr:
+
+- **Keine stille Wahl der ersten Ausgabe.** Früher lieferte
+  `fetch_card_info_by_name` die erste Zeile, die die Datenbank zurückgab; sie
+  stand dann mit Set, Nummer und Bild in der Warteschlange, als wäre sie die
+  gemeinte. Die Funktion ist entfernt.
+- **Keine Anfrage an die Scryfall-API.** Ohne lokalen Treffer ging je Karte
+  eine Anfrage an `api.scryfall.com/cards/named`.
+
+Der Name des Zielordners wird nicht mehr als Set-Code eingetragen. Der Ordner
+ist nur das Ziel; der Set-Code kommt immer von der Karte.
+
+In Needs-Review werden höchstens `MAX_KANDIDATEN` (150) Ausgaben gezeigt; die
+Seite sagt, wenn es mehr gibt. Von Hand eingetragene Werte haben Vorrang vor
+der Auswahl.
 
 ## Doppelte Zeilen
 
