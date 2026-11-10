@@ -26,7 +26,12 @@
   </div>
   <div class="mb-3">
     <label class="form-label">JSON-Datei</label>
-    <input type="file" name="json_file" class="form-control">
+    <input type="file" name="json_file" class="form-control" accept=".json,application/json">
+    <div class="form-text">
+      Eine Liste: Kartennamen oder Objekte. Nennt ein Objekt
+      <code>set_code</code> und <code>collector_number</code>, wird es wie eine
+      CSV-Zeile behandelt; sonst wird über den Namen gesucht.
+    </div>
   </div>
   <div class="mb-3">
     <label class="form-label">CSV-Datei (Dragonshield oder Scan-App-Listenexport)</label>

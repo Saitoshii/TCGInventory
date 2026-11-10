@@ -384,3 +384,10 @@ code { color: #ffb3c7; }
   .card-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--space-3); }
   .container-fluid { padding-left: 0.75rem; padding-right: 0.75rem; }
 }
+
+/* Vorschlagsliste im Artikelformular (eigene Artikel + Cardmarket-Katalog):
+   bei vielen Treffern scrollen statt die Seite zu verlängern. */
+.produkt-vorschlaege {
+  max-height: 22rem;
+  overflow-y: auto;
+}

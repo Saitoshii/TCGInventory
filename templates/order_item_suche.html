@@ -45,14 +45,18 @@
 {% if suche and not treffer %}
 <div class="empty-state"><span class="ico">🔍</span>
   Nichts gefunden zu „{{ suche }}".
-  <div class="small mt-2">
-    Ist der Artikel überhaupt im Bestand? Displays und Zubehör legen Sie unter
-    <a href="{{ url_for('add_card_view') }}">Artikel hinzufügen</a> an — dort
-    können Sie gleich den Namen aus der Bestellmail hinterlegen, dann wird es
-    beim nächsten Mal von selbst erkannt.
-  </div>
 </div>
 {% endif %}
+
+{# Der Artikel ist gar nicht im System: von hier aus anlegen, mit dem Namen
+   und der Sprache aus der Mail schon eingetragen. Für Displays, Precons und
+   Zubehör — Einzelkarten kommen über den CSV-Import. #}
+<div class="small text-muted mb-3">
+  Noch nicht im Bestand?
+  <a href="{{ url_for('add_card_view', position=position.id) }}">Als Produkt anlegen →</a>
+  Name und Sprache aus der Bestellmail werden übernommen, damit die nächste
+  Bestellung den Artikel von selbst findet.
+</div>
 
 {% if treffer %}
 <div class="table-responsive">

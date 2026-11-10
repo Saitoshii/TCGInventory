@@ -12,9 +12,10 @@
 
 <p class="text-muted">
   Diese Zeilen konnten beim Import <strong>nicht eindeutig</strong> aufgelöst werden
-  (unbekannter Set-Code, kein Scryfall-Treffer oder fehlerhafte Zeile). Korrigiere
-  Set-Code, Kartennummer oder Sprache und übernimm sie erneut – es wird nichts geraten
-  oder still verworfen.
+  (unbekannter Set-Code, kein Scryfall-Treffer, fehlerhafte Zeile oder ein Name mit
+  mehreren Ausgaben). Korrigiere Set-Code, Kartennummer oder Sprache – oder wähle die
+  Ausgabe aus der Liste – und übernimm sie erneut. Es wird nichts geraten oder still
+  verworfen.
 </p>
 
 {% if not entries %}
@@ -32,6 +33,36 @@
   </div>
   <div class="card-body">
     <form method="post" action="{{ url_for('needs_review_retry', index=i) }}" class="row g-2 align-items-end">
+      {#
+        Ein Name allein ist keine Identität. Kennt die Kartendatenbank mehrere
+        Ausgaben, stehen sie hier zur Auswahl — Set-Code und Nummer sind das,
+        was unten auf der Karte gedruckt ist. Die Auswahl füllt die beiden
+        Felder; ohne JavaScript wertet der Server sie selbst aus.
+      #}
+      {% if e.kandidaten %}
+      <div class="col-12 d-flex gap-3 align-items-end flex-wrap">
+        <div class="flex-grow-1" style="max-width:420px;">
+          <label class="form-label">Ausgabe wählen
+            <small class="text-muted">· {{ e.kandidaten_gesamt }} in der Kartendatenbank</small></label>
+          <select class="form-select kandidat-auswahl" name="kandidat">
+            <option value="" data-img="">– bitte wählen –</option>
+            {% for k in e.kandidaten %}
+            <option value="{{ k.set_code }}|{{ k.collector_number }}" data-img="{{ k.image_url }}">
+              {{ k.set_code|upper }} · Nr. {{ k.collector_number }}{% if k.language %} · {{ k.language|upper }}{% endif %}
+            </option>
+            {% endfor %}
+          </select>
+          {% if e.kandidaten_gesamt > e.kandidaten|length %}
+          <div class="form-text">
+            Gezeigt werden die ersten {{ e.kandidaten|length }}. Fehlt die
+            gesuchte Ausgabe, Set-Code und Kartennummer unten von Hand eintragen.
+          </div>
+          {% endif %}
+        </div>
+        <img class="kandidat-bild d-none" alt="Gewählte Ausgabe"
+             style="width:66px;height:92px;object-fit:cover;border-radius:4px;">
+      </div>
+      {% endif %}
       <div class="col-6 col-md-2">
         <label class="form-label">Set-Code</label>
         <input class="form-control" name="set_code" value="{{ e.set_code }}">
@@ -72,4 +103,32 @@
   </div>
 </div>
 {% endfor %}
+
+<script>
+// Die gewählte Ausgabe in die Felder übernehmen und ihr Bild zeigen, damit
+// sichtbar ist, was übernommen wird. Wer danach von Hand tippt, hebt die
+// Auswahl wieder auf — dann gilt das Getippte.
+document.querySelectorAll('.kandidat-auswahl').forEach(function (auswahl) {
+  var formular = auswahl.form;
+  var setFeld = formular.querySelector('input[name=set_code]');
+  var nummerFeld = formular.querySelector('input[name=collector_number]');
+  var bild = formular.querySelector('.kandidat-bild');
+  auswahl.addEventListener('change', function () {
+    var teile = auswahl.value.split('|');
+    setFeld.value = teile[0] || '';
+    nummerFeld.value = teile.slice(1).join('|');
+    var adresse = auswahl.options[auswahl.selectedIndex].getAttribute('data-img');
+    if (bild) {
+      if (adresse) { bild.src = adresse; bild.classList.remove('d-none'); }
+      else { bild.classList.add('d-none'); }
+    }
+  });
+  [setFeld, nummerFeld].forEach(function (feld) {
+    feld.addEventListener('input', function () {
+      auswahl.value = '';
+      if (bild) bild.classList.add('d-none');
+    });
+  });
+});
+</script>
 {% endblock %}

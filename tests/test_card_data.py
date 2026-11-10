@@ -227,7 +227,7 @@ def test_lookup_returns_derived_image_url(tmp_path):
     cs.reset_card_database()
     cs.DEFAULT_DB_PATH = db
 
-    treffer = cs.fetch_card_info_by_name("Karte 1")
+    treffer = cs.fetch_variants("Karte 1")[0]
     assert treffer["image_url"] == cs.image_url_for(treffer["scryfall_id"])
     assert treffer["image_url"].startswith("https://cards.scryfall.io/normal/front/")
 
@@ -237,7 +237,7 @@ def test_reset_closes_cached_connection(tmp_path):
     bcd.schreibe_datenbank([_karte(1)], db)
     cs.reset_card_database()
     cs.DEFAULT_DB_PATH = db
-    cs.fetch_card_info_by_name("Karte 1")
+    cs.fetch_variants("Karte 1")
     assert cs._DB_CONN is not None
 
     cs.reset_card_database()
@@ -250,12 +250,12 @@ def test_swapped_database_is_seen_after_reset(tmp_path):
     bcd.schreibe_datenbank([_karte(1)], db)
     cs.reset_card_database()
     cs.DEFAULT_DB_PATH = db
-    assert cs.fetch_card_info_by_name("Karte 1") is not None
+    assert cs.fetch_variants("Karte 1")
 
     # Die offene Leseverbindung wird unmittelbar vor dem Tausch geschlossen.
     bcd.schreibe_datenbank([_karte(2)], db, vor_tausch=cs.reset_card_database)
-    assert cs.fetch_card_info_by_name("Karte 2") is not None
-    assert cs.fetch_card_info_by_name("Karte 1") is None
+    assert cs.fetch_variants("Karte 2")
+    assert cs.fetch_variants("Karte 1") == []
 
 
 # =========================================================================

@@ -41,8 +41,10 @@ ARCHIV_SUFFIX = ".tar.gz"
 ZEITFORMAT = "%Y-%m-%d_%H%M"
 
 # Diese Datenbanken werden bewusst nicht gesichert: die Scryfall-Bulkdaten sind
-# jederzeit neu erzeugbar (build_card_db.py) und nur unnötig groß.
-DB_AUSGESCHLOSSEN = {"default-cards.db", "default-card.db"}
+# jederzeit neu erzeugbar (build_card_db.py) und nur unnötig groß. Dasselbe
+# gilt für den Cardmarket-Produktkatalog (cardmarket_katalog.py).
+DB_AUSGESCHLOSSEN = {"default-cards.db", "default-card.db",
+                     "cardmarket-products.db"}
 # Nie mitsichern: Zugangsdaten gehören nicht ins Backup-Archiv.
 SECRET_NAMEN = {
     "credentials.json", "token.json", "token.pickle", "rclone.conf",

@@ -18,6 +18,7 @@ import os
 import sqlite3
 import sys
 import types
+from datetime import datetime
 
 import pytest
 
@@ -58,9 +59,13 @@ def _bestellung(db, positionen_liste=None, status="open"):
             "status, order_number, address, address_confirmed, amount_gesamt, "
             "amount_gesamtwert, amount_versand, amount_gebuehren, "
             "amount_auszahlung) VALUES ('Sharqy', 'msg-1', "
-            "'2026-09-01T10:00:00', ?, '1299999999', "
+            "?, ?, '1299999999', "
             "'Max Mustermann\nWeg 1\n12345 Ort', 1, 4.50, 3.50, 1.00, 0.10, 4.40)",
-            (status,))
+            # Das Eingangsdatum ist "jetzt" und kein festes Datum: die Liste
+            # der offenen Bestellungen zeigt nur die letzten
+            # ``ORDER_CUTOFF_DAYS`` Tage. Mit einem festen Datum wurde der
+            # Test dreissig Tage nach dem Schreiben von selbst rot.
+            (datetime.now().isoformat(timespec="seconds"), status))
         bid = c.lastrowid
         ids = []
         for name, menge, preis in positionen_liste:

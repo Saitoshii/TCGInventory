@@ -58,7 +58,7 @@ Use the *Foil* checkbox to mark shiny versions. Foil cards are shown with a **�
 
 ## Bulk adding cards
 
-Use the **Bulk Add** page to quickly insert many cards. Enter one card name per line or upload a JSON file containing a list of card names (or objects with a `name` field). Alternatively you can upload a CSV file with the columns `Card Name`, `Set Code`, `Card Number`, `Quantity` and `Language`. Additional columns are ignored. The application tries to fetch additional information automatically if possible. Files encoded as UTF‑8 or Latin‑1 are accepted and Excel's optional `sep=;` line is ignored.
+Use the **Bulk Add** page to quickly insert many cards. Enter one card name per line or upload a JSON file containing a list of card names (or objects with a `name` field; objects that also give `set_code` and `collector_number` are resolved like a CSV row — see [IMPORT.md](IMPORT.md)). Alternatively you can upload a CSV file with the columns `Card Name`, `Set Code`, `Card Number`, `Quantity` and `Language`. Additional columns are ignored. Cards are enriched from the local card database only. A bare name is taken over when the database knows exactly one printing; otherwise the entry goes to **Needs-Review**, where the printing is chosen from a list (see [IMPORT.md](IMPORT.md), "Nur ein Name"). Files encoded as UTF‑8 or Latin‑1 are accepted and Excel's optional `sep=;` line is ignored.
 
 After submitting the form the cards appear in the **Upload Queue** where each entry can be reviewed and edited before adding it to the database.
 A small checkbox lets you mark whether a card is foil before uploading.

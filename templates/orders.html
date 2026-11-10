@@ -105,7 +105,8 @@
         {% endif %}
         <!-- Nur Anzeige: die aus der Cardmarket-Mail geparsten Betraege (das,
              was der Kunde zahlt und was auf dem Beileger steht). Keine manuelle
-             Eingabe hier — Versand/Gebuehren/Porto gehoeren in die Buchhaltung. -->
+             Eingabe hier — Versand/Gebuehren/Porto gehoeren in die eigenstaendige
+             Buchhaltung, die die Bestellungen ueber die API liest. -->
         {% if order.amounts.gesamt is not none or order.amounts.gesamtwert is not none %}
         <div class="text-muted small mt-3">
           Warenwert €{{ '%.2f'|format(order.amounts.gesamtwert or 0) }} ·
@@ -157,6 +158,16 @@
                       {% if item.storage_code %}<span class="storage-badge">{{ item.storage_code }}</span>
                       {% else %}<span class="storage-badge storage-badge--empty">kein Lagerort</span>{% endif %}
                     </div>
+                    {# Von Hand zugeordnetes Produkt: beim nächsten Mal stünde
+                       die Position wieder ohne Treffer da. Der Weg führt zum
+                       Artikel — dort wird der Name aus der Mail eingetragen. #}
+                    {% if item.produkt_unerkannt %}
+                    <div class="small mt-1">
+                      <a href="{{ url_for('edit_card_view', card_id=item.card_id) }}"
+                         title="Cardmarket-Name und Sprache am Artikel eintragen">
+                        Nächstes Mal von selbst erkennen →</a>
+                    </div>
+                    {% endif %}
                     {% elif item.match_status == 'ambiguous' %}
                     <span class="status-badge status-badge--reserviert">Mehrdeutig</span>
                     {% else %}
@@ -234,6 +245,8 @@
                   <div class="text-muted small mt-2">
                     Keine passende Karte im Bestand gefunden.
                     <a href="{{ url_for('order_item_suche', item_id=item.id) }}">Im Bestand suchen →</a>
+                    <span class="sep">·</span>
+                    <a href="{{ url_for('add_card_view', position=item.id) }}">Als Produkt anlegen →</a>
                   </div>
                   {% endif %}
                 {% endif %}

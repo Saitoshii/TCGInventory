@@ -31,12 +31,11 @@ from TCGInventory.lager_manager import (
     delete_folder,
     create_binder,
     list_folders,
+    ITEM_TYPES,
 )
 from TCGInventory.card_scanner import (
-    fetch_card_info_by_name,
     autocomplete_names,
     fetch_variants,
-    find_variant,
     find_by_identity,
 )
 from TCGInventory.dragonshield import (
@@ -54,19 +53,24 @@ from TCGInventory.auth import (
     login_required,
 )
 from TCGInventory.repo_updater import update_repo
-from TCGInventory.order_service import get_order_service
+from TCGInventory.order_service import (
+    get_order_service,
+    mailname_ohne_kuerzung,
+    produkt_passt,
+)
 from TCGInventory import positionen as positionen_modul
 from TCGInventory.shipping_note import render_shipping_note, detect_language
 from TCGInventory.quittung import render_quittung
 from TCGInventory import direktverkauf
 from TCGInventory import sales_export
 from TCGInventory import sortierung
-from TCGInventory import bookkeeping
 from TCGInventory import backup_status
 from TCGInventory import build_card_db
+from TCGInventory import cardmarket_katalog
 from TCGInventory import card_scanner
 from TCGInventory.api_v1 import api_v1
 from pathlib import Path
+from urllib.parse import urlsplit
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
@@ -102,7 +106,26 @@ def inject_queue_counts() -> dict:
     return {
         "queue_count": len(UPLOAD_QUEUE),
         "needs_review_count": len(NEEDS_REVIEW),
+        "buchhaltung_url": _buchhaltung_url(),
     }
+
+
+def _buchhaltung_url() -> str:
+    """Adresse der eigenstaendigen Buchhaltung -- fuer den Verweis im Menue.
+
+    Die Buchhaltung laeuft als eigener Dienst auf demselben Rechner
+    (Repository ZurFestung-Buchhaltung, ueblicherweise Port 5001). Wer sie
+    anders erreicht, setzt ``BUCHHALTUNG_URL``; sonst wird derselbe Rechnername
+    wie fuer diese Seite angenommen.
+    """
+    fest = os.environ.get("BUCHHALTUNG_URL", "").strip()
+    if fest:
+        return fest
+    teile = urlsplit(request.host_url)
+    rechner = teile.hostname or "localhost"
+    if ":" in rechner:                       # IPv6-Adresse braucht Klammern
+        rechner = f"[{rechner}]"
+    return f"{teile.scheme or 'http'}://{rechner}:5001"
 
 
 def _needs_review_entry(fields: dict, folder_id, reason: str, raw: dict) -> dict:
@@ -287,6 +310,110 @@ def lookup_api():
     if not name:
         return jsonify([])
     return jsonify(fetch_variants(name))
+
+
+def _like_muster(text: str) -> str:
+    """``text`` als Teilstring-Muster fuer ``LIKE ... ESCAPE '\\'``.
+
+    Prozent und Unterstrich im Suchtext sollen Zeichen sein und keine
+    Platzhalter.
+    """
+    gefiltert = (text.replace("\\", "\\\\").replace("%", "\\%")
+                 .replace("_", "\\_"))
+    return f"%{gefiltert}%"
+
+
+#: Wie viele Vorschlaege das Produktformular je Quelle hoechstens zeigt.
+EIGENE_VORSCHLAEGE = 5
+KATALOG_VORSCHLAEGE = 12
+
+
+@app.route("/api/produkte")
+@login_required
+def produkte_api():
+    """Displays, Precons und Zubehoer aus dem eigenen Bestand vorschlagen.
+
+    Einzelkarten bekommen ihre Vorschlaege aus der Scryfall-Datenbank. Fuer
+    Produkte gibt es keine solche Quelle -- wohl aber die eigenen Artikel:
+
+    * **vorhanden** -- der Artikel liegt schon im Lager. Wer ihn ein zweites
+      Mal anlegt, hat zwei gleiche Eintraege, und eine Bestellung kann sie
+      nicht unterscheiden. Das Formular verweist deshalb auf den vorhandenen.
+    * **frueher** -- der Artikel war einmal da und ist ausverkauft. Name,
+      Cardmarket-Name und Sprache lassen sich von dort uebernehmen, statt sie
+      noch einmal zu tippen.
+    * **katalog** -- der lokal vorgehaltene Cardmarket-Produktkatalog
+      (``cardmarket_katalog``). Von dort kommen der Name, wie Cardmarket ihn
+      schreibt, und die Produktnummer. Die Sprache kennt der Katalog nicht;
+      die waehlt weiterhin der Mensch.
+
+    Rein lesend, und nur fuer Produkte (``item_type <> 'card'``).
+    """
+    suche = (request.args.get("q") or "").strip()
+    if len(suche) < 2:
+        return jsonify([])
+    # ``nur=katalog``: fuer das Feld „Name in der Cardmarket-Bestellmail" --
+    # dort helfen die eigenen Artikel nicht, nur Cardmarkets Schreibweise.
+    nur_katalog = request.args.get("nur") == "katalog"
+    muster = _like_muster(suche)
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        zeilen = [] if nur_katalog else conn.execute(
+            "SELECT id, name, item_type, language, quantity, location_hint, "
+            "       cardmarket_name, status "
+            "FROM cards WHERE item_type <> 'card' "
+            "AND (LOWER(name) LIKE LOWER(?) ESCAPE '\\' "
+            "     OR LOWER(COALESCE(cardmarket_name, '')) LIKE LOWER(?) ESCAPE '\\') "
+            "ORDER BY (status = 'verfügbar' AND quantity > 0) DESC, id DESC "
+            "LIMIT 40", (muster, muster)).fetchall()
+
+    ergebnis = []
+    gesehen = set()
+    for z in zeilen:
+        vorhanden = z["status"] == "verfügbar" and (z["quantity"] or 0) > 0
+        # Ausverkaufte Artikel gibt es oft mehrfach (jeder Nachkauf ein
+        # Eintrag) -- als Vorlage genuegt jede Kombination einmal.
+        schluessel = (None if vorhanden else
+                      ((z["name"] or "").lower(),
+                       (z["cardmarket_name"] or "").lower(),
+                       (z["language"] or "").lower(), z["item_type"]))
+        if schluessel is not None:
+            if schluessel in gesehen:
+                continue
+            gesehen.add(schluessel)
+        ergebnis.append({
+            "id": z["id"],
+            "name": z["name"],
+            "item_type": z["item_type"],
+            "language": z["language"] or "",
+            "quantity": z["quantity"] or 0,
+            "location_hint": z["location_hint"] or "",
+            "cardmarket_name": z["cardmarket_name"] or "",
+            "vorhanden": vorhanden,
+            "quelle": "lager" if vorhanden else "frueher",
+            "edit_url": url_for("edit_card_view", card_id=z["id"]),
+        })
+        if len(ergebnis) >= EIGENE_VORSCHLAEGE:
+            break
+
+    for treffer in cardmarket_katalog.suche(
+            suche, limit=KATALOG_VORSCHLAEGE,
+            db_path=cardmarket_katalog.DB_PATH):
+        ergebnis.append({
+            "id": None,
+            "name": treffer["name"],
+            "item_type": treffer["item_type"],
+            "language": "",
+            "quantity": 0,
+            "location_hint": "",
+            "cardmarket_name": treffer["name"],
+            "cardmarket_id": treffer["id_product"],
+            "kategorie": treffer["kategorie"],
+            "vorhanden": False,
+            "quelle": "katalog",
+            "edit_url": None,
+        })
+    return jsonify(ergebnis)
 
 
 @app.route("/")
@@ -669,27 +796,165 @@ def _parse_csv_bytes(csv_bytes: bytes) -> list[dict]:
     return rows
 
 
+#: Schreibweisen, die in einer JSON-Datei „Foil" bedeuten.
+_JSON_FOIL = {"1", "true", "yes", "ja", "foil"}
+
+
+def _json_eintrag(item) -> tuple[str, dict] | None:
+    """Einen Eintrag der JSON-Liste einordnen.
+
+    Gibt ``(art, zeile)`` zurück oder ``None``, wenn mit dem Eintrag nichts
+    anzufangen ist (keine Zeichenkette, kein Objekt, kein Name).
+
+    * ``("csv", zeile)`` — der Eintrag nennt Set oder Kartennummer. Er geht
+      **denselben Weg wie eine CSV-Zeile**: Identität aus Set, Nummer und
+      Sprache, Anreicherung über die lokale Scryfall-Datenbank, und was sich
+      nicht eindeutig auflösen lässt, landet in Needs-Review. Kein zweiter
+      Codepfad, und kein Raten bei unvollständigen Angaben.
+    * ``("json", zeile)`` — nur ein Name (mit oder ohne Menge, Sprache,
+      Zustand, Foil). Das ist dieselbe Suche wie bei der Texteingabe „ein Name
+      pro Zeile"; die mitgegebenen Angaben bleiben erhalten.
+
+    Die Schlüssel werden wie CSV-Spalten behandelt (klein, Leerzeichen als
+    Unterstrich), damit ``extract_row`` beide Quellen gleich liest. ``foil``
+    wird auf die Spalte ``printing`` abgebildet.
+    """
+    if isinstance(item, str):
+        name = item.strip()
+        return ("json", {"name": name}) if name else None
+    if not isinstance(item, dict):
+        return None
+
+    zeile: dict = {}
+    for schluessel, wert in item.items():
+        if not isinstance(schluessel, str) or wert is None \
+                or isinstance(wert, (dict, list)):
+            continue
+        zeile[schluessel.strip().lower().replace(" ", "_")] = str(wert).strip()
+
+    if not zeile.get("printing") and zeile.get("foil", "").lower() in _JSON_FOIL:
+        zeile["printing"] = "Foil"
+
+    hat_identitaet = any(zeile.get(k) for k in
+                         ("set_code", "set", "card_number", "collector_number"))
+    if hat_identitaet:
+        return "csv", zeile
+    if zeile.get("card_name") or zeile.get("name"):
+        return "json", zeile
+    return None
+
+
+#: So viele Ausgaben eines Namens werden in Needs-Review zur Auswahl gezeigt.
+#: Manche Karten gibt es weit über hundertmal; die Liste soll bedienbar bleiben.
+MAX_KANDIDATEN = 150
+
+
+def _ueber_den_namen(fields: dict, folder_id, raw: dict) -> tuple[bool, dict]:
+    """Einen Eintrag auflösen, der nur einen Kartennamen trägt.
+
+    Gibt ``(eindeutig, eintrag)`` zurück: einen Eintrag für die Warteschlange
+    oder einen für Needs-Review.
+
+    Ein Kartenname allein ist keine Identität — die meisten Karten gibt es in
+    vielen Ausgaben. Übernommen wird deshalb nur, wenn die lokale
+    Kartendatenbank **genau eine** Ausgabe kennt. Bei mehreren gehen die
+    Kandidaten nach Needs-Review und der Mensch wählt; bei keiner ebenfalls,
+    damit sich Set und Nummer nachtragen lassen.
+
+    Früher nahm dieser Weg die erste Ausgabe, die die Datenbank lieferte, und
+    fragte ohne lokalen Treffer je Karte die Scryfall-API. Beides ist hier
+    ausgeschlossen: gesucht wird ausschließlich lokal.
+    """
+    name = fields["name"]
+    ausgaben = fetch_variants(name)
+
+    if len(ausgaben) == 1:
+        ausgabe = ausgaben[0]
+        return True, {
+            "name": ausgabe.get("name") or name,
+            "set_code": ausgabe.get("set_code", ""),
+            "language": fields["language"] or ausgabe.get("language", ""),
+            "condition": fields["condition"],
+            "condition_raw": fields["condition_raw"],
+            "quantity": fields["quantity"],
+            "price": fields["price"],
+            "cardmarket_id": ausgabe.get("cardmarket_id", ""),
+            "folder_id": folder_id,
+            "collector_number": ausgabe.get("collector_number", ""),
+            "scryfall_id": ausgabe.get("scryfall_id", ""),
+            "image_url": ausgabe.get("image_url", ""),
+            "foil": fields["foil"],
+            "item_type": "card",
+            "storage_code": "",
+            "location_hint": "",
+            "rarity": fields["rarity"],
+            "date_bought": fields["date_bought"],
+            "market_price": fields["market_price"],
+            "source_list": fields["source_list"],
+        }
+
+    if ausgaben:
+        grund = f"Der Name hat {len(ausgaben)} Ausgaben – bitte eine wählen"
+    elif not card_scanner.kartendaten_vorhanden():
+        grund = ("Die lokale Kartendatenbank fehlt – bitte unter "
+                 "System → Kartendaten laden")
+    else:
+        grund = "Kein Treffer in der lokalen Kartendatenbank für diesen Namen"
+
+    eintrag = _needs_review_entry(fields, folder_id, grund, raw)
+    kandidaten = sorted(
+        ausgaben,
+        key=lambda a: (a.get("set_code") or "",
+                       sortierung.nummer(a.get("collector_number"))))
+    eintrag["kandidaten"] = [
+        {"set_code": a.get("set_code", ""),
+         "collector_number": a.get("collector_number", ""),
+         "language": a.get("language", ""),
+         "image_url": a.get("image_url", "")}
+        for a in kandidaten[:MAX_KANDIDATEN]]
+    eintrag["kandidaten_gesamt"] = len(ausgaben)
+    return False, eintrag
+
+
 def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: bytes | None) -> None:
     """Background task to process bulk upload files."""
     global BULK_PROGRESS, BULK_DONE, BULK_MESSAGE
     try:
-        folders = list_folders()
+        # Der Zielordner ist nur das Ziel. Früher wurde sein Name bei Einträgen
+        # ohne Set als Set-Code eingetragen — zusammen mit der Kartennummer
+        # irgendeiner Ausgabe. Der Set-Code kommt jetzt immer von der Karte.
         folder_id = form_data.get("folder_id")
-        set_code = ""
-        for f in folders:
-            if str(f[0]) == str(folder_id):
-                set_code = f[1]
-                break
 
         entries: list[tuple[str, object]] = []
+        # Was an einer Datei nicht stimmte. Die Hinweise stehen am Ende in der
+        # Meldung — eine unlesbare Datei soll weder still verschwinden noch
+        # die übrigen Eingaben mitreißen.
+        hinweise: list[str] = []
 
         if json_bytes:
             import json
 
-            data = json.loads(json_bytes.decode("utf-8-sig"))
-            if isinstance(data, list):
+            try:
+                data = json.loads(json_bytes.decode("utf-8-sig"))
+            except (UnicodeDecodeError, ValueError) as exc:
+                data = None
+                hinweise.append(f"Die JSON-Datei ist nicht lesbar ({exc}).")
+            if data is not None and not isinstance(data, list):
+                hinweise.append(
+                    "Die JSON-Datei muss eine Liste enthalten: Kartennamen "
+                    "oder Objekte mit „name\".")
+            elif data:
+                uebersprungen = 0
                 for item in data:
-                    entries.append(("json", item))
+                    eintrag = _json_eintrag(item)
+                    if eintrag is None:
+                        uebersprungen += 1
+                    else:
+                        entries.append(eintrag)
+                if uebersprungen:
+                    hinweise.append(
+                        f"{uebersprungen} JSON-Eintrag/Einträge ohne Namen "
+                        "übersprungen.")
 
         if csv_bytes:
             try:
@@ -698,7 +963,7 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
                     entries.append(("csv", row))
             except ValueError as e:
                 # Record error but continue processing other inputs
-                BULK_MESSAGE = str(e)
+                hinweise.append(str(e))
 
         for name in form_data.get("cards", "").splitlines():
             name = name.strip()
@@ -710,28 +975,18 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
 
         for idx, (kind, item) in enumerate(entries):
             if kind == "json":
-                entry = item
-                name = entry.get("name") if isinstance(entry, dict) else entry if isinstance(entry, str) else None
-                if not name:
-                    BULK_PROGRESS = int((idx + 1) / total * 100)
-                    continue
-                info = fetch_card_info_by_name(name) or {}
-                UPLOAD_QUEUE.append(
-                    {
-                        "name": info.get("name", name),
-                        "set_code": set_code or info.get("set_code", ""),
-                        "language": info.get("language", ""),
-                        "condition": "",
-                        "quantity": 1,
-                        "cardmarket_id": info.get("cardmarket_id", ""),
-                        "folder_id": folder_id,
-                        "collector_number": info.get("collector_number", ""),
-                        "scryfall_id": info.get("scryfall_id", ""),
-                        "image_url": info.get("image_url", ""),
-                        "foil": False,
-                    }
-                )
-                added_any = True
+                # Nur ein Name: derselbe Weg wie die Texteingabe. Was die
+                # Datei darüber hinaus sagt (Menge, Sprache, Zustand, Foil,
+                # Einkaufspreis), bleibt erhalten. Der Hinweis von extract_row
+                # („Set-Code fehlt") ist hier ohne Belang — gebraucht werden
+                # nur die bereinigten Felder.
+                fields, _ = extract_row(item)
+                eindeutig, eintrag = _ueber_den_namen(fields, folder_id, item)
+                if eindeutig:
+                    UPLOAD_QUEUE.append(eintrag)
+                    added_any = True
+                else:
+                    NEEDS_REVIEW.append(eintrag)
             elif kind == "csv":
                 row = item
                 normalized = {}
@@ -796,24 +1051,15 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
                 )
                 added_any = True
             else:
-                name = item
-                info = fetch_card_info_by_name(name) or {}
-                UPLOAD_QUEUE.append(
-                    {
-                        "name": info.get("name", name),
-                        "set_code": set_code or info.get("set_code", ""),
-                        "language": info.get("language", ""),
-                        "condition": "",
-                        "quantity": 1,
-                        "cardmarket_id": info.get("cardmarket_id", ""),
-                        "folder_id": folder_id,
-                        "collector_number": info.get("collector_number", ""),
-                        "scryfall_id": info.get("scryfall_id", ""),
-                        "image_url": info.get("image_url", ""),
-                        "foil": False,
-                    }
-                )
-                added_any = True
+                # Texteingabe „ein Name pro Zeile".
+                fields, _ = extract_row({"name": item})
+                eindeutig, eintrag = _ueber_den_namen(
+                    fields, folder_id, {"name": item})
+                if eindeutig:
+                    UPLOAD_QUEUE.append(eintrag)
+                    added_any = True
+                else:
+                    NEEDS_REVIEW.append(eintrag)
 
             BULK_PROGRESS = int((idx + 1) / total * 100)
 
@@ -830,11 +1076,67 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
             BULK_MESSAGE = "Keine Karte eindeutig aufgelöst." + review_note
         else:
             BULK_MESSAGE = "Keine Karten hinzugefügt."
+        # Hinweise zu den Dateien voranstellen. Zuvor überschrieb die Meldung
+        # oben jeden Lesefehler — er war dann nirgends mehr zu sehen.
+        if hinweise:
+            BULK_MESSAGE = " ".join(hinweise) + " " + BULK_MESSAGE
     except Exception as exc:
         BULK_DONE = True
         BULK_PROGRESS = 100
         BULK_MESSAGE = f"Fehler bei der Verarbeitung: {exc}"
 
+
+
+def _vorgabe_fuer_neuen_artikel() -> dict:
+    """Vorbelegung des Formulars „Artikel hinzufuegen" aus der Adresse.
+
+    ``?typ=display`` oeffnet das Formular gleich fuer ein Produkt. ``?position=``
+    uebernimmt, was die Bestellmail ueber die Position sagt: den Namen, wie
+    Cardmarket ihn schreibt, und die Sprache. Damit findet der naechste
+    Bestelleingang den Artikel von selbst.
+
+    Bewusst **nicht** uebernommen werden Menge und Preis: bestellt wurde eine
+    Stueckzahl, im Regal steht eine andere, und der Preis in der Mail ist der
+    Verkaufspreis, nicht der Einkaufspreis.
+    """
+    vorgabe: dict = {}
+    typ = (request.args.get("typ") or "").strip()
+    if typ in ITEM_TYPES:
+        vorgabe["item_type"] = typ
+
+    position = (request.args.get("position") or "").strip()
+    if position.isdigit():
+        with sqlite3.connect(DB_FILE) as conn:
+            conn.row_factory = sqlite3.Row
+            zeile = conn.execute(
+                "SELECT i.id, i.card_name, i.language, o.order_number, "
+                "       o.buyer_name "
+                "FROM order_items i JOIN orders o ON o.id = i.order_id "
+                "WHERE i.id = ?", (int(position),)).fetchone()
+        if zeile:
+            name, gekuerzt = mailname_ohne_kuerzung(zeile["card_name"])
+            vorgabe.update({
+                "position": zeile["id"],
+                "name": name,
+                "cardmarket_name": name,
+                "language": (zeile["language"] or "").lower(),
+                "gekuerzt": gekuerzt,
+                "bestellnummer": zeile["order_number"] or "",
+                "kaeufer": zeile["buyer_name"] or "",
+            })
+            # Steht der Name genau einmal im Cardmarket-Katalog, kommen
+            # Produktnummer und Artikelart von dort. Bei gekuerzten Namen und
+            # bei mehreren gleichnamigen Eintraegen wird nichts ausgesucht --
+            # die Vorschlagsliste zeigt die Kandidaten.
+            if not gekuerzt:
+                treffer = cardmarket_katalog.finde_genau(
+                    name, db_path=cardmarket_katalog.DB_PATH)
+                if len(treffer) == 1:
+                    vorgabe["cardmarket_id"] = treffer[0]["id_product"]
+                    vorgabe["kategorie"] = treffer[0]["kategorie"]
+                    vorgabe.setdefault("item_type", treffer[0]["item_type"])
+            vorgabe.setdefault("item_type", "display")
+    return vorgabe
 
 
 @app.route("/cards/add", methods=["GET", "POST"])
@@ -880,11 +1182,21 @@ def add_card_view():
             user=session.get("user", "system"),
         )
         if success:
+            # Aus einer Bestellposition heraus angelegt: zurueck zu ihr. Dort
+            # steht der neue Artikel in der Trefferliste und wird mit einem
+            # Klick zugeordnet -- von selbst zugeordnet wird nichts.
+            aus_position = (request.form.get("aus_position") or "").strip()
+            if aus_position.isdigit():
+                flash("Artikel gespeichert. Jetzt der Bestellposition zuordnen.")
+                return redirect(url_for(
+                    "order_item_suche", item_id=int(aus_position),
+                    q=request.form["name"]))
             flash("Artikel gespeichert.")
             return redirect(url_for("list_cards"))
         flash("Kein freier Lagerplatz.", "error")
     return render_template(
-        "card_form.html", card=None, folders=folders, folder_part="", page="", slot=""
+        "card_form.html", card=None, folders=folders, folder_part="", page="",
+        slot="", vorgabe=_vorgabe_fuer_neuen_artikel(),
     )
 
 
@@ -942,7 +1254,48 @@ def edit_card_view(card_id: int):
         folder_part=folder_part,
         page=page,
         slot=slot,
+        mailnamen=_mailnamen_des_artikels(card),
     )
+
+
+def _mailnamen_des_artikels(card) -> list:
+    """Wie dieser Artikel in Bestellmails hiess -- als Vorschlag am Artikel.
+
+    Quelle sind ausschliesslich die Positionen, die diesem Artikel zugeordnet
+    wurden; geraten wird nichts. Der Vorschlag wird im Formular nur in die
+    Felder gesetzt -- gespeichert wird erst mit „Speichern". Die Entscheidung
+    faellt damit am Artikel und nicht nebenbei beim Zuordnen.
+
+    Nur fuer Produkte: bei Einzelkarten traegt der Identitaetspfad.
+    """
+    if not card or len(card) < 17 or card[14] == "card":
+        return []
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        zeilen = conn.execute(
+            "SELECT i.card_name, COALESCE(i.language, '') AS language, "
+            "       MAX(COALESCE(o.email_date, o.date_received)) AS zuletzt, "
+            "       COUNT(*) AS anzahl "
+            "FROM order_items i JOIN orders o ON o.id = i.order_id "
+            "WHERE i.card_id = ? AND TRIM(COALESCE(i.card_name, '')) <> '' "
+            "GROUP BY i.card_name, COALESCE(i.language, '') "
+            "ORDER BY zuletzt DESC LIMIT 5", (card[0],)).fetchall()
+    namen = []
+    for z in zeilen:
+        vorschlag, gekuerzt = mailname_ohne_kuerzung(z["card_name"])
+        if not vorschlag:
+            continue
+        namen.append({
+            "mailname": z["card_name"],
+            "vorschlag": vorschlag,
+            "gekuerzt": gekuerzt,
+            "language": (z["language"] or "").lower(),
+            "zuletzt": (z["zuletzt"] or "")[:10],
+            "anzahl": z["anzahl"],
+            "passt": produkt_passt(card[16], card[3], z["card_name"],
+                                   z["language"]),
+        })
+    return namen
 
 
 @app.route("/cards/<int:card_id>/delete")
@@ -1122,82 +1475,9 @@ def bulk_add_view():
         BULK_MESSAGE = None
 
         form_data = request.form.to_dict()
+        # Die Dateien werden hier nur gelesen. Verarbeitet werden sie im
+        # Hintergrundlauf — an **einer** Stelle für JSON, CSV und Texteingabe.
         json_file = request.files.get("json_file")
-
-
-
-
-        if json_file and json_file.filename:
-            try:
-                import json
-
-                data = json.load(json_file)
-                if isinstance(data, list):
-                    for entry in data:
-                        if isinstance(entry, dict):
-                            name = entry.get("name")
-                            set_row = entry.get("set_code", "")
-                            card_no = entry.get("collector_number", "")
-                            language = entry.get("language", "")
-                            condition = entry.get("condition", "")
-                            qty = int(entry.get("quantity", 1) or 1)
-                            foil_flag = str(entry.get("foil", "")).lower() in {
-                                "1",
-                                "true",
-                                "yes",
-                                "foil",
-                            }
-                        else:
-                            name = str(entry)
-                            set_row = ""
-                            card_no = ""
-                            language = ""
-                            condition = ""
-                            qty = 1
-                            foil_flag = False
-                        if not name:
-                            continue
-                        info = fetch_card_info_by_name(name)
-                        variant = None
-                        if set_row:
-                            variant = find_variant(name, set_row, card_no or None)
-                        if not variant and info and card_no and info.get("collector_number") != card_no:
-                            variant = find_variant(
-                                name,
-                                set_row or info.get("set_code", ""),
-                                card_no,
-                            )
-                        if variant:
-                            info = variant
-                            if not card_no:
-                                card_no = variant.get("collector_number", card_no)
-                            set_row = variant.get("set_code", set_row)
-                        elif info and not card_no:
-                            card_no = info.get("collector_number", "")
-                        if not info:
-                            info = {}
-                        UPLOAD_QUEUE.append(
-                            {
-                                "name": info.get("name", name),
-                                "set_code": set_row or set_code or info.get("set_code", ""),
-                                "language": language or info.get("language", ""),
-                                "condition": condition,
-                                "quantity": qty,
-                                "cardmarket_id": info.get("cardmarket_id", ""),
-                                "folder_id": folder_id,
-                                "collector_number": card_no or info.get("collector_number", ""),
-                                "scryfall_id": info.get("scryfall_id", ""),
-                                "image_url": info.get("image_url", ""),
-                                "foil": foil_flag,
-                            }
-                        )
-                        added_any = True
-            except Exception:
-                flash("Invalid JSON file")
-
-        # handle uploaded CSV file
-
-
         csv_file = request.files.get("csv_file")
         json_bytes = json_file.read() if json_file and json_file.filename else None
         csv_bytes = csv_file.read() if csv_file and csv_file.filename else None
@@ -1214,7 +1494,7 @@ def bulk_add_view():
 @app.route("/cards/bulk_add/progress")
 @login_required
 def bulk_add_progress():
-    global BULK_PROGRESS, BULK_DONE, BULK_MESSAGE
+    global BULK_MESSAGE
     if BULK_DONE and BULK_MESSAGE:
         flash(BULK_MESSAGE)
         BULK_MESSAGE = None
@@ -1413,8 +1693,15 @@ def needs_review_retry(index: int):
         return redirect(url_for("needs_review_view"))
 
     entry = NEEDS_REVIEW[index]
-    set_code = normalize_set_code(request.form.get("set_code", entry.get("set_code", "")))
+    set_roh = request.form.get("set_code", entry.get("set_code", ""))
     collector = request.form.get("collector_number", entry.get("collector_number", "")).strip()
+    # Bei einem Namen mit mehreren Ausgaben bietet die Seite die Kandidaten zur
+    # Auswahl an. Die Auswahl gilt, solange Set und Nummer nicht von Hand
+    # eingetragen sind — was getippt wurde, hat Vorrang.
+    kandidat = (request.form.get("kandidat") or "").strip()
+    if "|" in kandidat and not (set_roh or "").strip() and not collector:
+        set_roh, collector = (teil.strip() for teil in kandidat.split("|", 1))
+    set_code = normalize_set_code(set_roh)
     language = normalize_language(request.form.get("language", entry.get("language", "")))
     folder_id = request.form.get("folder_id")
     if folder_id in (None, ""):
@@ -1548,347 +1835,6 @@ def sales_export_positions_csv():
     return _csv_response(
         sales_export.build_positions_csv(positions),
         sales_export.export_filename("positionen", start, end),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Buchhaltung (WP3b) — Journal ist append-only, Korrektur nur per Storno.
-# Porto wird ausschliesslich beim Briefmarkenkauf gebucht, nie beim Versand.
-# ---------------------------------------------------------------------------
-@app.route("/buchhaltung")
-@login_required
-def bookkeeping_view():
-    """Buchungsjournal: chronologisch (filterbar) und je Bestellung gruppiert."""
-    von = request.args.get("von", "").strip()
-    bis = request.args.get("bis", "").strip()
-    art = request.args.get("art", "").strip()
-    kategorie = request.args.get("kategorie", "").strip()
-    grouped = bookkeeping.journal_by_order()
-    return render_template(
-        "bookkeeping.html",
-        bookings=bookkeeping.list_bookings(von=von, bis=bis, art=art, kategorie=kategorie),
-        order_groups=grouped["orders"],
-        other_bookings=grouped["sonstige"],
-        bookable=bookkeeping.bookable_orders(),
-        vor_beginn=bookkeeping.count_vor_geschaeftsbeginn(),
-        geschaeftsbeginn=bookkeeping.GESCHAEFTSBEGINN,
-        pruefliste=bookkeeping.pruefliste(),
-        markenarten=bookkeeping.list_markenarten(only_active=True),
-        kategorien=bookkeeping.KATEGORIEN_EINNAHME + bookkeeping.KATEGORIEN_AUSGABE,
-        filter_von=von, filter_bis=bis, filter_art=art, filter_kategorie=kategorie,
-        ansicht=request.args.get("ansicht", "bestellungen"),
-        cent_to_de=bookkeeping.cent_to_de,
-    )
-
-
-@app.route("/buchhaltung/uebernehmen/<int:order_id>", methods=["POST"])
-@login_required
-def bookkeeping_take_order(order_id: int):
-    """Bestellung übernehmen: Warenverkauf, vereinnahmte Versandkosten und
-    Cardmarket-Gebühren aus den Maildaten.
-
-    Optional wird gleichzeitig die Frankierung erfasst:
-      * ``vorrat`` – Marke aus dem Bestand entnehmen: nur Bestandsabgang,
-        **keine** Buchung (das Porto ist beim Kauf bereits gebucht).
-      * ``sofort`` – Marke jetzt gekauft: regulärer Markenkauf (eine
-        Ausgabebuchung) und unmittelbar danach der Verbrauch.
-    """
-    try:
-        ids = bookkeeping.book_order(order_id)
-    except (ValueError, sqlite3.IntegrityError) as exc:
-        flash(f"Übernahme nicht möglich: {exc}", "error")
-        return redirect(url_for("bookkeeping_view"))
-
-    msg = f"Bestellung übernommen – {len(ids)} Buchung(en) erstellt."
-    modus = request.form.get("frankierung", "").strip()
-    art_id = request.form.get("markenart_id", "").strip()
-    try:
-        stueck = max(1, int(request.form.get("stueckzahl", "1") or 1))
-    except ValueError:
-        stueck = 1
-
-    # Eine bereits erfasste Frankierung wird nicht ein zweites Mal gebucht —
-    # sonst entstünde nach Storno und erneuter Übernahme ein Doppelverbrauch.
-    if modus in ("vorrat", "sofort") and bookkeeping.consumption_for_order(order_id):
-        flash(msg + " Frankierung war bereits erfasst und wurde nicht erneut gebucht.",
-              "warning")
-        return redirect(url_for("bookkeeping_view"))
-
-    try:
-        if modus == "vorrat" and art_id.isdigit():
-            bookkeeping.consume_stamps(int(art_id), stueck, bestellung_id=order_id)
-            msg += f" {stueck} Marke(n) aus dem Vorrat entnommen (keine Buchung)."
-        elif modus == "sofort" and art_id.isdigit():
-            betrag = bookkeeping.to_cent(request.form.get("betrag", ""))
-            if betrag <= 0:
-                raise ValueError(
-                    "Beim Sofortkauf fehlt der Betrag – bitte den gezahlten Preis "
-                    "eintragen. Die Bestellung ist übernommen, die Frankierung nicht.")
-            beleg_id = None
-            upload = request.files.get("beleg")
-            if upload and upload.filename:
-                try:
-                    beleg_id = bookkeeping.save_receipt(
-                        upload.filename, upload.read(), upload.mimetype or "")
-                except ValueError as exc:
-                    flash(f"Beleg abgelehnt: {exc}", "error")
-            datum = datetime.now().strftime("%Y-%m-%d")
-            bookkeeping.buy_and_consume(datum, int(art_id), stueck, betrag,
-                                        bestellung_id=order_id, beleg_id=beleg_id)
-            msg += (f" Sofortkauf über {bookkeeping.cent_to_de(betrag)} € als Ausgabe "
-                    f"gebucht und verbraucht.")
-    except ValueError as exc:
-        # Die Übernahme selbst bleibt bestehen; nur die Frankierung fehlt.
-        flash(f"{msg} Frankierung nicht erfasst: {exc}", "warning")
-        return redirect(url_for("bookkeeping_view"))
-    flash(msg)
-    return redirect(url_for("bookkeeping_view"))
-
-
-@app.route("/buchhaltung/storno/<int:buchung_id>", methods=["POST"])
-@login_required
-def bookkeeping_storno(buchung_id: int):
-    """Buchung stornieren (erzeugt eine neue, verknüpfte Stornozeile).
-
-    Der Bestand folgt automatisch: ein stornierter Markenkauf zählt nicht mehr
-    als Zugang, weil der Bestand aus den nicht stornierten Käufen abgeleitet wird.
-    """
-    try:
-        bookkeeping.storno_booking(buchung_id, request.form.get("grund", "").strip())
-        meldung = "Stornobuchung erstellt."
-
-        # Ist die Bestellung danach gar nicht mehr gebucht, war die Übernahme
-        # ein Fehlgriff: dann gehören die verbrauchten Marken zurück in den
-        # Vorrat (Häkchen, damit eine tatsächlich verklebte Marke draußen
-        # bleiben kann).
-        oid = request.form.get("order_id", "")
-        if oid.isdigit() and request.form.get("marken_zurueck"):
-            if not bookkeeping.order_already_booked(int(oid)):
-                n = bookkeeping.remove_consumptions_for_order(int(oid))
-                if n:
-                    meldung += f" {n} Frankierung(en) zurückgenommen."
-        flash(meldung)
-    except ValueError as exc:
-        flash(f"Storno nicht möglich: {exc}", "error")
-    return redirect(url_for("bookkeeping_view"))
-
-
-@app.route("/buchhaltung/ausgabe", methods=["GET", "POST"])
-@login_required
-def bookkeeping_expense():
-    """Ausgabe mit Beleg erfassen (Abflussprinzip: Datum = Tag der Zahlung)."""
-    if request.method == "POST":
-        datum = request.form.get("buchungsdatum", "").strip()
-        kategorie = request.form.get("kategorie", "").strip()
-        betrag_cent = bookkeeping.to_cent(request.form.get("betrag", ""))
-        beschreibung = request.form.get("beschreibung", "").strip()
-        if not datum or kategorie not in bookkeeping.KATEGORIEN_AUSGABE or betrag_cent <= 0:
-            flash("Bitte Datum, Kategorie und einen Betrag > 0 angeben.", "error")
-            return redirect(url_for("bookkeeping_expense"))
-
-        beleg_id = None
-        upload = request.files.get("beleg")
-        if upload and upload.filename:
-            try:
-                beleg_id = bookkeeping.save_receipt(
-                    upload.filename, upload.read(), upload.mimetype or "")
-            except ValueError as exc:
-                flash(f"Beleg abgelehnt: {exc}", "error")
-                return redirect(url_for("bookkeeping_expense"))
-
-        bookkeeping.add_booking(datum, "ausgabe", kategorie, betrag_cent,
-                                beschreibung, beleg_id=beleg_id)
-        flash("Ausgabe gebucht.")
-        return redirect(url_for("bookkeeping_view"))
-
-    return render_template("expense_form.html", kategorien=bookkeeping.KATEGORIEN_AUSGABE)
-
-
-@app.route("/buchhaltung/beleg/<int:beleg_id>")
-@login_required
-def bookkeeping_receipt(beleg_id: int):
-    """Belegdatei anzeigen (unverändert ausgeliefert)."""
-    info = bookkeeping.get_receipt(beleg_id)
-    if not info or not Path(info["pfad"]).exists():
-        flash("Beleg nicht gefunden", "error")
-        return redirect(url_for("bookkeeping_view"))
-    return Response(
-        Path(info["pfad"]).read_bytes(),
-        mimetype=info["mime"] or "application/octet-stream",
-        headers={"Content-Disposition": f'inline; filename="{info["original_name"]}"'},
-    )
-
-
-# --- Briefmarken -----------------------------------------------------------
-@app.route("/buchhaltung/briefmarken")
-@login_required
-def bookkeeping_stamps():
-    """Bestand je Markenart, Nachkauf-Hinweis und Kaufhistorie."""
-    return render_template(
-        "stamps.html",
-        markenarten=bookkeeping.list_markenarten(),
-        kaeufe=bookkeeping.list_stamp_purchases(),
-        schwelle=bookkeeping.BESTAND_WARNUNG,
-        cent_to_de=bookkeeping.cent_to_de,
-    )
-
-
-@app.route("/buchhaltung/briefmarken/kauf", methods=["POST"])
-@login_required
-def bookkeeping_stamp_buy():
-    """Markenkauf: genau eine Ausgabebuchung plus Bestandszugang."""
-    datum = request.form.get("datum", "").strip()
-    art_id = request.form.get("markenart_id", "").strip()
-    try:
-        stueck = int(request.form.get("stueckzahl", "0") or 0)
-    except ValueError:
-        stueck = 0
-    betrag = bookkeeping.to_cent(request.form.get("betrag", ""))
-    if not datum or not art_id.isdigit() or stueck <= 0 or betrag <= 0:
-        flash("Bitte Datum, Markenart, Stückzahl und Gesamtbetrag angeben.", "error")
-        return redirect(url_for("bookkeeping_stamps"))
-
-    beleg_id = None
-    upload = request.files.get("beleg")
-    if upload and upload.filename:
-        try:
-            beleg_id = bookkeeping.save_receipt(
-                upload.filename, upload.read(), upload.mimetype or "")
-        except ValueError as exc:
-            flash(f"Beleg abgelehnt: {exc}", "error")
-            return redirect(url_for("bookkeeping_stamps"))
-    try:
-        bookkeeping.buy_stamps(datum, int(art_id), stueck, betrag, beleg_id=beleg_id)
-        flash(f"{stueck} Marke(n) gekauft und {bookkeeping.cent_to_de(betrag)} € gebucht.")
-    except ValueError as exc:
-        flash(str(exc), "error")
-    return redirect(url_for("bookkeeping_stamps"))
-
-
-@app.route("/buchhaltung/briefmarken/art", methods=["POST"])
-@login_required
-def bookkeeping_stamp_type():
-    """Markenart anlegen, Nennwert ändern (neuer Stammsatz) oder deaktivieren."""
-    aktion = request.form.get("aktion", "")
-    try:
-        if aktion == "neu":
-            bookkeeping.add_markenart(request.form.get("bezeichnung", ""),
-                                      bookkeeping.to_cent(request.form.get("nennwert", "")))
-            flash("Markenart angelegt.")
-        elif aktion == "nennwert":
-            bookkeeping.change_nennwert(int(request.form["markenart_id"]),
-                                        bookkeeping.to_cent(request.form.get("nennwert", "")))
-            flash("Neuer Nennwert angelegt – bestehende Buchungen bleiben unverändert.")
-        elif aktion == "aktiv":
-            bookkeeping.set_markenart_aktiv(int(request.form["markenart_id"]),
-                                            request.form.get("aktiv") == "1")
-            flash("Markenart aktualisiert.")
-        elif aktion == "bestand":
-            bookkeeping.set_bestand(int(request.form["markenart_id"]),
-                                    int(request.form.get("bestand", "0") or 0))
-            flash("Bestand korrigiert (Inventur, keine Buchung).")
-    except (ValueError, KeyError) as exc:
-        flash(f"Nicht möglich: {exc}", "error")
-    return redirect(url_for("bookkeeping_stamps"))
-
-
-@app.route("/buchhaltung/verbrauch/<int:verbrauch_id>/entfernen", methods=["POST"])
-@login_required
-def bookkeeping_remove_consumption(verbrauch_id: int):
-    """Einen Markenverbrauch zurücknehmen (nur Bestand, nie das Journal)."""
-    if bookkeeping.remove_consumption(verbrauch_id):
-        flash("Verbrauch zurückgenommen – Marke wieder im Bestand.")
-    return redirect(url_for("bookkeeping_stamps"))
-
-
-# --- Auszahlungen ----------------------------------------------------------
-@app.route("/buchhaltung/auszahlungen", methods=["GET", "POST"])
-@login_required
-def bookkeeping_payments():
-    """Auszahlung erfassen und Bestellungen zuordnen (Zuflussprinzip)."""
-    if request.method == "POST":
-        datum = request.form.get("datum", "").strip()
-        betrag = bookkeeping.to_cent(request.form.get("betrag", ""))
-        if not datum or betrag <= 0:
-            flash("Bitte Datum und Betrag der Auszahlung angeben.", "error")
-        else:
-            bookkeeping.create_auszahlung(datum, betrag, request.form.get("notiz", "").strip())
-            flash("Auszahlung erfasst – jetzt Bestellungen zuordnen.")
-        return redirect(url_for("bookkeeping_payments"))
-
-    return render_template(
-        "payments.html",
-        auszahlungen=bookkeeping.list_auszahlungen(),
-        orders=bookkeeping.open_payment_orders(),
-        cent_to_de=bookkeeping.cent_to_de,
-    )
-
-
-@app.route("/buchhaltung/auszahlungen/<int:auszahlung_id>/zuordnen", methods=["POST"])
-@login_required
-def bookkeeping_assign_payment(auszahlung_id: int):
-    """Bestellungen einer Auszahlung zuordnen; setzt den Zufluss."""
-    ids = [int(i) for i in request.form.getlist("order_ids") if i.isdigit()]
-    if not ids:
-        flash("Bitte mindestens eine Bestellung wählen.", "error")
-        return redirect(url_for("bookkeeping_payments"))
-    try:
-        n = bookkeeping.assign_orders_to_auszahlung(auszahlung_id, ids)
-        flash(f"{len(ids)} Bestellung(en) zugeordnet ({n} Buchung(en) mit Zufluss).")
-    except ValueError as exc:
-        flash(str(exc), "error")
-    return redirect(url_for("bookkeeping_payments"))
-
-
-# --- Auswertungen ----------------------------------------------------------
-def _bookkeeping_period():
-    jahr = request.args.get("jahr", "").strip()
-    von = request.args.get("von", "").strip()
-    bis = request.args.get("bis", "").strip()
-    if von and bis:
-        return von, bis
-    if jahr.isdigit():
-        return f"{jahr}-01-01", f"{jahr}-12-31"
-    year = datetime.now().year
-    return f"{year}-01-01", f"{year}-12-31"
-
-
-@app.route("/buchhaltung/marge")
-@login_required
-def bookkeeping_margin_view():
-    """Versand-Marge — betriebswirtschaftliche Auswertung, keine EÜR-Größe."""
-    start, end = _bookkeeping_period()
-    return render_template(
-        "margin.html", start=start, end=end,
-        result=bookkeeping.versand_marge(start, end),
-        cent_to_de=bookkeeping.cent_to_de,
-    )
-
-
-@app.route("/buchhaltung/auswertung")
-@login_required
-def bookkeeping_summary_view():
-    """Jahresübersicht: Summen je Kategorie als Vorlage für die Anlage EÜR."""
-    start, end = _bookkeeping_period()
-    return render_template(
-        "bookkeeping_summary.html",
-        start=start, end=end,
-        result=bookkeeping.summary(start, end),
-        cent_to_de=bookkeeping.cent_to_de,
-    )
-
-
-@app.route("/buchhaltung/auswertung.csv")
-@login_required
-def bookkeeping_summary_csv():
-    """Jahresübersicht als deutsches CSV (Semikolon, UTF-8 mit BOM)."""
-    start, end = _bookkeeping_period()
-    payload = bookkeeping.summary_csv(bookkeeping.summary(start, end), start, end)
-    return Response(
-        payload,
-        mimetype="text/csv; charset=utf-8",
-        headers={"Content-Disposition":
-                 f'attachment; filename="euer_{start}_bis_{end}.csv"'},
     )
 
 
@@ -2031,8 +1977,35 @@ def _aktualisiere_kartendaten(erzwingen: bool) -> None:
 @login_required
 def card_data_view():
     """Stand der Kartendaten anzeigen und Aktualisierung anbieten."""
-    return render_template("card_data.html", info=_kartendaten_info(),
-                           status=CARDDATA_STATUS)
+    return render_template(
+        "card_data.html", info=_kartendaten_info(), status=CARDDATA_STATUS,
+        katalog=cardmarket_katalog.info(cardmarket_katalog.DB_PATH),
+        katalog_waechter=cardmarket_katalog.WAECHTER_STATUS)
+
+
+@app.route("/system/kartendaten/cardmarket", methods=["POST"])
+@login_required
+def cardmarket_katalog_update():
+    """Den Cardmarket-Produktkatalog jetzt aktualisieren.
+
+    Der Katalog haelt sich von selbst aktuell (einmal taeglich); der Knopf ist
+    fuer den ersten Lauf und fuer den Fall, dass ein neues Produkt gebraucht
+    wird, bevor der naechste Durchgang es geholt hat. Die Dateien sind klein
+    (zusammen unter 5 MB) -- deshalb laeuft das im Aufruf und nicht im
+    Hintergrund.
+    """
+    try:
+        ergebnis = cardmarket_katalog.aktualisiere(
+            cardmarket_katalog.DB_PATH,
+            erzwingen=bool(request.form.get("erzwingen")))
+        if ergebnis["aktualisiert"]:
+            flash(f"Cardmarket-Katalog aktualisiert: {ergebnis['anzahl']} Produkte.")
+        else:
+            flash("Der Cardmarket-Katalog war bereits aktuell.")
+    except Exception as exc:                       # noqa: BLE001
+        flash(f"Cardmarket-Katalog nicht aktualisiert: {exc} "
+              "Der bisherige Stand bleibt in Betrieb.", "error")
+    return redirect(url_for("card_data_view"))
 
 
 @app.route("/system/kartendaten/aktualisieren", methods=["POST"])
@@ -2196,6 +2169,18 @@ def list_orders():
                 item["candidates"] = []
                 if not item["card_id"]:
                     item["candidates"] = _order_item_candidates(c, item["card_name"])
+                # Von Hand zugeordnetes Produkt, das der Bestelleingang nicht
+                # von selbst gefunden haette: der Hinweis fuehrt zum Artikel,
+                # wo Cardmarket-Name und Sprache nachgetragen werden.
+                item["produkt_unerkannt"] = False
+                if item["card_id"] and not item["entfernt"]:
+                    artikel = c.execute(
+                        "SELECT item_type, cardmarket_name, language "
+                        "FROM cards WHERE id = ?", (item["card_id"],)).fetchone()
+                    if artikel and artikel["item_type"] != "card":
+                        item["produkt_unerkannt"] = not produkt_passt(
+                            artikel["cardmarket_name"], artikel["language"],
+                            item["card_name"], item["language"])
                 items.append(item)
 
             recipient_lines = [ln.strip() for ln in (order["address"] or "").splitlines() if ln.strip()]
@@ -2996,6 +2981,10 @@ if __name__ == "__main__":
     # Start the order ingestion service
     order_service = get_order_service()
     order_service.start()
+
+    # Den Cardmarket-Produktkatalog im Hintergrund aktuell halten: einmal am
+    # Tag nachfragen, geladen wird nur bei einer neuen Fassung.
+    cardmarket_katalog.KatalogWaechter(cardmarket_katalog.DB_PATH).start()
     
     host = os.environ.get("FLASK_RUN_HOST", "0.0.0.0")
     port = int(os.environ.get("FLASK_RUN_PORT", 5000))

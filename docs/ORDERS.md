@@ -172,8 +172,149 @@ weitergeleitet wird, entscheidet ein Formularfeld `zurueck` mit dem festen Wert
 `verkauft` — keine freie URL, damit sich die Weiterleitung nicht auf eine
 fremde Adresse biegen lässt.
 
+## 8. Lange Namen auf Beileger und Quittung
+
+`pdf.cell()` schneidet nichts ab und bricht nichts um. Ein langer Artikelname
+lief deshalb quer über „Zustand" und „Preis" hinaus, eine lange Adresszeile aus
+dem Fenster des Kuverts ins Logo — vor allem bei Precons, Displays und Zubehör.
+
+- **Artikel und Set** werden an der Spaltenbreite umbrochen
+  (`shipping_note.umbrechen`); die Tabellenzeile wächst um die zusätzlichen
+  Textzeilen. Menge, Zustand und Preis bleiben auf der ersten Zeile.
+- **Kurze Namen sehen aus wie bisher** — gleiche Zeilenhöhe, gleicher
+  Seitenumbruch.
+- **Die Seitenzahl** („Seite 1 von 3") rechnet mit den tatsächlichen
+  Zeilenhöhen (`positionslayout` → `seitenanzahl`), nicht mehr mit der Anzahl
+  der Positionen.
+- **Anschrift:** fehlt nur wenig, wird die Schrift etwas kleiner (nie unter
+  10 pt); sonst wird die Zeile umbrochen. Die DIN-Maße des Adressfelds sind
+  unverändert.
+- **Obergrenze:** höchstens vier Namens- und zwei Set-Zeilen; darüber wird
+  sichtbar mit „…" gekürzt. Echte Namen erreichen das nicht.
+- „— Foil" bleibt über ein geschütztes Leerzeichen zusammen.
+
+Die Quittung nutzt dieselbe Funktion mit ihrer eigenen Spaltenbreite.
+
+## 9. Displays, Precons und Zubehör
+
+Einzelkarten „rasten ein": Name tippen, die Scryfall-Daten füllen den Rest,
+und die Bestellung findet sie über Set, Nummer, Sprache und Foil. Produkte
+stehen in keiner Kartendatenbank. Erkennbar sind sie nur über zwei Angaben
+**am Artikel**:
+
+| Feld | Bedeutung |
+|---|---|
+| `cardmarket_name` | so heißt der Artikel in der Bestellmail |
+| `language` | Sprache der Ausgabe — verglichen, sobald die Mail eine nennt |
+
+`order_service._als_produkt` ordnet zu, wenn **genau ein** verfügbarer Artikel
+passt (bei gekürzten Namen „…" zählt der Anfang). Mehrere oder keiner: die
+Position geht in die Handzuordnung. `order_service.produkt_passt` ist dieselbe
+Regel für einen einzelnen Artikel und speist nur Hinweise in der Oberfläche.
+
+### Die Sprache gilt für jede Artikelart
+
+Die Sprachauswahl stand im Formular im Block für Einzelkarten und war bei
+Produkten ausgeblendet. Gespeichert wurde eine leere Sprache — und eine
+Bestellung mit „… - English" fand den Artikel nie, auch bei exakt richtigem
+Cardmarket-Namen. Die Auswahl steht jetzt bei Preis und Menge.
+
+**Vor dieser Änderung angelegte Produkte haben eine leere Sprache.** Sie wird
+über „Artikel bearbeiten" nachgetragen; bis dahin bleibt es bei der
+Handzuordnung. Geraten wird nicht: ob die englische oder die deutsche Box im
+Regal steht, weiß das Programm nicht.
+
+### Drei Wege, ein Produkt anzulegen
+
+1. **Hinzufügen → Produkt hinzufügen** (`/cards/add?typ=display`): das Formular
+   öffnet ohne die Kartenfelder. Beim Tippen des Namens erscheinen Vorschläge
+   (`/api/produkte`):
+   - *Schon im Lager* — führt zum vorhandenen Artikel, um dort die Menge zu
+     erhöhen. Zwei gleiche Einträge kann eine Bestellung nicht unterscheiden.
+   - *Wie früher* — ein ausverkaufter Artikel als Vorlage: Name,
+     Cardmarket-Name, Sprache und Art werden übernommen.
+   - *Cardmarket* — ein Eintrag aus dem Produktkatalog (siehe unten): Name in
+     Cardmarkets Schreibweise, Produktnummer und Artikelart. Die Sprache
+     bleibt zu wählen.
+2. **Aus der Bestellposition** („Als Produkt anlegen →" in der
+   Bestellübersicht und in der Handzuordnung, `/cards/add?position=<id>`):
+   Name und Sprache kommen aus der Mail. Menge und Preis ausdrücklich nicht —
+   bestellt ist nicht vorrätig, und der Preis in der Mail ist der
+   Verkaufspreis. Nach dem Speichern geht es zurück zur Position; zugeordnet
+   wird dort mit einem Klick, nicht von selbst.
+3. **Am vorhandenen Artikel nachtragen:** wurde ein Produkt von Hand
+   zugeordnet, das der Bestelleingang nicht selbst gefunden hätte, steht an
+   der Position „Nächstes Mal von selbst erkennen →". Der Artikel zeigt dann,
+   wie er in Bestellungen hieß („So stand dieser Artikel in Bestellungen");
+   „Übernehmen" setzt die Felder, gespeichert wird mit dem Knopf.
+
+### Der Cardmarket-Produktkatalog
+
+Einzelkarten rasten über die lokalen Scryfall-Daten ein. Für Produkte
+übernimmt das Cardmarkets öffentlicher Produktkatalog
+(`cardmarket_katalog.py`, lokal in `data/cardmarket-products.db`):
+
+| Datei bei Cardmarket | Inhalt | Umfang |
+|---|---|---|
+| `products_nonsingles_1.json` | Magic, versiegelt (Displays, Booster, Precons, Bundles, Sets) | rund 5.000 Einträge, 1 MB |
+| `products_accessories.json` | Zubehör (Sleeves, Spielmatten, Deckboxen, Alben …) | rund 20.000 Einträge, 4 MB |
+
+Die Dateien sind ohne Anmeldung abrufbar — **kein API-Zugang**. Je Produkt
+gibt es Nummer (`idProduct` → `cards.cardmarket_id`), Name und Kategorie.
+**Keine Sprache, kein Preis.** Die Einzelkarten-Datei (20 MB) wird nicht
+geladen; für Karten bleibt Scryfall die einzige Quelle.
+
+- **Aktuell halten:** einmal täglich wird bei Cardmarket nachgefragt
+  (`KatalogWaechter`, startet mit der Anwendung). Geladen wird nur bei einer
+  neuen Fassung (ETag). Von Hand: *System → Kartendaten → Katalog jetzt
+  aktualisieren* oder `python -m TCGInventory.cardmarket_katalog`.
+- **Nie kaputt ersetzen:** erst eine neue Datei aufbauen, dann atomar
+  tauschen. Liefert Cardmarket etwas Unbrauchbares (Fehlerseite, leere oder
+  winzige Liste, übergroße Datei) oder ist nicht erreichbar, bleibt der
+  bisherige Katalog in Betrieb.
+- **Namen bereinigen:** der Export schreibt Anführungszeichen doppelt
+  (`""Turtle Power!""`); gespeichert wird ein einfaches.
+- **Suche:** alle eingegebenen Wörter müssen vorkommen („hobbit play box").
+  Versiegelte Ware steht vor Zubehör, dann Namensanfang, dann die neuesten
+  Produkte.
+- **Aus der Bestellposition:** steht der Name aus der Mail genau einmal im
+  Katalog, kommen Produktnummer und Artikelart gleich mit. Bei gekürzten
+  Namen und bei gleichnamigen Einträgen wird nichts ausgesucht — die
+  Kandidaten erscheinen in der Vorschlagsliste.
+- **Von Hand geändert:** wer den Cardmarket-Namen nach der Auswahl ändert,
+  verliert die Produktnummer wieder — sie gehörte zum gewählten Eintrag.
+- Der Katalog ist jederzeit neu ladbar und deshalb **nicht** Teil der
+  Sicherung (`scripts/backup.py`, wie die Scryfall-Daten).
+
+Am Abgleich im Bestelleingang ändert der Katalog nichts: verglichen werden
+weiter `cardmarket_name` und Sprache am Artikel. Der Katalog sorgt nur dafür,
+dass dort der richtige Name steht.
+
+### Was bewusst nicht passiert
+
+- **Kein Lernen beim Zuordnen.** Die frühere gelernte Zuordnung
+  (`produkt_alias`, das „Merken"-Häkchen) bleibt entfernt. Der Name aus der
+  Mail wird nur am Artikel eingetragen, und nur auf ausdrücklichen Klick.
+- **Kein stilles Zusammenführen.** Wer ein vorhandenes Produkt ein zweites
+  Mal anlegt, bekommt weiterhin einen zweiten Eintrag — mit eigenem
+  Einkaufspreis. Das Formular weist vorher auf den vorhandenen hin.
+- **Keine Preise aus dem Katalog.** Cardmarket bietet daneben einen
+  Preisführer an; er wird nicht geladen.
+
 ## Tests
 
+- **`test_cardmarket_katalog.py`** — Katalog lesen und bereinigen, neue
+  Fassung übernehmen, unverändert nicht laden, kaputte Lieferung und
+  fehlendes Netz lassen den alten Stand stehen, Suche und Reihenfolge,
+  selbsttätiges Aktualisieren, Vorschläge im Formular, Vorbelegung aus der
+  Bestellposition, Seite „Kartendaten". Kein Test geht ins Netz.
+- **`test_produkt_anlegen.py`** — Sprache bei Produkten, Formular als Produkt,
+  Anlegen aus der Bestellposition samt Rückweg und Zuordnung, Vorschläge aus
+  dem eigenen Bestand, Namensvorschlag am Artikel, Hinweis in der
+  Bestellübersicht, Gleichlauf von `produkt_passt` und Bestelleingang.
+- **`test_lange_namen.py`** — Umbruch hält die Spaltenbreite ein und verliert
+  kein Wort, überlange Wörter, Obergrenze, Seitenzahl bei hohen Zeilen,
+  Anschrift im Fenster, Quittung.
 - **`test_verkaufte_bestellungen.py`** — Archiv findet Verkauftes und nur
   Verkauftes, Nachdruck von Beileger und Quittung, Suche, Blättern,
   unsinnige Seitenzahlen, Adresse bestätigen mit Rückweg, Bestand unverändert.

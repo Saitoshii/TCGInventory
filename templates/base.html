@@ -37,7 +37,8 @@
             <a class="nav-link dropdown-toggle {% if ep in ['add_card_view', 'bulk_add_view', 'upload_queue_view', 'needs_review_view'] %}active{% endif %}"
                href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Hinzufügen</a>
             <ul class="dropdown-menu">
-              <li><a class="dropdown-item" href="{{ url_for('add_card_view') }}">Artikel hinzufügen</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('add_card_view') }}">Karte hinzufügen</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('add_card_view', typ='display') }}">Produkt hinzufügen <span class="text-muted small">(Display, Precon, Zubehör)</span></a></li>
               <li><a class="dropdown-item" href="{{ url_for('bulk_add_view') }}">Bulk-Import</a></li>
               <li><a class="dropdown-item" href="{{ url_for('upload_queue_view') }}">Upload-Queue{% if queue_count %} <span class="badge bg-secondary">{{ queue_count }}</span>{% endif %}</a></li>
               <li><a class="dropdown-item" href="{{ url_for('needs_review_view') }}">Needs-Review{% if needs_review_count %} <span class="badge bg-danger">{{ needs_review_count }}</span>{% endif %}</a></li>
@@ -53,11 +54,13 @@
             </ul>
           </li>
           <li class="nav-item dropdown">
-            <a class="nav-link dropdown-toggle {% if ep in ['audit_log_view', 'export_cards', 'sales_export_view', 'bookkeeping_view', 'bookkeeping_expense', 'bookkeeping_payments', 'bookkeeping_stamps', 'bookkeeping_margin_view', 'bookkeeping_summary_view', 'card_data_view', 'backup_status_view', 'inventory_cleanup_view', 'upload_database', 'update_view'] %}active{% endif %}"
+            <a class="nav-link dropdown-toggle {% if ep in ['audit_log_view', 'export_cards', 'sales_export_view', 'card_data_view', 'backup_status_view', 'inventory_cleanup_view', 'upload_database', 'update_view'] %}active{% endif %}"
                href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">System</a>
             <ul class="dropdown-menu">
               <li><a class="dropdown-item" href="{{ url_for('audit_log_view') }}">Audit-Log</a></li>
-              <li><a class="dropdown-item" href="{{ url_for('bookkeeping_view') }}">Buchhaltung</a></li>
+              {# Die Buchhaltung ist eine eigene Anwendung (ZurFestung-Buchhaltung).
+                 Der Eintrag führt dorthin, statt hier eine zweite zu führen. #}
+              <li><a class="dropdown-item" href="{{ buchhaltung_url }}" target="_blank" rel="noopener">Buchhaltung ↗</a></li>
               <li><a class="dropdown-item" href="{{ url_for('sales_export_view') }}">Auswertung &amp; Export</a></li>
               <li><a class="dropdown-item" href="{{ url_for('export_cards') }}">Bestand-Export</a></li>
               <li><a class="dropdown-item" href="{{ url_for('card_data_view') }}">Kartendaten</a></li>

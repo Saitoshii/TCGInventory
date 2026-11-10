@@ -188,6 +188,7 @@ TCGInventory/
 ├── auth.py            # User authentication (register/login)
 ├── setup_db.py        # Schema creation & non-destructive migrations
 ├── build_card_db.py   # Convert Scryfall JSON into default-cards.db
+├── cardmarket_katalog.py  # Cardmarket's public product catalog (sealed, accessories), kept local
 ├── repo_updater.py    # Self-update from git
 ├── __init__.py        # Package init; defines DB_FILE
 ├── templates/         # Jinja2 templates
@@ -221,6 +222,11 @@ TCGInventory/
   storage location → parse order email → match on
   `name + set_code + language [+ foil]` → show location → "sold" removes exactly
   that row.
+- **Products snap in via Cardmarket's catalog:** sealed products and
+  accessories are not in Scryfall. Cardmarket's public product catalog (two
+  small JSON files, no API access needed) is kept locally in
+  `data/cardmarket-products.db`, checked once a day and offered as suggestions
+  when adding a product. See [docs/ORDERS.md](docs/ORDERS.md), section 9.
 - **Enrichment is offline:** Scryfall bulk data is available locally
   (`default-cards.db` / `build_card_db.py`); it is used for enrichment instead
   of querying online.

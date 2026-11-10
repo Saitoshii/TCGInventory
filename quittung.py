@@ -30,9 +30,9 @@ from typing import Optional, Sequence
 from fpdf import FPDF
 
 from .shipping_note import (
-    GOLD, GREY, HAIRLINE, INK, _SANS, _SERIF, _eur, _format_date,
+    FOIL_ZUSATZ, GOLD, GREY, HAIRLINE, INK, _SANS, _SERIF, _eur, _format_date,
     _position_fields, _register_fonts, bild_seitenverhaeltnis, bildmasse,
-    get_shop_config,
+    get_shop_config, umbrechen,
 )
 
 # A5 quer — zwei davon auf ein A4-Blatt.
@@ -58,6 +58,16 @@ TABELLE_UNTEN_MM = SEITE_H_MM - 34
 #: Rechter Rand für Preise und Summen.
 PREIS_RECHTS_X = SEITE_B_MM - RAND_MM
 SUMME_LABEL_RECHTS_X = PREIS_RECHTS_X - 26
+
+#: Linke Kante und Breite der Artikelspalte. Rechts bleiben 26 mm für den
+#: Preis frei — ein langer Artikelname lief sonst mitten durch ihn hindurch.
+ARTIKEL_X = RAND_MM + 18
+ARTIKEL_B_MM = PREIS_RECHTS_X - 26 - ARTIKEL_X - 2
+#: Abstand zwischen umbrochenen Zeilen von Name und Zusatz (Set · Zustand).
+NAME_ZEILE_H_MM = 4.4
+ZUSATZ_ZEILE_H_MM = 3.2
+MAX_NAME_ZEILEN = 4
+MAX_ZUSATZ_ZEILEN = 2
 
 TEXTE = {
     "titel": "Quittung",
@@ -158,25 +168,38 @@ def render_quittung(
     y += 8
     zwischensumme = 0.0
     for position in positionen:
-        if y + ZEILE_H_MM + 3 > TABELLE_UNTEN_MM:
-            y = neues_blatt()
-
         menge, name, set_name, zustand, einzelpreis, foil = _position_fields(position)
         menge = menge or 1
         einzelpreis = float(einzelpreis or 0)
         zwischensumme += menge * einzelpreis
 
-        text(RAND_MM, y, f"{menge}×", _SANS, "", 9.5, INK)
         # Wie im Beileger ausgeschrieben: die eingebettete Schrift hat kein
         # Sternsymbol, und ein fehlendes Zeichen faellt auf dem Beleg auf.
-        beschriftung = f"{name} — Foil" if foil else name
+        beschriftung = f"{name} {FOIL_ZUSATZ}" if foil else name
         zusatz = " · ".join(t for t in (set_name, zustand) if t)
-        text(RAND_MM + 18, y, beschriftung, _SERIF, "", 10, INK)
-        if zusatz:
-            text(RAND_MM + 18, y + 4, zusatz, _SANS, "", 7.5, GREY)
+        # Lange Namen umbrechen statt in die Preisspalte laufen zu lassen;
+        # die Zeile wächst um die zusätzlichen Textzeilen.
+        pdf.set_font(_SERIF, "", 10)
+        name_zeilen = umbrechen(pdf, beschriftung, ARTIKEL_B_MM,
+                                MAX_NAME_ZEILEN) or [""]
+        pdf.set_font(_SANS, "", 7.5)
+        zusatz_zeilen = umbrechen(pdf, zusatz, ARTIKEL_B_MM, MAX_ZUSATZ_ZEILEN)
+        mehr = ((len(name_zeilen) - 1) * NAME_ZEILE_H_MM
+                + max(len(zusatz_zeilen) - 1, 0) * ZUSATZ_ZEILE_H_MM)
+
+        if y + ZEILE_H_MM + mehr + 3 > TABELLE_UNTEN_MM:
+            y = neues_blatt()
+
+        text(RAND_MM, y, f"{menge}×", _SANS, "", 9.5, INK)
+        for i, stueck in enumerate(name_zeilen):
+            text(ARTIKEL_X, y + i * NAME_ZEILE_H_MM, stueck, _SERIF, "", 10, INK)
+        zusatz_y = y + (len(name_zeilen) - 1) * NAME_ZEILE_H_MM + 4
+        for i, stueck in enumerate(zusatz_zeilen):
+            text(ARTIKEL_X, zusatz_y + i * ZUSATZ_ZEILE_H_MM, stueck, _SANS, "",
+                 7.5, GREY)
         text(SUMME_LABEL_RECHTS_X - 20, y, _eur(menge * einzelpreis), _SANS, "",
              9.5, INK, w=PREIS_RECHTS_X - SUMME_LABEL_RECHTS_X + 20, align="R")
-        y += ZEILE_H_MM + (2.5 if zusatz else 0)
+        y += ZEILE_H_MM + (2.5 if zusatz else 0) + mehr
 
     # --- Summen ----------------------------------------------------------
     if y + SUMMEN_H_MM > TABELLE_UNTEN_MM:      # Summen bleiben zusammen

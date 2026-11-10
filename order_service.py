@@ -23,6 +23,50 @@ from TCGInventory.card_scanner import resolve_set_code
 SECONDS_PER_MINUTE = 60
 
 
+#: So kennzeichnet Cardmarket einen gekuerzten Produktnamen in der Mail.
+KUERZUNGSMARKEN = ("...", "…")
+
+
+def mailname_ohne_kuerzung(name):
+    """Der Produktname aus der Mail ohne das ``...`` der Kuerzung.
+
+    Gibt ``(text, gekuerzt)`` zurueck. Ist der Name gekuerzt, ist ``text`` nur
+    der Anfang -- der Rest steht nicht in der Mail.
+    """
+    text = (name or "").strip()
+    for marke in KUERZUNGSMARKEN:
+        if marke in text:
+            return text.split(marke, 1)[0].strip(), True
+    return text, False
+
+
+def produkt_passt(cardmarket_name, artikel_sprache, mail_name, mail_sprache):
+    """Wuerde der Bestelleingang diesen Artikel fuer diese Position finden?
+
+    Dieselbe Regel wie in ``OrderIngestionService._als_produkt``, nur fuer
+    einen einzelnen, bereits bekannten Artikel: hinterlegter Cardmarket-Name
+    gleich dem Namen aus der Mail (bei gekuerzten Namen: gleicher Anfang), und
+    gleiche Sprache, sobald die Mail eine nennt.
+
+    Gebraucht wird das fuer den Hinweis in der Oberflaeche: eine von Hand
+    zugeordnete Position soll sagen koennen, ob dieselbe Bestellung beim
+    naechsten Mal von selbst erkannt wuerde. Entschieden wird hier nichts.
+    """
+    hinterlegt = (cardmarket_name or "").strip().lower()
+    text, gekuerzt = mailname_ohne_kuerzung(mail_name)
+    text = text.lower()
+    if not hinterlegt or not text:
+        return False
+    if gekuerzt:
+        if not hinterlegt.startswith(text):
+            return False
+    elif hinterlegt != text:
+        return False
+    if mail_sprache:
+        return (artikel_sprache or "").strip().lower() == mail_sprache.strip().lower()
+    return True
+
+
 class OrderIngestionService:
     """Background service to poll Gmail for new Cardmarket orders."""
     

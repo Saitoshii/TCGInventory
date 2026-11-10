@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from queue import Queue
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Tuple
 
 import json
 import sqlite3
@@ -140,55 +140,14 @@ def fetch_card_info(card_id: str) -> Optional[CardInfo]:
     }
 
 
-def fetch_card_info_by_name(name: str) -> Optional[CardInfo]:
-    """Retrieve card details from the local database or Scryfall."""
-    _load_card_database()
-    if _DB_CONN:
-        c = _DB_CONN.execute(
-            "SELECT name, set_code, lang, cardmarket_id, collector_number, id FROM cards WHERE lower(name)=lower(?)",
-            (name,),
-        )
-        row = c.fetchone()
-        if row:
-            return {
-                "name": row[0],
-                "set_code": row[1],
-                "language": row[2],
-                "cardmarket_id": row[3],
-                "collector_number": row[4],
-                "image_url": image_url_for(row[5]),
-                "scryfall_id": row[5],
-            }
-    card = _CARDS_BY_NAME.get(name.lower())
-    if card:
-        return {
-            "name": card.get("name", name),
-            "set_code": card.get("set", ""),
-            "language": card.get("lang", ""),
-            "cardmarket_id": card.get("id", ""),
-            "collector_number": card.get("collector_number", ""),
-            "image_url": (card.get("image_uris") or {}).get("normal", ""),
-            "scryfall_id": card.get("id", ""),
-        }
+def kartendaten_vorhanden() -> bool:
+    """Liegt die lokale Kartendatenbank vor und lässt sie sich lesen?
 
-    try:
-        resp = requests.get(
-            "https://api.scryfall.com/cards/named", params={"exact": name}, timeout=5
-        )
-        resp.raise_for_status()
-    except requests.RequestException as exc:
-        print(f"❌ Fehler beim Abrufen der Kartendaten: {exc}")
-        return None
-    data = resp.json()
-    return {
-        "name": data.get("name", name),
-        "set_code": data.get("set", ""),
-        "language": data.get("lang", ""),
-        "cardmarket_id": data.get("id", ""),
-        "collector_number": data.get("collector_number", ""),
-        "image_url": (data.get("image_uris") or {}).get("normal", ""),
-        "scryfall_id": data.get("id", ""),
-    }
+    Damit kann ein Aufrufer unterscheiden, ob ein Name wirklich unbekannt ist
+    oder ob schlicht die Datenbank fehlt — beides ergäbe sonst „kein Treffer".
+    """
+    _load_card_database()
+    return _DB_CONN is not None
 
 
 def autocomplete_names(query: str) -> list[str]:

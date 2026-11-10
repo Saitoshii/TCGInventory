@@ -71,6 +71,74 @@
   </div>
 </div>
 
+{#
+  Cardmarket-Produktkatalog: die zweite lokale Datenquelle neben Scryfall.
+  Scryfall kennt Einzelkarten; Displays, Precons und Zubehör kommen von hier.
+#}
+<h3 class="h5 mt-4 mb-2">Cardmarket-Produktkatalog</h3>
+<p class="text-muted small">
+  Versiegelte Magic-Produkte und Zubehör, wie Cardmarket sie führt — mit dem
+  Namen, der später in der Bestellmail steht. Im Formular „Produkt hinzufügen"
+  erscheinen sie beim Tippen. Der Katalog wird einmal täglich von selbst
+  geprüft; geladen wird nur, wenn es eine neue Fassung gibt (zusammen unter
+  5 MB).
+</p>
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header"><h5 class="mb-0">Aktueller Stand</h5></div>
+      <div class="card-body">
+        {% if katalog.vorhanden %}
+        <table class="table table-sm mb-0">
+          <tbody>
+            <tr><td>Produkte</td><td>{{ '{:,}'.format(katalog.anzahl)|replace(',', '.') }}</td></tr>
+            {% for q in katalog.quellen %}
+            <tr><td class="ps-4 text-muted">{{ q.bezeichnung }}</td>
+                <td class="text-muted">{{ '{:,}'.format(q.anzahl)|replace(',', '.') }}</td></tr>
+            {% endfor %}
+            <tr><td>Stand (Cardmarket)</td><td>{{ katalog.stand[:10] if katalog.stand else '– unbekannt' }}</td></tr>
+            <tr><td>Zuletzt geprüft</td>
+                <td>{{ katalog.geprueft_am[:16]|replace('T', ' ') if katalog.geprueft_am else '–' }}</td></tr>
+          </tbody>
+        </table>
+        {% else %}
+        <div class="alert alert-warning mb-0">
+          Der Katalog ist noch nicht geladen. Produkte lassen sich trotzdem
+          anlegen — nur ohne Vorschläge aus Cardmarket.
+        </div>
+        {% endif %}
+        {% if katalog_waechter.fehler %}
+        <div class="alert alert-warning small py-2 mt-2 mb-0">
+          Letzter selbsttätiger Versuch ({{ katalog_waechter.zuletzt[:16]|replace('T', ' ') }})
+          fehlgeschlagen: {{ katalog_waechter.meldung }}
+          Der bisherige Stand bleibt in Betrieb; es wird stündlich erneut versucht.
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header"><h5 class="mb-0">Aktualisieren</h5></div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('cardmarket_katalog_update') }}">
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="erzwingen" value="1" id="katalog-erzwingen">
+            <label class="form-check-label small" for="katalog-erzwingen">
+              Auch dann laden, wenn Cardmarket keine neuere Fassung meldet
+            </label>
+          </div>
+          <button class="btn btn-primary" type="submit">Katalog jetzt aktualisieren</button>
+        </form>
+        <div class="text-muted small mt-2">
+          Dauert wenige Sekunden. Nötig nur beim ersten Mal oder wenn ein ganz
+          neues Produkt noch fehlt.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <p class="text-muted small mt-3">
   Alternative ohne Internetzugang auf dem Pi: eine fertige <code>default-cards.db</code>
   auf einem anderen Rechner erzeugen (<code>python build_card_db.py --datei default-cards.json</code>)

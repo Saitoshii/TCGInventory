@@ -90,6 +90,29 @@ CONT_RULE_MM = 35             # Goldlinie: unter Logo (31 mm) und Titel (26 mm)
 CONT_TABLE_TOP_MM = 42
 PAGE_NUMBER_FROM_BOTTOM_MM = 10
 
+# --- Lange Texte ------------------------------------------------------------
+# ``pdf.cell()`` schneidet nichts ab und bricht nichts um: ein Text, der breiter
+# ist als seine Spalte, läuft einfach weiter. Ein langer Kartenname stand damit
+# quer über „Zustand" und „Preis" und am Ende über den Blattrand hinaus — vor
+# allem bei Precons, Displays und Zubehör, deren Namen selten kurz sind.
+# Deshalb wird umbrochen, und die Zeile wächst um die zusätzlichen Textzeilen.
+# Foil wird ausgeschrieben (die eingebettete Schrift hat kein Sternsymbol).
+# Das geschützte Leerzeichen verhindert, dass der Strich am Zeilenende hängen
+# bleibt und „Foil" allein in der nächsten Zeile steht.
+FOIL_ZUSATZ = "—\u00a0Foil"
+NAME_LINE_H_MM = 4.8          # Abstand zwischen umbrochenen Namenszeilen
+SET_LINE_H_MM = 3.6           # Abstand zwischen umbrochenen Set-Zeilen
+# Obergrenzen, damit ein verunglückter Eintrag nicht das halbe Blatt füllt.
+# Gekürzt wird sichtbar mit „…"; echte Namen erreichen die Grenze nicht.
+MAX_NAME_ZEILEN = 4
+MAX_SET_ZEILEN = 2
+# Anschrift: nicht kleiner als 10 pt, damit sie gut lesbar bleibt. Was dann noch
+# zu breit ist, wird umbrochen statt aus dem Fenster zu laufen.
+ADDRESS_FONT_PT = 11
+ADDRESS_MIN_FONT_PT = 10
+# Höhe, die der Anschrift im Fenster zur Verfügung steht (bis 90 mm, DIN 5008).
+ADDRESS_ZONE_H_MM = 38
+
 # Fold / hole marks at the left sheet edge (DIN 676).
 FOLD_MARKS_MM: Sequence[float] = (105.0, 210.0, 148.5)
 
@@ -105,6 +128,8 @@ HAIRLINE = (201, 196, 186)   # #C9C4BA  thin separators
 _COL_QTY_X = PAGE_MARGIN_MM
 _COL_CARD_X = PAGE_MARGIN_MM + 16
 _COL_COND_X = 128
+# Breite für Kartenname und Set: bis kurz vor die Zustandsspalte.
+_CARD_COL_W_MM = _COL_COND_X - _COL_CARD_X - 4   # 88
 _PRICE_RIGHT_X = PAGE_W_MM - PAGE_MARGIN_MM   # 190, prices right-aligned here
 _TOTALS_LABEL_RIGHT_X = 168
 
@@ -352,8 +377,114 @@ def _position_fields(pos):
     return qty, name, set_name, condition, unit_price, foil
 
 
-def seitenanzahl(anzahl_positionen: int) -> int:
+def umbrechen(pdf: FPDF, text, breite_mm: float,
+              max_zeilen: Optional[int] = None) -> List[str]:
+    """``text`` in Zeilen zerlegen, die in ``breite_mm`` passen.
+
+    Gemessen wird mit der Schrift, die auf ``pdf`` gerade eingestellt ist —
+    der Aufrufer stellt sie vorher ein. Umbrochen wird an Leerzeichen; ein
+    einzelnes Wort, das allein schon zu breit ist, wird hart getrennt, statt
+    über die Spalte hinauszulaufen.
+
+    Ein geschütztes Leerzeichen (``\u00a0``) hält zusammen, was nicht getrennt
+    werden soll — etwa „— Foil" am Ende eines Namens.
+
+    Mit ``max_zeilen`` wird nach so vielen Zeilen abgeschnitten und die letzte
+    mit „…" beendet — sichtbar gekürzt, nie still.
+    """
+    def passt(stueck: str) -> bool:
+        return pdf.get_string_width(stueck) <= breite_mm
+
+    zeilen: List[str] = []
+    aktuell = ""
+    # Bewusst nicht ``str.split()``: das trennte auch am geschützten Leerzeichen.
+    for wort in filter(None, re.split(r"[ \t\r\n]+", str(text or ""))):
+        kandidat = f"{aktuell} {wort}" if aktuell else wort
+        if passt(kandidat):
+            aktuell = kandidat
+            continue
+        if aktuell:
+            zeilen.append(aktuell)
+        while wort and not passt(wort):
+            schnitt = len(wort) - 1
+            while schnitt > 1 and not passt(wort[:schnitt]):
+                schnitt -= 1
+            zeilen.append(wort[:schnitt])
+            wort = wort[schnitt:]
+        aktuell = wort
+    if aktuell:
+        zeilen.append(aktuell)
+
+    if max_zeilen and len(zeilen) > max_zeilen:
+        letzte = zeilen[max_zeilen - 1]
+        while letzte and not passt(letzte + "…"):
+            letzte = letzte[:-1]
+        zeilen = zeilen[:max_zeilen - 1] + [letzte.rstrip() + "…"]
+    return zeilen
+
+
+def positionslayout(pdf: FPDF, positions: Sequence) -> List[dict]:
+    """Je Position die umbrochenen Textzeilen und die Höhe der Tabellenzeile.
+
+    Steht **vor** dem Zeichnen fest: die Seitenzahl („Seite 1 von 3") hängt
+    davon ab, wie hoch die Zeilen werden, und wird beim Anlegen der ersten
+    Seite schon gebraucht.
+    """
+    layout = []
+    for pos in positions:
+        qty, name, set_name, condition, unit_price, foil = _position_fields(pos)
+        display_name = f"{name} {FOIL_ZUSATZ}" if foil else name
+        pdf.set_font(_SERIF, "", 11)
+        name_zeilen = umbrechen(pdf, display_name, _CARD_COL_W_MM,
+                                MAX_NAME_ZEILEN) or [""]
+        pdf.set_font(_SERIF, "I", 8.5)
+        set_zeilen = umbrechen(pdf, set_name, _CARD_COL_W_MM, MAX_SET_ZEILEN)
+        hoehe = (ROW_H_MM
+                 + (len(name_zeilen) - 1) * NAME_LINE_H_MM
+                 + max(len(set_zeilen) - 1, 0) * SET_LINE_H_MM)
+        layout.append({
+            "qty": qty, "condition": condition, "unit_price": unit_price,
+            "name_zeilen": name_zeilen, "set_zeilen": set_zeilen,
+            "hoehe": hoehe,
+        })
+    return layout
+
+
+def adresse_einpassen(pdf: FPDF, zeilen: Sequence[str]):
+    """Anschrift so setzen, dass sie im Fenster des Kuverts bleibt.
+
+    Gibt ``(schriftgroesse_pt, zeilenabstand_mm, zeilen)`` zurück.
+
+    Eine Zeile, die nur knapp zu breit ist, wird über eine etwas kleinere
+    Schrift eingepasst (nie unter ``ADDRESS_MIN_FONT_PT``). Reicht das nicht,
+    wird sie umbrochen. Werden es dadurch mehr Zeilen, als ins Fenster passen,
+    rücken sie enger zusammen — lieber dicht als unterhalb des Fensters.
+    """
+    zeilen = [str(z) for z in zeilen]
+    groesse = float(ADDRESS_FONT_PT)
+    pdf.set_font(_SANS, "", groesse)
+    breiteste = max((pdf.get_string_width(z) for z in zeilen), default=0.0)
+    if breiteste > ADDRESS_WIDTH_MM:
+        passend = int(groesse * ADDRESS_WIDTH_MM / breiteste * 10) / 10
+        groesse = max(float(ADDRESS_MIN_FONT_PT), passend)
+        pdf.set_font(_SANS, "", groesse)
+
+    ausgabe: List[str] = []
+    for zeile in zeilen:
+        ausgabe.extend(umbrechen(pdf, zeile, ADDRESS_WIDTH_MM))
+
+    abstand = RECIPIENT_LINE_H_MM * groesse / ADDRESS_FONT_PT
+    if ausgabe and len(ausgabe) * abstand > ADDRESS_ZONE_H_MM:
+        abstand = ADDRESS_ZONE_H_MM / len(ausgabe)
+    return groesse, abstand, ausgabe
+
+
+def seitenanzahl(zeilen) -> int:
     """Wie viele Blätter der Beileger braucht.
+
+    ``zeilen`` ist entweder die **Anzahl** der Positionen (alle in der
+    üblichen Höhe ``ROW_H_MM``) oder die Liste der tatsächlichen Zeilenhöhen —
+    seit lange Namen umbrochen werden, sind nicht mehr alle Zeilen gleich hoch.
 
     Wird **vor** dem Zeichnen gebraucht, damit „Seite 1 von 3" schon beim
     Anlegen der Seite stehen kann. Nachträglich auf eine frühere Seite zu
@@ -363,13 +494,17 @@ def seitenanzahl(anzahl_positionen: int) -> int:
     Die Rechnung bildet die Schleife im Zeichencode nach; ein Test hält beide
     zusammen, damit sie nicht auseinanderlaufen.
     """
+    if isinstance(zeilen, int):
+        hoehen = [ROW_H_MM] * max(zeilen, 0)
+    else:
+        hoehen = [float(h) for h in zeilen]
     seiten = 1
     y = TABLE_TOP_MM + 8                    # Tabellenkopf belegt 8 mm
-    for _ in range(max(anzahl_positionen, 0)):
-        if y + ROW_H_MM > TABLE_BOTTOM_MM:
+    for hoehe in hoehen:
+        if y + hoehe > TABLE_BOTTOM_MM:
             seiten += 1
             y = CONT_TABLE_TOP_MM + 8
-        y += ROW_H_MM
+        y += hoehe
     if y + TOTALS_H_MM > TABLE_BOTTOM_MM:   # die Summen bleiben zusammen
         seiten += 1
     return seiten
@@ -438,14 +573,16 @@ def render_shipping_note(
 
     date_str = _format_date(date, lang)
 
-    gesamt_seiten = seitenanzahl(len(positions))
-
     pdf = FPDF(orientation="P", unit="mm", format="A4")
     pdf.set_auto_page_break(auto=False)
     pdf.set_compression(compress)
     pdf.set_margins(PAGE_MARGIN_MM, LOGO_TOP_MM, PAGE_MARGIN_MM)
     _register_fonts(pdf)
     pdf.add_page()
+
+    # Erst messen, dann zeichnen: die Zeilenhöhen bestimmen die Seitenzahl.
+    layout = positionslayout(pdf, positions)
+    gesamt_seiten = seitenanzahl([zeile["hoehe"] for zeile in layout])
 
     def text(x, y, s, family=_SERIF, style="", size=11, color=INK, w=0, align="L"):
         pdf.set_xy(x, y)
@@ -471,10 +608,13 @@ def render_shipping_note(
              SENDER_LINE_MM + 3.4)
 
     # --- Recipient address in the window ---
+    # Lange Zeilen liefen sonst rechts aus dem Fenster und ins Logo.
+    adr_groesse, adr_abstand, adr_zeilen = adresse_einpassen(pdf, body_lines)
     y = RECIPIENT_TOP_MM
-    for line in body_lines:
-        text(ADDRESS_LEFT_MM, y, line, _SANS, "", 11, INK, w=ADDRESS_WIDTH_MM)
-        y += RECIPIENT_LINE_H_MM
+    for line in adr_zeilen:
+        text(ADDRESS_LEFT_MM, y, line, _SANS, "", adr_groesse, INK,
+             w=ADDRESS_WIDTH_MM)
+        y += adr_abstand
 
     # --- Subject + city/date + gold rule ---
     text(PAGE_MARGIN_MM, SUBJECT_TOP_MM, t["subject"].format(number=order_number),
@@ -546,25 +686,31 @@ def render_shipping_note(
     y = tabellenkopf(TABLE_TOP_MM)
 
     subtotal = 0.0
-    for pos in positions:
+    for zeile in layout:
         # Passt die Zeile nicht mehr über die Fußzeile, kommt eine neue Seite.
         # Vorher lief die Tabelle einfach weiter und alles darunter stand
         # außerhalb des Blattes — im PDF vorhanden, auf dem Papier weg.
-        if y + ROW_H_MM > TABLE_BOTTOM_MM:
+        if y + zeile["hoehe"] > TABLE_BOTTOM_MM:
             y = neue_seite()
 
-        qty, name, set_name, condition, unit_price, foil = _position_fields(pos)
+        qty, condition, unit_price = (zeile["qty"], zeile["condition"],
+                                      zeile["unit_price"])
         if unit_price is not None:
             subtotal += float(unit_price) * float(qty or 1)
-        display_name = f"{name} — Foil" if foil else name
+        # Menge, Zustand und Preis stehen auf der ersten Textzeile; nur der
+        # Name (und notfalls das Set) läuft darunter weiter.
         text(_COL_QTY_X, y, f"{qty}×", _SERIF, "", 11, INK, w=16)
-        text(_COL_CARD_X, y, display_name, _SERIF, "", 11, INK, w=88)
+        for i, stueck in enumerate(zeile["name_zeilen"]):
+            text(_COL_CARD_X, y + i * NAME_LINE_H_MM, stueck, _SERIF, "", 11,
+                 INK, w=_CARD_COL_W_MM)
         text(_COL_COND_X, y, condition or "", _SERIF, "", 11, INK, w=34)
         if unit_price is not None:
             text(_PRICE_RIGHT_X - 34, y, _eur(unit_price, lang), _SERIF, "", 11, INK, w=34, align="R")
-        if set_name:
-            text(_COL_CARD_X, y + 4.6, set_name, _SERIF, "I", 8.5, GREY, w=88)
-        y += ROW_H_MM
+        set_y = y + (len(zeile["name_zeilen"]) - 1) * NAME_LINE_H_MM + 4.6
+        for i, stueck in enumerate(zeile["set_zeilen"]):
+            text(_COL_CARD_X, set_y + i * SET_LINE_H_MM, stueck, _SERIF, "I",
+                 8.5, GREY, w=_CARD_COL_W_MM)
+        y += zeile["hoehe"]
         pdf.set_draw_color(*HAIRLINE)
         pdf.line(PAGE_MARGIN_MM, y - 2, PAGE_W_MM - PAGE_MARGIN_MM, y - 2)
 
