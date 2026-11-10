@@ -22,6 +22,15 @@ Server-rendered (Jinja2 + Bootstrap 5 via CDN), SQLite. Betrieb im DACH-Raum.
   Die rohe Bulk-JSON nie vollständig in den Speicher laden — das sprengt den Pi.
 - **Kein Cardmarket-API-Zugang** derzeit. Bestellungen kommen per Gmail-Mail
   (`email_parser.py`, `gmail_auth.py`).
+- **Cardmarkets öffentlicher Produktkatalog liegt lokal vor**
+  (`cardmarket_katalog.py` → `data/cardmarket-products.db`): versiegelte
+  Magic-Produkte und Zubehör, zusammen unter 5 MB, ohne Anmeldung abrufbar —
+  das ist kein API-Zugang. Er ist für Produkte, was Scryfall für Einzelkarten
+  ist: die Quelle für Namen und Produktnummer. Er wird täglich von selbst
+  geprüft und atomar getauscht; eine unbrauchbare Lieferung ersetzt den
+  vorhandenen Stand nie. **Einzelkarten kommen weiterhin nur aus Scryfall**,
+  und der Katalog ist keine Preis- oder Finanzquelle. Die Sprache eines
+  Produkts kennt er nicht — die wählt der Mensch.
 - Labeldrucker **Niimbot B1 (50×30 mm)** wird später via USB am Pi angebunden.
 - **Die Buchhaltung gehört nicht mehr hierher.** Sie ist eine eigenständige
   Anwendung (Repository `ZurFestung-Buchhaltung`, eigener Dienst auf Port

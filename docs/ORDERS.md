@@ -227,12 +227,15 @@ Regal steht, weiß das Programm nicht.
 ### Drei Wege, ein Produkt anzulegen
 
 1. **Hinzufügen → Produkt hinzufügen** (`/cards/add?typ=display`): das Formular
-   öffnet ohne die Kartenfelder. Beim Tippen des Namens erscheinen die eigenen
-   Artikel (`/api/produkte`):
+   öffnet ohne die Kartenfelder. Beim Tippen des Namens erscheinen Vorschläge
+   (`/api/produkte`):
    - *Schon im Lager* — führt zum vorhandenen Artikel, um dort die Menge zu
      erhöhen. Zwei gleiche Einträge kann eine Bestellung nicht unterscheiden.
    - *Wie früher* — ein ausverkaufter Artikel als Vorlage: Name,
      Cardmarket-Name, Sprache und Art werden übernommen.
+   - *Cardmarket* — ein Eintrag aus dem Produktkatalog (siehe unten): Name in
+     Cardmarkets Schreibweise, Produktnummer und Artikelart. Die Sprache
+     bleibt zu wählen.
 2. **Aus der Bestellposition** („Als Produkt anlegen →" in der
    Bestellübersicht und in der Handzuordnung, `/cards/add?position=<id>`):
    Name und Sprache kommen aus der Mail. Menge und Preis ausdrücklich nicht —
@@ -245,6 +248,48 @@ Regal steht, weiß das Programm nicht.
    wie er in Bestellungen hieß („So stand dieser Artikel in Bestellungen");
    „Übernehmen" setzt die Felder, gespeichert wird mit dem Knopf.
 
+### Der Cardmarket-Produktkatalog
+
+Einzelkarten rasten über die lokalen Scryfall-Daten ein. Für Produkte
+übernimmt das Cardmarkets öffentlicher Produktkatalog
+(`cardmarket_katalog.py`, lokal in `data/cardmarket-products.db`):
+
+| Datei bei Cardmarket | Inhalt | Umfang |
+|---|---|---|
+| `products_nonsingles_1.json` | Magic, versiegelt (Displays, Booster, Precons, Bundles, Sets) | rund 5.000 Einträge, 1 MB |
+| `products_accessories.json` | Zubehör (Sleeves, Spielmatten, Deckboxen, Alben …) | rund 20.000 Einträge, 4 MB |
+
+Die Dateien sind ohne Anmeldung abrufbar — **kein API-Zugang**. Je Produkt
+gibt es Nummer (`idProduct` → `cards.cardmarket_id`), Name und Kategorie.
+**Keine Sprache, kein Preis.** Die Einzelkarten-Datei (20 MB) wird nicht
+geladen; für Karten bleibt Scryfall die einzige Quelle.
+
+- **Aktuell halten:** einmal täglich wird bei Cardmarket nachgefragt
+  (`KatalogWaechter`, startet mit der Anwendung). Geladen wird nur bei einer
+  neuen Fassung (ETag). Von Hand: *System → Kartendaten → Katalog jetzt
+  aktualisieren* oder `python -m TCGInventory.cardmarket_katalog`.
+- **Nie kaputt ersetzen:** erst eine neue Datei aufbauen, dann atomar
+  tauschen. Liefert Cardmarket etwas Unbrauchbares (Fehlerseite, leere oder
+  winzige Liste, übergroße Datei) oder ist nicht erreichbar, bleibt der
+  bisherige Katalog in Betrieb.
+- **Namen bereinigen:** der Export schreibt Anführungszeichen doppelt
+  (`""Turtle Power!""`); gespeichert wird ein einfaches.
+- **Suche:** alle eingegebenen Wörter müssen vorkommen („hobbit play box").
+  Versiegelte Ware steht vor Zubehör, dann Namensanfang, dann die neuesten
+  Produkte.
+- **Aus der Bestellposition:** steht der Name aus der Mail genau einmal im
+  Katalog, kommen Produktnummer und Artikelart gleich mit. Bei gekürzten
+  Namen und bei gleichnamigen Einträgen wird nichts ausgesucht — die
+  Kandidaten erscheinen in der Vorschlagsliste.
+- **Von Hand geändert:** wer den Cardmarket-Namen nach der Auswahl ändert,
+  verliert die Produktnummer wieder — sie gehörte zum gewählten Eintrag.
+- Der Katalog ist jederzeit neu ladbar und deshalb **nicht** Teil der
+  Sicherung (`scripts/backup.py`, wie die Scryfall-Daten).
+
+Am Abgleich im Bestelleingang ändert der Katalog nichts: verglichen werden
+weiter `cardmarket_name` und Sprache am Artikel. Der Katalog sorgt nur dafür,
+dass dort der richtige Name steht.
+
 ### Was bewusst nicht passiert
 
 - **Kein Lernen beim Zuordnen.** Die frühere gelernte Zuordnung
@@ -253,10 +298,16 @@ Regal steht, weiß das Programm nicht.
 - **Kein stilles Zusammenführen.** Wer ein vorhandenes Produkt ein zweites
   Mal anlegt, bekommt weiterhin einen zweiten Eintrag — mit eigenem
   Einkaufspreis. Das Formular weist vorher auf den vorhandenen hin.
-- **Kein Produktkatalog.** Vorschläge kommen nur aus dem eigenen Bestand.
+- **Keine Preise aus dem Katalog.** Cardmarket bietet daneben einen
+  Preisführer an; er wird nicht geladen.
 
 ## Tests
 
+- **`test_cardmarket_katalog.py`** — Katalog lesen und bereinigen, neue
+  Fassung übernehmen, unverändert nicht laden, kaputte Lieferung und
+  fehlendes Netz lassen den alten Stand stehen, Suche und Reihenfolge,
+  selbsttätiges Aktualisieren, Vorschläge im Formular, Vorbelegung aus der
+  Bestellposition, Seite „Kartendaten". Kein Test geht ins Netz.
 - **`test_produkt_anlegen.py`** — Sprache bei Produkten, Formular als Produkt,
   Anlegen aus der Bestellposition samt Rückweg und Zuordnung, Vorschläge aus
   dem eigenen Bestand, Namensvorschlag am Artikel, Hinweis in der

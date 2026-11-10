@@ -35,11 +35,12 @@
   <div class="mb-3 position-relative">
     <label class="form-label">Name</label>
     <input id="name-input" class="form-control" autocomplete="off" name="name" value="{{ card[1] if card else vorgabe.name or '' }}" required>
-    <div id="name-suggestions" class="dropdown-menu w-100"></div>
+    <div id="name-suggestions" class="dropdown-menu w-100 produkt-vorschlaege"></div>
     <div class="form-text d-none" id="product-name-hint">
-      Beim Tippen erscheinen Ihre eigenen Artikel: was schon im Lager liegt
-      (dort die Menge erhöhen statt doppelt anlegen) und was früher einmal da
-      war (als Vorlage übernehmen).
+      Beim Tippen erscheinen Vorschläge: was schon im Lager liegt (dort die
+      Menge erhöhen statt doppelt anlegen), was früher einmal da war, und der
+      Cardmarket-Katalog — von dort kommen Cardmarkets Schreibweise und die
+      Produktnummer. Mehrere Wörter grenzen ein („hobbit play box").
     </div>
   </div>
   <img id="preview-image" class="img-thumbnail mb-3{% if not card or not card[12] %} d-none{% endif %}" style="max-width:200px;" src="{{ card[12] if card else '' }}">
@@ -89,11 +90,17 @@
       erkennen wären. Bei Einzelkarten bleibt das Feld weg — dort trägt der
       Identitätspfad aus Set, Nummer, Sprache und Foil.
     #}
-    <div class="mb-3">
+    <div class="mb-3 position-relative">
       <label class="form-label">Name in der Cardmarket-Bestellmail</label>
       <input class="form-control" name="cardmarket_name" id="cardmarket-name-input"
+             autocomplete="off"
              value="{{ card[16] if card and card|length > 16 else vorgabe.cardmarket_name or '' }}"
              placeholder="z. B. The Hobbit Play Booster Box">
+      <div id="cardmarket-suggestions" class="dropdown-menu w-100 produkt-vorschlaege"></div>
+      {# Die Produktnummer aus dem Katalog. Das Feld selbst steht weiter unten
+         bei den Kartenangaben (dort füllt Scryfall es); hier wird sie nur
+         angezeigt, damit man sieht, dass der Artikel „eingerastet" ist. #}
+      <div class="form-text" id="katalog-hinweis"></div>
       <div class="form-text">
         Genau so, wie der Artikel in der Bestellmail steht — dann wird die
         Position beim Bestelleingang von selbst zugeordnet. Leer lassen, wenn
@@ -167,7 +174,7 @@
 
     <div class="mb-3">
       <label class="form-label">Cardmarket-ID</label>
-      <input class="form-control" name="cardmarket_id" value="{{ card[8] if card else '' }}">
+      <input class="form-control" name="cardmarket_id" value="{{ card[8] if card else vorgabe.cardmarket_id or '' }}">
     </div>
     <div class="mb-3">
       <label class="form-label">Sammlernummer</label>
@@ -234,9 +241,81 @@ document.addEventListener('DOMContentLoaded', function() {
     btn.addEventListener('click', () => {
       if (cardmarketNameInput) cardmarketNameInput.value = btn.dataset.name || '';
       if (btn.dataset.language) setzeSprache(btn.dataset.language);
-      if (cardmarketNameInput) cardmarketNameInput.focus();
+      if (cardmarketNameInput) {
+        cardmarketNameInput.focus();
+        // Wie eine Eingabe behandeln: der Katalog zeigt dann die passenden
+        // Einträge, und mit einem Klick kommt die Produktnummer dazu.
+        cardmarketNameInput.dispatchEvent(new Event('input'));
+      }
     });
   });
+
+  // --- Cardmarket-Katalog --------------------------------------------------
+  const cardmarketIdInput = document.querySelector('input[name=cardmarket_id]');
+  const cardmarketSuggestions = document.getElementById('cardmarket-suggestions');
+  const katalogHinweis = document.getElementById('katalog-hinweis');
+
+  function zeigeKatalogHinweis(kategorie) {
+    if (!katalogHinweis) return;
+    const nr = cardmarketIdInput ? cardmarketIdInput.value.trim() : '';
+    katalogHinweis.textContent = (nr && itemTypeSelect.value !== 'card')
+      ? '✓ Aus dem Cardmarket-Katalog · Produktnr. ' + nr + (kategorie ? ' · ' + kategorie : '')
+      : '';
+  }
+
+  function uebernehmeKatalog(p) {
+    if (cardmarketNameInput) cardmarketNameInput.value = p.cardmarket_name || p.name;
+    if (cardmarketIdInput) cardmarketIdInput.value = p.cardmarket_id || '';
+    zeigeKatalogHinweis(p.kategorie);
+  }
+
+  if (cardmarketNameInput && cardmarketSuggestions) {
+    let warte = null;
+    cardmarketNameInput.addEventListener('input', function() {
+      // Von Hand geändert: die Produktnummer gehört nicht mehr sicher dazu.
+      if (itemTypeSelect.value !== 'card' && cardmarketIdInput) {
+        cardmarketIdInput.value = '';
+        zeigeKatalogHinweis('');
+      }
+      clearTimeout(warte);
+      const query = this.value.trim();
+      if (query.length < 2 || itemTypeSelect.value === 'card') {
+        cardmarketSuggestions.classList.remove('show');
+        return;
+      }
+      warte = setTimeout(function() {
+        fetch(`/api/produkte?nur=katalog&q=${encodeURIComponent(query)}`)
+          .then(resp => resp.ok ? resp.json() : [])
+          .then(liste => {
+            cardmarketSuggestions.innerHTML = '';
+            (Array.isArray(liste) ? liste : []).forEach(p => {
+              const item = document.createElement('button');
+              item.type = 'button';
+              item.className = 'dropdown-item text-wrap';
+              const kopf = document.createElement('div');
+              kopf.textContent = p.name;
+              const zusatz = document.createElement('div');
+              zusatz.className = 'small text-muted';
+              zusatz.textContent = (p.kategorie || 'Katalog') + ' · Nr. ' + p.cardmarket_id;
+              item.appendChild(kopf);
+              item.appendChild(zusatz);
+              item.addEventListener('click', () => {
+                uebernehmeKatalog(p);
+                cardmarketSuggestions.classList.remove('show');
+              });
+              cardmarketSuggestions.appendChild(item);
+            });
+            cardmarketSuggestions.classList.toggle('show', cardmarketSuggestions.children.length > 0);
+          })
+          .catch(() => cardmarketSuggestions.classList.remove('show'));
+      }, 300);
+    });
+    document.addEventListener('click', (e) => {
+      if (!cardmarketNameInput.contains(e.target) && !cardmarketSuggestions.contains(e.target)) {
+        cardmarketSuggestions.classList.remove('show');
+      }
+    });
+  }
 
   // Produkte: Vorschläge aus dem eigenen Bestand statt aus Scryfall.
   function zeigeProduktVorschlaege(liste) {
@@ -249,7 +328,20 @@ document.addEventListener('DOMContentLoaded', function() {
       const zusatz = document.createElement('div');
       zusatz.className = 'small text-muted';
       const sprache = p.language ? ' · ' + p.language.toUpperCase() : '';
-      if (p.vorhanden) {
+      if (p.quelle === 'katalog') {
+        kopf.textContent = 'Cardmarket: ' + p.name;
+        zusatz.textContent = (p.kategorie || 'Katalog') + ' · Nr. ' + p.cardmarket_id
+          + ' — übernehmen, dann Sprache wählen';
+        item.addEventListener('click', () => {
+          nameInput.value = p.name;
+          uebernehmeKatalog(p);
+          for (const opt of itemTypeSelect.options) {
+            if (opt.value === p.item_type) { opt.selected = true; break; }
+          }
+          updateItemTypeVisibility();
+          if (languageSelect) languageSelect.focus();
+        });
+      } else if (p.vorhanden) {
         kopf.textContent = 'Schon im Lager: ' + p.name + sprache;
         zusatz.textContent = p.quantity + '× · ' + (p.location_hint || 'ohne Standort')
           + ' — öffnen und dort die Menge erhöhen';
@@ -295,6 +387,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
   itemTypeSelect.addEventListener('change', updateItemTypeVisibility);
   updateItemTypeVisibility();
+  zeigeKatalogHinweis({{ (vorgabe.kategorie or '')|tojson }});
+  {% if vorgabe.gekuerzt %}
+  // Der Name aus der Mail ist gekürzt: gleich die Kandidaten aus dem Katalog
+  // zeigen, statt den vollständigen Namen raten zu lassen.
+  fetch(`/api/produkte?q=${encodeURIComponent(nameInput.value.trim())}`)
+    .then(resp => resp.ok ? resp.json() : [])
+    .then(liste => zeigeProduktVorschlaege(Array.isArray(liste) ? liste : []))
+    .catch(() => {});
+  {% endif %}
 
   nameInput.addEventListener('input', function() {
     clearTimeout(timeout);

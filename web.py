@@ -68,6 +68,7 @@ from TCGInventory import sales_export
 from TCGInventory import sortierung
 from TCGInventory import backup_status
 from TCGInventory import build_card_db
+from TCGInventory import cardmarket_katalog
 from TCGInventory import card_scanner
 from TCGInventory.api_v1 import api_v1
 from pathlib import Path
@@ -324,6 +325,11 @@ def _like_muster(text: str) -> str:
     return f"%{gefiltert}%"
 
 
+#: Wie viele Vorschlaege das Produktformular je Quelle hoechstens zeigt.
+EIGENE_VORSCHLAEGE = 5
+KATALOG_VORSCHLAEGE = 12
+
+
 @app.route("/api/produkte")
 @login_required
 def produkte_api():
@@ -338,16 +344,23 @@ def produkte_api():
     * **frueher** -- der Artikel war einmal da und ist ausverkauft. Name,
       Cardmarket-Name und Sprache lassen sich von dort uebernehmen, statt sie
       noch einmal zu tippen.
+    * **katalog** -- der lokal vorgehaltene Cardmarket-Produktkatalog
+      (``cardmarket_katalog``). Von dort kommen der Name, wie Cardmarket ihn
+      schreibt, und die Produktnummer. Die Sprache kennt der Katalog nicht;
+      die waehlt weiterhin der Mensch.
 
     Rein lesend, und nur fuer Produkte (``item_type <> 'card'``).
     """
     suche = (request.args.get("q") or "").strip()
     if len(suche) < 2:
         return jsonify([])
+    # ``nur=katalog``: fuer das Feld „Name in der Cardmarket-Bestellmail" --
+    # dort helfen die eigenen Artikel nicht, nur Cardmarkets Schreibweise.
+    nur_katalog = request.args.get("nur") == "katalog"
     muster = _like_muster(suche)
     with sqlite3.connect(DB_FILE) as conn:
         conn.row_factory = sqlite3.Row
-        zeilen = conn.execute(
+        zeilen = [] if nur_katalog else conn.execute(
             "SELECT id, name, item_type, language, quantity, location_hint, "
             "       cardmarket_name, status "
             "FROM cards WHERE item_type <> 'card' "
@@ -379,10 +392,29 @@ def produkte_api():
             "location_hint": z["location_hint"] or "",
             "cardmarket_name": z["cardmarket_name"] or "",
             "vorhanden": vorhanden,
+            "quelle": "lager" if vorhanden else "frueher",
             "edit_url": url_for("edit_card_view", card_id=z["id"]),
         })
-        if len(ergebnis) >= 8:
+        if len(ergebnis) >= EIGENE_VORSCHLAEGE:
             break
+
+    for treffer in cardmarket_katalog.suche(
+            suche, limit=KATALOG_VORSCHLAEGE,
+            db_path=cardmarket_katalog.DB_PATH):
+        ergebnis.append({
+            "id": None,
+            "name": treffer["name"],
+            "item_type": treffer["item_type"],
+            "language": "",
+            "quantity": 0,
+            "location_hint": "",
+            "cardmarket_name": treffer["name"],
+            "cardmarket_id": treffer["id_product"],
+            "kategorie": treffer["kategorie"],
+            "vorhanden": False,
+            "quelle": "katalog",
+            "edit_url": None,
+        })
     return jsonify(ergebnis)
 
 
@@ -971,6 +1003,17 @@ def _vorgabe_fuer_neuen_artikel() -> dict:
                 "bestellnummer": zeile["order_number"] or "",
                 "kaeufer": zeile["buyer_name"] or "",
             })
+            # Steht der Name genau einmal im Cardmarket-Katalog, kommen
+            # Produktnummer und Artikelart von dort. Bei gekuerzten Namen und
+            # bei mehreren gleichnamigen Eintraegen wird nichts ausgesucht --
+            # die Vorschlagsliste zeigt die Kandidaten.
+            if not gekuerzt:
+                treffer = cardmarket_katalog.finde_genau(
+                    name, db_path=cardmarket_katalog.DB_PATH)
+                if len(treffer) == 1:
+                    vorgabe["cardmarket_id"] = treffer[0]["id_product"]
+                    vorgabe["kategorie"] = treffer[0]["kategorie"]
+                    vorgabe.setdefault("item_type", treffer[0]["item_type"])
             vorgabe.setdefault("item_type", "display")
     return vorgabe
 
@@ -1879,8 +1922,35 @@ def _aktualisiere_kartendaten(erzwingen: bool) -> None:
 @login_required
 def card_data_view():
     """Stand der Kartendaten anzeigen und Aktualisierung anbieten."""
-    return render_template("card_data.html", info=_kartendaten_info(),
-                           status=CARDDATA_STATUS)
+    return render_template(
+        "card_data.html", info=_kartendaten_info(), status=CARDDATA_STATUS,
+        katalog=cardmarket_katalog.info(cardmarket_katalog.DB_PATH),
+        katalog_waechter=cardmarket_katalog.WAECHTER_STATUS)
+
+
+@app.route("/system/kartendaten/cardmarket", methods=["POST"])
+@login_required
+def cardmarket_katalog_update():
+    """Den Cardmarket-Produktkatalog jetzt aktualisieren.
+
+    Der Katalog haelt sich von selbst aktuell (einmal taeglich); der Knopf ist
+    fuer den ersten Lauf und fuer den Fall, dass ein neues Produkt gebraucht
+    wird, bevor der naechste Durchgang es geholt hat. Die Dateien sind klein
+    (zusammen unter 5 MB) -- deshalb laeuft das im Aufruf und nicht im
+    Hintergrund.
+    """
+    try:
+        ergebnis = cardmarket_katalog.aktualisiere(
+            cardmarket_katalog.DB_PATH,
+            erzwingen=bool(request.form.get("erzwingen")))
+        if ergebnis["aktualisiert"]:
+            flash(f"Cardmarket-Katalog aktualisiert: {ergebnis['anzahl']} Produkte.")
+        else:
+            flash("Der Cardmarket-Katalog war bereits aktuell.")
+    except Exception as exc:                       # noqa: BLE001
+        flash(f"Cardmarket-Katalog nicht aktualisiert: {exc} "
+              "Der bisherige Stand bleibt in Betrieb.", "error")
+    return redirect(url_for("card_data_view"))
 
 
 @app.route("/system/kartendaten/aktualisieren", methods=["POST"])
@@ -2856,6 +2926,10 @@ if __name__ == "__main__":
     # Start the order ingestion service
     order_service = get_order_service()
     order_service.start()
+
+    # Den Cardmarket-Produktkatalog im Hintergrund aktuell halten: einmal am
+    # Tag nachfragen, geladen wird nur bei einer neuen Fassung.
+    cardmarket_katalog.KatalogWaechter(cardmarket_katalog.DB_PATH).start()
     
     host = os.environ.get("FLASK_RUN_HOST", "0.0.0.0")
     port = int(os.environ.get("FLASK_RUN_PORT", 5000))
