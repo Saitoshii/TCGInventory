@@ -29,6 +29,28 @@
       <label class="form-label">Menge</label>
       <input type="number" class="form-control" name="quantity" min="1" value="{{ card[6] if card else 1 }}">
     </div>
+    {#
+      Die Sprache gilt für jede Artikelart, nicht nur für Einzelkarten. Sie
+      stand früher im Kartenblock und war bei Displays und Precons
+      ausgeblendet — gespeichert wurde dann eine leere Sprache. Der
+      Bestelleingang vergleicht sie aber: steht in der Mail „English", fand
+      er den Artikel nie, auch wenn der Cardmarket-Name genau stimmte.
+    #}
+    <div class="col-md-4 mb-3">
+      <label class="form-label">Sprache</label>
+      <select class="form-select" name="language" id="language-select">
+        {% set lang = card[3] if card else '' %}
+        <option value="">– keine –</option>
+        {% for l in ['de', 'en', 'fr', 'it', 'es', 'ja'] %}
+        <option value="{{ l }}" {% if lang==l %}selected{% endif %}>{{ l.upper() }}</option>
+        {% endfor %}
+      </select>
+      <div class="form-text d-none" id="language-hint">
+        Bei Displays und Precons bitte angeben: die Bestellung unterscheidet
+        die englische von der deutschen Ausgabe. Bei Zubehör ohne Sprache
+        leer lassen.
+      </div>
+    </div>
   </div>
 
   <!-- Standort für Displays / Zubehör / Sonstiges (keine Ordnerplätze) -->
@@ -61,16 +83,6 @@
   <!-- Nur für Einzelkarten relevante Felder -->
   <div id="card-only-fields">
     <div class="row g-3">
-      <div class="col-md-4 mb-3">
-        <label class="form-label">Sprache</label>
-        <select class="form-select" name="language">
-          {% set lang = card[3] if card else '' %}
-          <option value="">– keine –</option>
-          {% for l in ['de', 'en', 'fr', 'it', 'es', 'ja'] %}
-          <option value="{{ l }}" {% if lang==l %}selected{% endif %}>{{ l.upper() }}</option>
-          {% endfor %}
-        </select>
-      </div>
       <div class="col-md-4 mb-3">
         <label class="form-label">Zustand</label>
         <select class="form-select" name="condition">
@@ -167,6 +179,8 @@ document.addEventListener('DOMContentLoaded', function() {
     typeHint.textContent = isCard
       ? 'Einzelkarte – bekommt automatisch einen Ordnerplatz.'
       : 'Produkt – kein Ordnerplatz, nur ein freier Standort (Regal/Box).';
+    const languageHint = document.getElementById('language-hint');
+    if (languageHint) languageHint.classList.toggle('d-none', isCard);
   }
 
   itemTypeSelect.addEventListener('change', updateItemTypeVisibility);
