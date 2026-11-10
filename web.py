@@ -37,7 +37,6 @@ from TCGInventory.card_scanner import (
     fetch_card_info_by_name,
     autocomplete_names,
     fetch_variants,
-    find_variant,
     find_by_identity,
 )
 from TCGInventory.dragonshield import (
@@ -798,6 +797,54 @@ def _parse_csv_bytes(csv_bytes: bytes) -> list[dict]:
     return rows
 
 
+#: Schreibweisen, die in einer JSON-Datei „Foil" bedeuten.
+_JSON_FOIL = {"1", "true", "yes", "ja", "foil"}
+
+
+def _json_eintrag(item) -> tuple[str, dict] | None:
+    """Einen Eintrag der JSON-Liste einordnen.
+
+    Gibt ``(art, zeile)`` zurück oder ``None``, wenn mit dem Eintrag nichts
+    anzufangen ist (keine Zeichenkette, kein Objekt, kein Name).
+
+    * ``("csv", zeile)`` — der Eintrag nennt Set oder Kartennummer. Er geht
+      **denselben Weg wie eine CSV-Zeile**: Identität aus Set, Nummer und
+      Sprache, Anreicherung über die lokale Scryfall-Datenbank, und was sich
+      nicht eindeutig auflösen lässt, landet in Needs-Review. Kein zweiter
+      Codepfad, und kein Raten bei unvollständigen Angaben.
+    * ``("json", zeile)`` — nur ein Name (mit oder ohne Menge, Sprache,
+      Zustand, Foil). Das ist dieselbe Suche wie bei der Texteingabe „ein Name
+      pro Zeile"; die mitgegebenen Angaben bleiben erhalten.
+
+    Die Schlüssel werden wie CSV-Spalten behandelt (klein, Leerzeichen als
+    Unterstrich), damit ``extract_row`` beide Quellen gleich liest. ``foil``
+    wird auf die Spalte ``printing`` abgebildet.
+    """
+    if isinstance(item, str):
+        name = item.strip()
+        return ("json", {"name": name}) if name else None
+    if not isinstance(item, dict):
+        return None
+
+    zeile: dict = {}
+    for schluessel, wert in item.items():
+        if not isinstance(schluessel, str) or wert is None \
+                or isinstance(wert, (dict, list)):
+            continue
+        zeile[schluessel.strip().lower().replace(" ", "_")] = str(wert).strip()
+
+    if not zeile.get("printing") and zeile.get("foil", "").lower() in _JSON_FOIL:
+        zeile["printing"] = "Foil"
+
+    hat_identitaet = any(zeile.get(k) for k in
+                         ("set_code", "set", "card_number", "collector_number"))
+    if hat_identitaet:
+        return "csv", zeile
+    if zeile.get("card_name") or zeile.get("name"):
+        return "json", zeile
+    return None
+
+
 def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: bytes | None) -> None:
     """Background task to process bulk upload files."""
     global BULK_PROGRESS, BULK_DONE, BULK_MESSAGE
@@ -811,14 +858,35 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
                 break
 
         entries: list[tuple[str, object]] = []
+        # Was an einer Datei nicht stimmte. Die Hinweise stehen am Ende in der
+        # Meldung — eine unlesbare Datei soll weder still verschwinden noch
+        # die übrigen Eingaben mitreißen.
+        hinweise: list[str] = []
 
         if json_bytes:
             import json
 
-            data = json.loads(json_bytes.decode("utf-8-sig"))
-            if isinstance(data, list):
+            try:
+                data = json.loads(json_bytes.decode("utf-8-sig"))
+            except (UnicodeDecodeError, ValueError) as exc:
+                data = None
+                hinweise.append(f"Die JSON-Datei ist nicht lesbar ({exc}).")
+            if data is not None and not isinstance(data, list):
+                hinweise.append(
+                    "Die JSON-Datei muss eine Liste enthalten: Kartennamen "
+                    "oder Objekte mit „name\".")
+            elif data:
+                uebersprungen = 0
                 for item in data:
-                    entries.append(("json", item))
+                    eintrag = _json_eintrag(item)
+                    if eintrag is None:
+                        uebersprungen += 1
+                    else:
+                        entries.append(eintrag)
+                if uebersprungen:
+                    hinweise.append(
+                        f"{uebersprungen} JSON-Eintrag/Einträge ohne Namen "
+                        "übersprungen.")
 
         if csv_bytes:
             try:
@@ -827,7 +895,7 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
                     entries.append(("csv", row))
             except ValueError as e:
                 # Record error but continue processing other inputs
-                BULK_MESSAGE = str(e)
+                hinweise.append(str(e))
 
         for name in form_data.get("cards", "").splitlines():
             name = name.strip()
@@ -839,25 +907,29 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
 
         for idx, (kind, item) in enumerate(entries):
             if kind == "json":
-                entry = item
-                name = entry.get("name") if isinstance(entry, dict) else entry if isinstance(entry, str) else None
-                if not name:
-                    BULK_PROGRESS = int((idx + 1) / total * 100)
-                    continue
+                # Nur ein Name: dieselbe Suche wie bei der Texteingabe. Was die
+                # Datei darüber hinaus sagt (Menge, Sprache, Zustand, Foil,
+                # Einkaufspreis), bleibt erhalten statt verworfen zu werden.
+                # Der Hinweis von extract_row („Set-Code fehlt") ist hier
+                # ohne Belang — gebraucht werden nur die bereinigten Felder.
+                fields, _ = extract_row(item)
+                name = fields["name"]
                 info = fetch_card_info_by_name(name) or {}
                 UPLOAD_QUEUE.append(
                     {
                         "name": info.get("name", name),
                         "set_code": set_code or info.get("set_code", ""),
-                        "language": info.get("language", ""),
-                        "condition": "",
-                        "quantity": 1,
+                        "language": fields["language"] or info.get("language", ""),
+                        "condition": fields["condition"],
+                        "condition_raw": fields["condition_raw"],
+                        "quantity": fields["quantity"],
+                        "price": fields["price"],
                         "cardmarket_id": info.get("cardmarket_id", ""),
                         "folder_id": folder_id,
                         "collector_number": info.get("collector_number", ""),
                         "scryfall_id": info.get("scryfall_id", ""),
                         "image_url": info.get("image_url", ""),
-                        "foil": False,
+                        "foil": fields["foil"],
                     }
                 )
                 added_any = True
@@ -959,6 +1031,10 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
             BULK_MESSAGE = "Keine Karte eindeutig aufgelöst." + review_note
         else:
             BULK_MESSAGE = "Keine Karten hinzugefügt."
+        # Hinweise zu den Dateien voranstellen. Zuvor überschrieb die Meldung
+        # oben jeden Lesefehler — er war dann nirgends mehr zu sehen.
+        if hinweise:
+            BULK_MESSAGE = " ".join(hinweise) + " " + BULK_MESSAGE
     except Exception as exc:
         BULK_DONE = True
         BULK_PROGRESS = 100
@@ -1354,82 +1430,9 @@ def bulk_add_view():
         BULK_MESSAGE = None
 
         form_data = request.form.to_dict()
+        # Die Dateien werden hier nur gelesen. Verarbeitet werden sie im
+        # Hintergrundlauf — an **einer** Stelle für JSON, CSV und Texteingabe.
         json_file = request.files.get("json_file")
-
-
-
-
-        if json_file and json_file.filename:
-            try:
-                import json
-
-                data = json.load(json_file)
-                if isinstance(data, list):
-                    for entry in data:
-                        if isinstance(entry, dict):
-                            name = entry.get("name")
-                            set_row = entry.get("set_code", "")
-                            card_no = entry.get("collector_number", "")
-                            language = entry.get("language", "")
-                            condition = entry.get("condition", "")
-                            qty = int(entry.get("quantity", 1) or 1)
-                            foil_flag = str(entry.get("foil", "")).lower() in {
-                                "1",
-                                "true",
-                                "yes",
-                                "foil",
-                            }
-                        else:
-                            name = str(entry)
-                            set_row = ""
-                            card_no = ""
-                            language = ""
-                            condition = ""
-                            qty = 1
-                            foil_flag = False
-                        if not name:
-                            continue
-                        info = fetch_card_info_by_name(name)
-                        variant = None
-                        if set_row:
-                            variant = find_variant(name, set_row, card_no or None)
-                        if not variant and info and card_no and info.get("collector_number") != card_no:
-                            variant = find_variant(
-                                name,
-                                set_row or info.get("set_code", ""),
-                                card_no,
-                            )
-                        if variant:
-                            info = variant
-                            if not card_no:
-                                card_no = variant.get("collector_number", card_no)
-                            set_row = variant.get("set_code", set_row)
-                        elif info and not card_no:
-                            card_no = info.get("collector_number", "")
-                        if not info:
-                            info = {}
-                        UPLOAD_QUEUE.append(
-                            {
-                                "name": info.get("name", name),
-                                "set_code": set_row or set_code or info.get("set_code", ""),
-                                "language": language or info.get("language", ""),
-                                "condition": condition,
-                                "quantity": qty,
-                                "cardmarket_id": info.get("cardmarket_id", ""),
-                                "folder_id": folder_id,
-                                "collector_number": card_no or info.get("collector_number", ""),
-                                "scryfall_id": info.get("scryfall_id", ""),
-                                "image_url": info.get("image_url", ""),
-                                "foil": foil_flag,
-                            }
-                        )
-                        added_any = True
-            except Exception:
-                flash("Invalid JSON file")
-
-        # handle uploaded CSV file
-
-
         csv_file = request.files.get("csv_file")
         json_bytes = json_file.read() if json_file and json_file.filename else None
         csv_bytes = csv_file.read() if csv_file and csv_file.filename else None
@@ -1446,7 +1449,7 @@ def bulk_add_view():
 @app.route("/cards/bulk_add/progress")
 @login_required
 def bulk_add_progress():
-    global BULK_PROGRESS, BULK_DONE, BULK_MESSAGE
+    global BULK_MESSAGE
     if BULK_DONE and BULK_MESSAGE:
         flash(BULK_MESSAGE)
         BULK_MESSAGE = None

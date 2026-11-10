@@ -86,6 +86,42 @@ lokalen Scryfall-Datenbank landen unter
 werden Set-Code, Kartennummer und Sprache korrigiert und die Anreicherung erneut
 versucht.
 
+## JSON-Datei
+
+Neben CSV nimmt der Bulk-Import eine JSON-Datei an. Sie enthält eine **Liste**;
+jeder Eintrag ist ein Kartenname oder ein Objekt.
+
+```json
+[
+  "Lightning Bolt",
+  {"name": "Sol Ring", "quantity": 2, "foil": true},
+  {"name": "Ezio, Brash Novice", "set_code": "ACR", "collector_number": "56",
+   "language": "en", "condition": "NM", "quantity": 1}
+]
+```
+
+Es gibt dafür keinen eigenen Codepfad. `web._json_eintrag` ordnet jeden
+Eintrag ein:
+
+| Eintrag | Weg |
+|---|---|
+| nennt `set_code`/`set` **oder** `collector_number`/`card_number` | wie eine CSV-Zeile: `extract_row` → `find_by_identity`. Fehlt eines von beiden oder gibt es keinen Scryfall-Treffer → Needs-Review |
+| nur ein Name (Zeichenkette oder Objekt mit `name`) | dieselbe Namenssuche wie die Texteingabe „ein Name pro Zeile"; `quantity`, `language`, `condition`, `foil` und `price` bleiben erhalten |
+| weder Zeichenkette noch Objekt, oder ohne Namen | übersprungen und in der Meldung gezählt |
+
+Die Schlüssel werden wie CSV-Spalten gelesen (`Card Name` = `card_name` =
+`name`), die Werte genauso normalisiert (Sprache, Zustand, Set-Code). `foil`
+darf `true`, `1`, `"yes"`, `"ja"` oder `"Foil"` sein und entspricht
+`"printing": "Foil"`.
+
+**Ein Set ohne Kartennummer wird nicht geraten.** Früher nahm der JSON-Weg in
+diesem Fall die erste Ausgabe des Namens im Set; jetzt geht die Zeile in
+Needs-Review, wie beim CSV-Import.
+
+Ist die Datei nicht lesbar oder keine Liste, steht das in der Meldung nach dem
+Import. Eine CSV-Datei und die Texteingabe im selben Upload werden trotzdem
+verarbeitet.
+
 ## Doppelte Zeilen
 
 Identische Identitäten (`set_code` + `collector_number` + `language` + `foil`)
