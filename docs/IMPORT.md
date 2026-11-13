@@ -153,6 +153,15 @@ nach, und **tagsüber bzw. kurz nach dem Start** dann, wenn die Kartendaten
 fehlen oder älter als 36 Stunden sind. Geladen wird nur, wenn Scryfall eine
 neuere Fassung hat.
 
+Nie laufen zwei Aktualisierungen gleichzeitig: eine Sperrdatei
+(`default-cards.db.sperre`, `flock`) hält eine zweite fern — auch aus einem
+anderen Prozess —, und jeder Aufbau schreibt in eine eigene Zwischendatei
+(`.neu-<pid>`). Anlass: Mit `debug=True` lief die Anwendung als zwei Prozesse,
+beide starteten die Aktualisierung, und die zweite nahm der ersten die
+Zwischendatei weg. Die Kartendaten auf dem Pi blieben dadurch auf dem Stand
+vom 08.08. Eine Aktualisierung, die nach 45 Minuten nicht zurückkommt, gilt
+als hängengeblieben und blockiert keine neue.
+
 Bleibt das Set auch nach dem Aktualisieren unbekannt, weicht der Set-Code der
 Datei von Scryfall ab (siehe `SET_CODE_ALIASES` in `dragonshield.py`).
 

@@ -26,7 +26,7 @@
    muss das hier zu sehen sein — sonst bleibt nur das Rätsel „kein Treffer". #}
 {% if kartendaten_status.laeuft %}
 <div class="alert alert-info">
-  <strong>Kartendaten werden aktualisiert:</strong> {{ kartendaten_status.meldung }}
+  <strong>Kartendaten werden aktualisiert{% if kartendaten_status.seit %} (seit {{ kartendaten_status.seit.strftime('%H:%M') }} Uhr){% endif %}:</strong> {{ kartendaten_status.meldung }}
   Danach werden die offenen Einträge von selbst erneut versucht.
   Seite in ein paar Minuten neu laden.
 </div>

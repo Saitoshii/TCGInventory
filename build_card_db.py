@@ -207,7 +207,12 @@ def schreibe_datenbank(karten: Iterable[Dict], db_path: Path,
     """
     db_path = Path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = db_path.with_name(db_path.name + ".neu")
+    # Eigener Name je Prozess: liefen zwei Aufbauten gleichzeitig, nahm der
+    # zweite dem ersten die gemeinsame „.neu"-Datei weg — und schob im
+    # schlimmsten Fall dessen halb geschriebene Datei an die Stelle der
+    # Kartendaten. Die Sperre in ``aktualisiere_von_scryfall`` verhindert das
+    # zweite Mal ohnehin; das hier ist die zweite Sicherung.
+    temp_path = db_path.with_name(f"{db_path.name}.neu-{os.getpid()}")
     if temp_path.exists():
         temp_path.unlink()
 
@@ -318,7 +323,57 @@ def _merke_stand(db_path: Path, stand: str) -> None:
         conn.commit()
 
 
+class LaeuftBereits(RuntimeError):
+    """Eine andere Aktualisierung der Kartendaten läuft gerade."""
+
+
+class _Sperre:
+    """Nur eine Aktualisierung zur Zeit — auch über Prozessgrenzen hinweg.
+
+    Die Anwendung lief im Debug-Modus als zwei Prozesse, und beide starteten
+    die nächtliche Aktualisierung. Eine Sperrdatei mit ``flock`` hält den
+    zweiten Lauf fern; stirbt ein Prozess, gibt das Betriebssystem die Sperre
+    von selbst frei. Ohne ``fcntl`` (Windows) wird nicht gesperrt.
+    """
+
+    def __init__(self, db_path: Path):
+        self.pfad = Path(db_path).with_name(Path(db_path).name + ".sperre")
+        self._datei = None
+
+    def __enter__(self):
+        try:
+            import fcntl
+        except ImportError:                      # pragma: no cover - Windows
+            return self
+        self.pfad.parent.mkdir(parents=True, exist_ok=True)
+        self._datei = open(self.pfad, "w")
+        try:
+            fcntl.flock(self._datei, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            self._datei.close()
+            self._datei = None
+            raise LaeuftBereits(
+                "Eine andere Aktualisierung der Kartendaten läuft bereits.")
+        return self
+
+    def __exit__(self, *_):
+        if self._datei is not None:
+            import fcntl
+            fcntl.flock(self._datei, fcntl.LOCK_UN)
+            self._datei.close()
+            self._datei = None
+        return False
+
+
 def aktualisiere_von_scryfall(db_path: Path = DB_PATH, fortschritt: Fortschritt = None,
+                              erzwingen: bool = False,
+                              vor_tausch: Optional[Callable[[], None]] = None) -> Dict:
+    """Wie ``_aktualisiere_von_scryfall``, aber nie zweimal gleichzeitig."""
+    with _Sperre(db_path):
+        return _aktualisiere_von_scryfall(db_path, fortschritt, erzwingen, vor_tausch)
+
+
+def _aktualisiere_von_scryfall(db_path: Path = DB_PATH, fortschritt: Fortschritt = None,
                               erzwingen: bool = False,
                               vor_tausch: Optional[Callable[[], None]] = None) -> Dict:
     """Bulkdatei direkt von Scryfall streamen und die Datenbank neu aufbauen.

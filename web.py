@@ -1143,6 +1143,11 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
                     "Die Kartendaten werden jetzt automatisch aktualisiert; die "
                     "offenen Zeilen werden danach von selbst erneut versucht. "
                     "Den Fortschritt zeigt Needs-Review.")
+            elif CARDDATA_STATUS["laeuft"]:
+                hinweise.append(
+                    "Die Kartendaten werden gerade aktualisiert; die offenen "
+                    "Zeilen werden danach von selbst erneut versucht. Den "
+                    "Fortschritt zeigt Needs-Review.")
         # Hinweise zu den Dateien voranstellen. Zuvor überschrieb die Meldung
         # oben jeden Lesefehler — er war dann nirgends mehr zu sehen.
         if hinweise:
@@ -2207,7 +2212,10 @@ def _aktualisiere_kartendaten(erzwingen: bool) -> None:
     try:
         # Die zwischengespeicherte Verbindung wird unmittelbar vor dem Tausch
         # geschlossen – danach liest die Anwendung die neue Datei.
+        # Ausdrücklich die Datei, aus der die Anwendung liest — nicht eine
+        # beim Laden des Moduls festgelegte Vorgabe.
         ergebnis = build_card_db.aktualisiere_von_scryfall(
+            db_path=card_scanner.DEFAULT_DB_PATH,
             fortschritt=melde, erzwingen=erzwingen,
             vor_tausch=card_scanner.reset_card_database)
         meldung = (f"Fertig – {ergebnis['anzahl']} Karten übernommen."
@@ -2219,8 +2227,10 @@ def _aktualisiere_kartendaten(erzwingen: bool) -> None:
             meldung += (f" Needs-Review erneut versucht: {geloest} aufgelöst und "
                         f"in die Warteschlange übernommen, {offen} weiterhin offen.")
         CARDDATA_STATUS["meldung"] = meldung
+    except build_card_db.LaeuftBereits as exc:
+        CARDDATA_STATUS["meldung"] = str(exc)
     except Exception as exc:                       # noqa: BLE001
-        CARDDATA_STATUS["fehler"] = str(exc)
+        CARDDATA_STATUS["fehler"] = f"{type(exc).__name__}: {exc}"
         CARDDATA_STATUS["meldung"] = f"Fehlgeschlagen: {exc}"
     finally:
         CARDDATA_STATUS["laeuft"] = False
@@ -2262,12 +2272,33 @@ def cardmarket_katalog_update():
     return redirect(url_for("card_data_view"))
 
 
+#: Läuft eine Aktualisierung länger, gilt sie als hängengeblieben.
+KARTENDATEN_HAENGT = timedelta(minutes=45)
+
+
+def _kartendaten_laeuft() -> bool:
+    """Läuft gerade eine Aktualisierung — und ist sie nicht hängengeblieben?"""
+    if not CARDDATA_STATUS["laeuft"]:
+        return False
+    seit = CARDDATA_STATUS.get("seit")
+    if seit and datetime.now() - seit > KARTENDATEN_HAENGT:
+        CARDDATA_STATUS.update({
+            "laeuft": False, "fertig": True,
+            "fehler": "Die letzte Aktualisierung kam nach "
+                      f"{int(KARTENDATEN_HAENGT.total_seconds() // 60)} Minuten "
+                      "nicht zurück.",
+            "meldung": "Abgebrochen – hängengeblieben."})
+        return False
+    return True
+
+
 def _starte_kartendaten_aktualisierung(meldung: str, erzwingen: bool = False) -> bool:
     """Aktualisierung im Hintergrund starten — außer es läuft schon eine."""
-    if CARDDATA_STATUS["laeuft"]:
+    if _kartendaten_laeuft():
         return False
     CARDDATA_STATUS.update({"laeuft": True, "anzahl": 0, "fertig": False,
-                            "fehler": None, "meldung": meldung})
+                            "fehler": None, "meldung": meldung,
+                            "seit": datetime.now()})
     threading.Thread(target=_aktualisiere_kartendaten, args=(erzwingen,),
                      daemon=True).start()
     return True
@@ -2277,7 +2308,7 @@ def _starte_kartendaten_aktualisierung(meldung: str, erzwingen: bool = False) ->
 @login_required
 def card_data_update():
     """Aktualisierung im Hintergrund anstoßen (Download direkt von Scryfall)."""
-    if CARDDATA_STATUS["laeuft"]:
+    if _kartendaten_laeuft():
         flash("Eine Aktualisierung läuft bereits.", "warning")
         return redirect(url_for("card_data_view"))
     _starte_kartendaten_aktualisierung(
@@ -2343,13 +2374,13 @@ class KartendatenWaechter:
     def durchgang(self, jetzt: datetime | None = None) -> bool:
         jetzt = jetzt or datetime.now()
         stand = card_scanner.kartendaten_stand()
-        if CARDDATA_STATUS["laeuft"] or not _kartendaten_faellig(
+        if _kartendaten_laeuft() or not _kartendaten_faellig(
                 jetzt, self.zuletzt, stand):
             return False
         self.zuletzt = jetzt.date().isoformat()
         CARDDATA_STATUS.update({"laeuft": True, "anzahl": 0, "fertig": False,
-                                "fehler": None,
-                                "meldung": "Nächtliche Aktualisierung …"})
+                                "fehler": None, "seit": datetime.now(),
+                                "meldung": "Automatische Aktualisierung …"})
         _aktualisiere_kartendaten(False)
         return True
 
@@ -2371,7 +2402,8 @@ class KartendatenWaechter:
 @login_required
 def card_data_status():
     """Fortschritt für die Anzeige (wird von der Seite abgefragt)."""
-    return jsonify(CARDDATA_STATUS)
+    return jsonify({k: (v.isoformat(timespec="seconds") if isinstance(v, datetime) else v)
+                    for k, v in CARDDATA_STATUS.items()})
 
 
 @app.route("/upload_database", methods=["GET", "POST"])
@@ -3319,9 +3351,8 @@ def toggle_order_polling():
     return redirect(url_for("list_orders"))
 
 
-if __name__ == "__main__":
-    init_db()
-    
+def _starte_hintergrunddienste() -> None:
+    """Bestelleingang, Cardmarket-Katalog und Kartendaten im Hintergrund."""
     # Start the order ingestion service
     order_service = get_order_service()
     order_service.start()
@@ -3333,7 +3364,28 @@ if __name__ == "__main__":
     # Die Scryfall-Kartendaten nachts aktualisieren, damit neue Sets erkannt
     # werden, ohne dass jemand daran denken muss.
     KartendatenWaechter().start()
-    
+
+
+def _im_serverprozess(debug: bool) -> bool:
+    """Läuft dieser Prozess die Anwendung — oder nur den Neulade-Wächter?
+
+    Mit ``debug=True`` startet Flask zwei Prozesse: einen, der auf
+    Codeänderungen achtet, und den eigentlichen Server. Der Startblock lief in
+    beiden. Bestelleingang, Katalog- und Kartendaten-Wächter liefen dadurch
+    doppelt, und zwei Aktualisierungen der Kartendaten schrieben in dieselbe
+    Datei. Hintergrunddienste gehören nur in den Serverprozess.
+    """
+    return not debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true"
+
+
+if __name__ == "__main__":
+    # Kein Debug-Modus im Betrieb: er startet zwei Prozesse (siehe oben) und
+    # öffnet im ganzen Netz eine Debug-Konsole. Zum Entwickeln: FLASK_DEBUG=1.
+    debug = os.environ.get("FLASK_DEBUG", "") == "1"
     host = os.environ.get("FLASK_RUN_HOST", "0.0.0.0")
     port = int(os.environ.get("FLASK_RUN_PORT", 5000))
-    app.run(host=host, port=port, debug=True)
+    init_db()
+
+    if _im_serverprozess(debug):
+        _starte_hintergrunddienste()
+    app.run(host=host, port=port, debug=debug, threaded=True)

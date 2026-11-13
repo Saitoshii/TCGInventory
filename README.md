@@ -103,6 +103,12 @@ FLASK_RUN_HOST=0.0.0.0 python web.py
 
 Optionally change the port with `FLASK_RUN_PORT`.
 
+The app runs **without** Flask's debug mode. Debug mode starts two processes
+(a code watcher and the server) — background services such as order polling
+and the card data update then ran twice — and exposes an interactive debugger
+to the network. For local development set `FLASK_DEBUG=1`; background
+services still start only once.
+
 For a detailed walkthrough of the available pages and forms, see
 [docs/WEB_INTERFACE.md](docs/WEB_INTERFACE.md). For the UI/UX and data-model
 capabilities (filtering, dashboard, audit log, item types, import/export), see

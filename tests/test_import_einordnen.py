@@ -115,7 +115,8 @@ def anlage(tmp_path, monkeypatch):
     # Kein Netz im Test: die Aktualisierung meldet „bereits aktuell".
     aktualisierungen = []
 
-    def keine_neue_fassung(fortschritt=None, erzwingen=False, vor_tausch=None):
+    def keine_neue_fassung(db_path=None, fortschritt=None, erzwingen=False,
+                           vor_tausch=None):
         aktualisierungen.append(erzwingen)
         return {"aktualisiert": False, "anzahl": 0, "stand": ""}
 
@@ -469,7 +470,7 @@ def test_nach_der_aktualisierung_wird_needs_review_von_selbst_aufgeloest(
 
     vollstaendig = preview_kartendaten.karten_db
 
-    def aktualisiere(fortschritt=None, erzwingen=False, vor_tausch=None):
+    def aktualisiere(db_path=None, fortschritt=None, erzwingen=False, vor_tausch=None):
         if vor_tausch:
             vor_tausch()
         monkeypatch.setattr(cs, "DEFAULT_DB_PATH", vollstaendig)
