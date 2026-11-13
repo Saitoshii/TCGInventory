@@ -142,9 +142,16 @@ oder nachts — werden die offenen Einträge in Needs-Review von selbst erneut
 aufgelöst (`web._needs_review_erneut_aufloesen`, dieselbe Regel wie „Alle
 erneut versuchen").
 
-**Nachts zwischen 3 und 6 Uhr** sieht `web.KartendatenWaechter` einmal nach,
-ob Scryfall eine neuere Fassung hat; nur dann wird geladen. Er startet mit der
-Anwendung, wie der Bestelleingang und der Cardmarket-Katalog.
+**Der Import stößt die Aktualisierung selbst an**, sobald Karten wegen der
+Kartendaten fehlen (unbekanntes oder unvollständiges Set). Niemand muss daran
+denken; Needs-Review zeigt den Fortschritt — und, falls sie scheitert, die
+Fehlermeldung.
+
+`web.KartendatenWaechter` startet mit der Anwendung, wie der Bestelleingang
+und der Cardmarket-Katalog. Er sieht **nachts zwischen 3 und 6 Uhr** einmal
+nach, und **tagsüber bzw. kurz nach dem Start** dann, wenn die Kartendaten
+fehlen oder älter als 36 Stunden sind. Geladen wird nur, wenn Scryfall eine
+neuere Fassung hat.
 
 Bleibt das Set auch nach dem Aktualisieren unbekannt, weicht der Set-Code der
 Datei von Scryfall ab (siehe `SET_CODE_ALIASES` in `dragonshield.py`).

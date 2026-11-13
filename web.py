@@ -1132,9 +1132,17 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
                 f"Karten fehlen in den Kartendaten: {liste} – "
                 f"Stand der Kartendaten: {_stand_text()}. Bei neuen Sets nimmt "
                 "Scryfall in der Preview-Zeit nur die vorgestellten Karten auf, "
-                "den Rest erst kurz vor dem Erscheinen. Unter System → "
-                "Kartendaten aktualisieren; die offenen Zeilen werden danach "
-                "von selbst erneut versucht.")
+                "den Rest erst kurz vor dem Erscheinen.")
+        # Liegt es an den Kartendaten, nicht warten, bis jemand daran denkt:
+        # gleich aktualisieren. Ob wirklich geladen wird, entscheidet
+        # aktualisiere_von_scryfall (nur bei neuerer Fassung). Danach werden
+        # die offenen Einträge von selbst erneut versucht.
+        if gehaeuft or unbekannte_sets:
+            if _starte_kartendaten_aktualisierung("Kartendaten werden nach dem Import aktualisiert …"):
+                hinweise.append(
+                    "Die Kartendaten werden jetzt automatisch aktualisiert; die "
+                    "offenen Zeilen werden danach von selbst erneut versucht. "
+                    "Den Fortschritt zeigt Needs-Review.")
         # Hinweise zu den Dateien voranstellen. Zuvor überschrieb die Meldung
         # oben jeden Lesefehler — er war dann nirgends mehr zu sehen.
         if hinweise:
@@ -1857,6 +1865,7 @@ def needs_review_view():
         gehaeuft=gehaeuft,
         stand=_stand_text(),
         aktualisierung_laeuft=CARDDATA_STATUS["laeuft"],
+        kartendaten_status=CARDDATA_STATUS,
     )
 
 
@@ -2253,6 +2262,17 @@ def cardmarket_katalog_update():
     return redirect(url_for("card_data_view"))
 
 
+def _starte_kartendaten_aktualisierung(meldung: str, erzwingen: bool = False) -> bool:
+    """Aktualisierung im Hintergrund starten — außer es läuft schon eine."""
+    if CARDDATA_STATUS["laeuft"]:
+        return False
+    CARDDATA_STATUS.update({"laeuft": True, "anzahl": 0, "fertig": False,
+                            "fehler": None, "meldung": meldung})
+    threading.Thread(target=_aktualisiere_kartendaten, args=(erzwingen,),
+                     daemon=True).start()
+    return True
+
+
 @app.route("/system/kartendaten/aktualisieren", methods=["POST"])
 @login_required
 def card_data_update():
@@ -2260,11 +2280,8 @@ def card_data_update():
     if CARDDATA_STATUS["laeuft"]:
         flash("Eine Aktualisierung läuft bereits.", "warning")
         return redirect(url_for("card_data_view"))
-    CARDDATA_STATUS.update({"laeuft": True, "anzahl": 0, "fertig": False,
-                            "fehler": None, "meldung": "Wird gestartet …"})
-    erzwingen = bool(request.form.get("erzwingen"))
-    threading.Thread(target=_aktualisiere_kartendaten, args=(erzwingen,),
-                     daemon=True).start()
+    _starte_kartendaten_aktualisierung(
+        "Wird gestartet …", erzwingen=bool(request.form.get("erzwingen")))
     if request.form.get("zurueck") == "needs_review":
         flash("Kartendaten werden aktualisiert. Danach werden die offenen "
               "Einträge von selbst erneut versucht.")
@@ -2279,17 +2296,32 @@ def card_data_update():
 KARTENDATEN_NACHT = (3, 6)
 
 
-def _kartendaten_faellig(jetzt: datetime, zuletzt: str | None) -> bool:
-    """Ist die nächtliche Prüfung der Kartendaten fällig?
+#: Älter als das gelten Kartendaten als veraltet — dann wird auch tagsüber
+#: (und gleich nach dem Start) aktualisiert, nicht erst nachts.
+KARTENDATEN_VERALTET = timedelta(hours=36)
 
-    Einmal je Nacht, innerhalb von ``KARTENDATEN_NACHT``. Ob dann wirklich
-    geladen wird, entscheidet ``aktualisiere_von_scryfall`` selbst: hat
-    Scryfall keine neuere Fassung, wird nichts heruntergeladen.
+
+def _kartendaten_faellig(jetzt: datetime, zuletzt: str | None,
+                         stand: str | None = "aktuell") -> bool:
+    """Ist eine Prüfung der Kartendaten fällig?
+
+    Höchstens einmal am Tag. Nachts (``KARTENDATEN_NACHT``) immer; tagsüber
+    nur, wenn die Kartendaten fehlen oder älter als ``KARTENDATEN_VERALTET``
+    sind. Ob dann wirklich geladen wird, entscheidet
+    ``aktualisiere_von_scryfall``: ohne neuere Fassung bei Scryfall nichts.
     """
-    von, bis = KARTENDATEN_NACHT
-    if not (von <= jetzt.hour < bis):
+    if zuletzt == jetzt.date().isoformat():
         return False
-    return zuletzt != jetzt.date().isoformat()
+    von, bis = KARTENDATEN_NACHT
+    if von <= jetzt.hour < bis:
+        return True
+    if stand == "aktuell":
+        return False
+    try:
+        alter = jetzt - datetime.fromisoformat((stand or "")[:19])
+    except ValueError:
+        return True                                # fehlt oder unlesbar
+    return alter > KARTENDATEN_VERALTET
 
 
 class KartendatenWaechter:
@@ -2302,6 +2334,7 @@ class KartendatenWaechter:
     """
 
     TAKT = 900                    # alle 15 Minuten auf die Uhr sehen
+    ANLAUF = 60                   # nach dem Start kurz warten
 
     def __init__(self):
         self.zuletzt: str | None = None
@@ -2309,7 +2342,9 @@ class KartendatenWaechter:
 
     def durchgang(self, jetzt: datetime | None = None) -> bool:
         jetzt = jetzt or datetime.now()
-        if CARDDATA_STATUS["laeuft"] or not _kartendaten_faellig(jetzt, self.zuletzt):
+        stand = card_scanner.kartendaten_stand()
+        if CARDDATA_STATUS["laeuft"] or not _kartendaten_faellig(
+                jetzt, self.zuletzt, stand):
             return False
         self.zuletzt = jetzt.date().isoformat()
         CARDDATA_STATUS.update({"laeuft": True, "anzahl": 0, "fertig": False,
@@ -2319,7 +2354,9 @@ class KartendatenWaechter:
         return True
 
     def _laufe(self) -> None:
-        while not self._stopp.wait(self.TAKT):
+        warten = self.ANLAUF
+        while not self._stopp.wait(warten):
+            warten = self.TAKT
             try:
                 self.durchgang()
             except Exception as exc:               # noqa: BLE001

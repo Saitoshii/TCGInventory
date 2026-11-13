@@ -112,8 +112,21 @@ def anlage(tmp_path, monkeypatch):
     cs.reset_card_database()
     monkeypatch.setattr(cs, "DEFAULT_DB_PATH", karten_db)
     monkeypatch.setattr(web.threading, "Thread", _Sofort)
+    # Kein Netz im Test: die Aktualisierung meldet „bereits aktuell".
+    aktualisierungen = []
+
+    def keine_neue_fassung(fortschritt=None, erzwingen=False, vor_tausch=None):
+        aktualisierungen.append(erzwingen)
+        return {"aktualisiert": False, "anzahl": 0, "stand": ""}
+
+    monkeypatch.setattr(web.build_card_db, "aktualisiere_von_scryfall",
+                        keine_neue_fassung)
+    for schluessel, wert in {"laeuft": False, "fertig": False, "fehler": None,
+                             "meldung": ""}.items():
+        monkeypatch.setitem(web.CARDDATA_STATUS, schluessel, wert)
     _leeren()
-    yield types.SimpleNamespace(lager=lager, karten_db=karten_db)
+    yield types.SimpleNamespace(lager=lager, karten_db=karten_db,
+                                aktualisierungen=aktualisierungen)
     cs.reset_card_database()
     _leeren()
 
@@ -505,6 +518,43 @@ from datetime import datetime as _dt                              # noqa: E402
 def test_kartendaten_werden_nachts_einmal_geprueft(uhrzeit, zuletzt, erwartet):
     jetzt = _dt.strptime(uhrzeit, "%Y-%m-%d %H:%M")
     assert web._kartendaten_faellig(jetzt, zuletzt) is erwartet
+
+
+@pytest.mark.parametrize("uhrzeit,stand,erwartet", [
+    ("2026-11-13 14:00", "2026-11-13T10:06:23+00:00", False),   # frisch
+    ("2026-11-13 14:00", "2026-11-11T10:06:23+00:00", True),    # zwei Tage alt
+    ("2026-11-13 14:00", "2026-10-28T10:00:00+00:00", True),    # Preview-Zeit
+    ("2026-11-13 14:00", None, True),                           # fehlt
+    ("2026-11-13 14:00", "kaputt", True),
+])
+def test_veraltete_kartendaten_werden_auch_tagsueber_geholt(uhrzeit, stand, erwartet):
+    """Sonst wartete ein Pi mit alten Daten nach jedem Neustart bis zur Nacht."""
+    jetzt = _dt.strptime(uhrzeit, "%Y-%m-%d %H:%M")
+    assert web._kartendaten_faellig(jetzt, None, stand) is erwartet
+    assert web._kartendaten_faellig(jetzt, "2026-11-13", stand) is False
+
+
+def test_import_stoesst_die_aktualisierung_selbst_an(preview_kartendaten):
+    """Fehlen Karten wegen alter Kartendaten, muss niemand mehr daran denken."""
+    _lade_hoch(_ordner(2))
+    assert preview_kartendaten.aktualisierungen == [False]
+    assert "automatisch aktualisiert" in web.BULK_MESSAGE
+
+
+def test_import_ohne_fehlende_karten_laedt_nichts(anlage):
+    _lade_hoch(_ordner(2))
+    assert anlage.aktualisierungen == []
+
+
+def test_fehlgeschlagene_aktualisierung_steht_in_needs_review(preview_kartendaten,
+                                                              monkeypatch):
+    def kein_netz(**_):
+        raise OSError("Name or service not known")
+    monkeypatch.setattr(web.build_card_db, "aktualisiere_von_scryfall", kein_netz)
+    _lade_hoch(_ordner(2))
+    html = _klient().get("/cards/needs_review").get_data(as_text=True)
+    assert "Aktualisierung der Kartendaten ist fehlgeschlagen" in html
+    assert "Name or service not known" in html
 
 
 def test_waechter_startet_nichts_waehrend_einer_laufenden_aktualisierung(monkeypatch):
