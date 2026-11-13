@@ -29,7 +29,7 @@
 {% if gehaeuft %}
 <div class="alert alert-warning">
   <strong>Karten fehlen in den Kartendaten:</strong>
-  {% for code, n in gehaeuft %}{{ code|upper }} ({{ n }} Einträge){% if not loop.last %}, {% endif %}{% endfor %}.
+  {% for code, n, bekannt in gehaeuft %}{{ code|upper }} ({{ n }} Einträge offen, die Kartendaten kennen {{ bekannt }} Karten dieses Sets){% if not loop.last %}, {% endif %}{% endfor %}.
   Stand der Kartendaten: {{ stand }}.
   Bei neuen Sets nimmt Scryfall in der Preview-Zeit nur die vorgestellten Karten
   auf, den Rest erst kurz vor dem Erscheinen.

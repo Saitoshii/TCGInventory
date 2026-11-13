@@ -172,6 +172,20 @@ def kartendaten_stand() -> Optional[str]:
     return zeile[0] if zeile else None
 
 
+def karten_im_set(set_code: str) -> int:
+    """Wie viele Karten dieses Sets die lokalen Kartendaten kennen.
+
+    Zur Diagnose bei neuen Sets: stehen dort deutlich weniger Karten als das
+    Set hat, stammen die Kartendaten aus der Preview-Zeit.
+    """
+    if not set_code:
+        return 0
+    _load_card_database()
+    if not _DB_CONN:
+        return 0
+    return len(_zeilen_zum_set("SELECT 1 FROM cards WHERE {set}", set_code, ()))
+
+
 def set_bekannt(set_code: str) -> bool:
     """Kommt dieses Set in der lokalen Kartendatenbank überhaupt vor?
 

@@ -1846,7 +1846,8 @@ def needs_review_view():
         e.get("set_code", "") for e in NEEDS_REVIEW
         if "kein Treffer für Set" in e.get("reason", "")
         or e.get("reason", "").startswith("Kein Scryfall-Treffer für Set"))
-    gehaeuft = [(code, n) for code, n in fehlend.most_common()
+    gehaeuft = [(code, n, card_scanner.karten_im_set(code))
+                for code, n in fehlend.most_common()
                 if code and n >= HAEUFUNG_JE_SET]
     return render_template(
         "needs_review.html",

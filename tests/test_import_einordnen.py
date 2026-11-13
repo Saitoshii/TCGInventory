@@ -439,7 +439,8 @@ def test_einzelne_falsche_nummer_loest_den_hinweis_nicht_aus(anlage):
 def test_needs_review_bietet_aktualisieren_und_erneut_versuchen(preview_kartendaten):
     _lade_hoch(_ordner(2))
     html = _klient().get("/cards/needs_review").get_data(as_text=True)
-    assert "Karten fehlen in den Kartendaten" in html and "TRK (5 Einträge)" in html
+    assert "Karten fehlen in den Kartendaten" in html
+    assert "TRK (5 Einträge offen, die Kartendaten kennen 3 Karten dieses Sets)" in html
     assert "28.10.2026" in html
     assert "Kartendaten aktualisieren und danach erneut versuchen" in html
     assert 'name="zurueck" value="needs_review"' in html
