@@ -2,6 +2,7 @@ import os
 import sqlite3
 import re
 import threading
+from collections import Counter
 from datetime import datetime, timedelta
 from flask import (
     Flask,
@@ -844,6 +845,23 @@ def _json_eintrag(item) -> tuple[str, dict] | None:
     return None
 
 
+def _grund_ohne_treffer(set_code: str, nummer: str) -> str:
+    """Warum eine Zeile mit Set und Nummer nicht aufgelöst werden konnte.
+
+    „Kein Treffer" hat drei ganz verschiedene Ursachen, und nur eine davon
+    behebt man an der Zeile selbst. Fehlt die Kartendatenbank oder kennt sie
+    das Set noch nicht (neues Set, ältere Kartendaten), hilft allein das
+    Aktualisieren — dann sollen nicht hunderte Zeilen dasselbe Rätsel aufgeben.
+    """
+    if not card_scanner.kartendaten_vorhanden():
+        return ("Kein Scryfall-Treffer: die lokale Kartendatenbank fehlt – "
+                "bitte unter System → Kartendaten laden")
+    if not card_scanner.set_bekannt(set_code):
+        return (f"Kein Scryfall-Treffer: Set '{set_code}' ist in der lokalen "
+                "Kartendatenbank unbekannt")
+    return f"Kein Scryfall-Treffer für Set '{set_code}' Nr. {nummer}"
+
+
 #: So viele Ausgaben eines Namens werden in Needs-Review zur Auswahl gezeigt.
 #: Manche Karten gibt es weit über hundertmal; die Liste soll bedienbar bleiben.
 MAX_KANDIDATEN = 150
@@ -972,6 +990,9 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
 
         total = len(entries) if entries else 1
         added_any = False
+        # Sets, die die Kartendatenbank gar nicht kennt, und wie viele Zeilen
+        # daran hängen — für einen Hinweis statt hunderter Einzelmeldungen.
+        unbekannte_sets: Counter = Counter()
 
         for idx, (kind, item) in enumerate(entries):
             if kind == "json":
@@ -1013,10 +1034,10 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
                     fields["set_code"], fields["collector_number"], fields["language"]
                 )
                 if not enrich:
-                    reason = (
-                        f"Kein Scryfall-Treffer für Set '{fields['set_code']}' "
-                        f"Nr. {fields['collector_number']}"
-                    )
+                    reason = _grund_ohne_treffer(
+                        fields["set_code"], fields["collector_number"])
+                    if "unbekannt" in reason:
+                        unbekannte_sets[fields["set_code"]] += 1
                     NEEDS_REVIEW.append(
                         _needs_review_entry(fields, folder_id, reason, normalized)
                     )
@@ -1076,6 +1097,14 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
             BULK_MESSAGE = "Keine Karte eindeutig aufgelöst." + review_note
         else:
             BULK_MESSAGE = "Keine Karten hinzugefügt."
+        if unbekannte_sets:
+            liste = ", ".join(f"{code.upper()} ({anzahl} Zeile{'n' if anzahl != 1 else ''})"
+                              for code, anzahl in unbekannte_sets.most_common())
+            hinweise.append(
+                f"Unbekannte Sets: {liste}. Ein neues Set fehlt, solange die "
+                "Kartendaten älter sind als das Set – unter System → Kartendaten "
+                "aktualisieren und danach in Needs-Review „Alle erneut "
+                "versuchen\".")
         # Hinweise zu den Dateien voranstellen. Zuvor überschrieb die Meldung
         # oben jeden Lesefehler — er war dann nirgends mehr zu sehen.
         if hinweise:
@@ -1514,7 +1543,106 @@ def upload_queue_view():
             for i, c in enumerated_queue
             if search.lower() in c.get("name", "").lower()
         ]
-    return render_template("upload_queue.html", queue=enumerated_queue, search=search)
+    return render_template("upload_queue.html", queue=enumerated_queue,
+                           search=search, platzbedarf=_platzbedarf())
+
+
+#: Plätze je Mappenseite (siehe ``create_binder``).
+PLAETZE_JE_SEITE = 9
+
+
+def _platzbedarf() -> list:
+    """Je Zielordner: wie viele Lagerplätze die Warteschlange braucht.
+
+    Reicht der Platz nicht, kommen die überzähligen Karten **ohne Lagerplatz**
+    in den Bestand — das ist gewollt möglich, soll aber vorher zu sehen sein
+    und nicht erst auffallen, wenn eine Bestellung „Kein Lagerort" zeigt.
+
+    Gezählt wird, was wirklich einen neuen Platz belegt: jede Identität
+    (Set, Nummer, Sprache, Foil) einmal je Ordner. Was dort schon liegt,
+    erhöht nur die Menge und braucht keinen Platz — dieselbe Regel wie in
+    ``add_or_increment_card``.
+    """
+    bedarf: dict = {}
+    with sqlite3.connect(DB_FILE) as conn:
+        for nr, karte in enumerate(UPLOAD_QUEUE):
+            if karte.get("item_type", "card") != "card" or karte.get("storage_code"):
+                continue
+            try:
+                ordner = int(karte.get("folder_id")) if karte.get("folder_id") else None
+            except (TypeError, ValueError):
+                ordner = None
+            plaetze = bedarf.setdefault(ordner, set())
+            set_code = karte.get("set_code", "")
+            nummer = karte.get("collector_number", "")
+            if not (set_code and nummer):
+                plaetze.add(("ohne-identitaet", nr))
+                continue
+            identitaet = (set_code, nummer, karte.get("language", ""),
+                          int(bool(karte.get("foil"))))
+            abfrage = ("SELECT 1 FROM cards WHERE set_code = ? AND "
+                       "collector_number = ? AND language = ? AND foil = ? AND ")
+            werte = list(identitaet)
+            if ordner is None:
+                abfrage += "folder_id IS NULL"
+            else:
+                abfrage += "folder_id = ?"
+                werte.append(ordner)
+            if conn.execute(abfrage + " LIMIT 1", werte).fetchone() is None:
+                plaetze.add(identitaet)
+
+        namen = {zeile[0]: zeile[1] for zeile in
+                 conn.execute("SELECT id, name FROM folders")}
+        ergebnis = []
+        for ordner, plaetze in sorted(bedarf.items(),
+                                      key=lambda p: (p[0] is None, p[0] or 0)):
+            frei = 0
+            if ordner is not None:
+                frei = conn.execute(
+                    "SELECT COUNT(*) FROM storage_slots WHERE code LIKE ? "
+                    "AND is_occupied = 0", (f"O{ordner:02d}-%",)).fetchone()[0]
+            fehlen = max(len(plaetze) - frei, 0)
+            ergebnis.append({
+                "ordner_id": ordner,
+                "name": namen.get(ordner, ""),
+                "gebraucht": len(plaetze),
+                "frei": frei,
+                "fehlen": fehlen,
+                "seiten": -(-fehlen // PLAETZE_JE_SEITE),      # aufgerundet
+            })
+    return ergebnis
+
+
+def _hoechste_karten_id() -> int:
+    with sqlite3.connect(DB_FILE) as conn:
+        return conn.execute("SELECT COALESCE(MAX(id), 0) FROM cards").fetchone()[0]
+
+
+def _ohne_lagerplatz_seit(karten_id: int) -> tuple:
+    """Seit ``karten_id`` angelegte Karten ohne Lagerplatz: (Zeilen, Stück)."""
+    with sqlite3.connect(DB_FILE) as conn:
+        zeilen, stueck = conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(quantity), 0) FROM cards "
+            "WHERE id > ? AND item_type = 'card' "
+            "AND COALESCE(storage_code, '') = ''", (karten_id,)).fetchone()
+    return zeilen, stueck
+
+
+def _melde_fehlende_plaetze(karten_id: int) -> None:
+    """Sagen, wenn eben übernommene Karten keinen Lagerplatz bekommen haben.
+
+    ``add_card`` speichert eine Karte auch ohne Platz — bewusst, damit ein
+    voller Ordner den Import nicht abbricht. Bisher stand das nur in der
+    Konsole; in der Oberfläche hieß es „übernommen".
+    """
+    zeilen, stueck = _ohne_lagerplatz_seit(karten_id)
+    if zeilen:
+        flash(
+            f"Achtung: {zeilen} {'Eintrag' if zeilen == 1 else 'Einträge'} mit "
+            f"{stueck} Karte{'n' if stueck != 1 else ''} ohne Lagerplatz übernommen – im "
+            "Zielordner war kein Platz mehr frei, oder es war keiner gewählt. "
+            "In der Kartenliste stehen sie mit „Kein Lagerort\"; der Platz "
+            "lässt sich an der Karte nachtragen.", "warning")
 
 
 @app.route("/cards/upload_queue/foil/<int:index>", methods=["POST"])
@@ -1599,7 +1727,8 @@ def upload_card_route(index: int):
     """Add a queued card to the database and remove it from the queue."""
     if 0 <= index < len(UPLOAD_QUEUE):
         card = UPLOAD_QUEUE.pop(index)
-        success = add_or_increment_card(
+        vorher = _hoechste_karten_id()
+        add_or_increment_card(
             card["name"],
             card.get("set_code", ""),
             card.get("language", ""),
@@ -1619,10 +1748,10 @@ def upload_card_route(index: int):
             date_bought=card.get("date_bought", ""),
             market_price=card.get("market_price"),
         )
-        flash(
-            "Karte übernommen" if success else "Kein Lagerplatz für " + card["name"],
-            "error" if not success else None,
-        )
+        # ``add_card`` meldet auch ohne Lagerplatz Erfolg — der frühere Zweig
+        # „Kein Lagerplatz für …" konnte deshalb nie erreicht werden.
+        flash("Karte übernommen")
+        _melde_fehlende_plaetze(vorher)
     return redirect(url_for("upload_queue_view"))
 
 
@@ -1630,6 +1759,7 @@ def upload_card_route(index: int):
 @login_required
 def upload_all_route():
     """Add all cards from the upload queue."""
+    vorher = _hoechste_karten_id()
     while UPLOAD_QUEUE:
         card = UPLOAD_QUEUE.pop(0)
         add_or_increment_card(
@@ -1653,6 +1783,7 @@ def upload_all_route():
             market_price=card.get("market_price"),
         )
     flash("Alle Karten aus der Warteschlange übernommen")
+    _melde_fehlende_plaetze(vorher)
     return redirect(url_for("list_cards"))
 
 
@@ -1673,10 +1804,17 @@ def clear_upload_queue():
 def needs_review_view():
     """List import rows that need manual correction before they can be imported."""
     folders = list_folders()
+    # Einträge, die nicht an der Zeile hängen, sondern an den Kartendaten
+    # (Set unbekannt oder Datenbank fehlt) — für einen Hinweis oben.
+    an_kartendaten = sum(
+        1 for e in NEEDS_REVIEW
+        if "unbekannt" in e.get("reason", "")
+        or "Kartendatenbank fehlt" in e.get("reason", ""))
     return render_template(
         "needs_review.html",
         entries=list(enumerate(NEEDS_REVIEW)),
         folders=folders,
+        an_kartendaten=an_kartendaten,
     )
 
 
@@ -1728,31 +1866,80 @@ def needs_review_retry(index: int):
         return redirect(url_for("needs_review_view"))
 
     UPLOAD_QUEUE.append(
-        {
-            "name": enrich.get("name") or entry.get("name", ""),
-            "set_code": enrich.get("set_code") or set_code,
-            "language": language or enrich.get("language", ""),
-            "condition": entry.get("condition", ""),
-            "quantity": entry.get("quantity", 1),
-            "price": entry.get("price", 0.0),
-            "cardmarket_id": enrich.get("cardmarket_id", ""),
-            "folder_id": folder_id,
-            "collector_number": collector or enrich.get("collector_number", ""),
-            "scryfall_id": enrich.get("scryfall_id", ""),
-            "image_url": enrich.get("image_url", ""),
-            "foil": bool(entry.get("foil", False)),
-            "item_type": "card",
-            "storage_code": "",
-            "location_hint": "",
-            "rarity": entry.get("rarity", ""),
-            "date_bought": entry.get("date_bought", ""),
-            "market_price": entry.get("market_price"),
-            "source_list": entry.get("source_list", ""),
-        }
-    )
+        _aus_review_in_die_warteschlange(entry, enrich, set_code, collector,
+                                         language, folder_id))
     NEEDS_REVIEW.pop(index)
     flash(f"'{enrich.get('name')}' aufgelöst und in die Warteschlange übernommen.")
     return redirect(url_for("needs_review_view"))
+
+
+def _aus_review_in_die_warteschlange(entry: dict, enrich: dict, set_code: str,
+                                     collector: str, language: str,
+                                     folder_id) -> dict:
+    """Aus einem aufgelösten Needs-Review-Eintrag den für die Warteschlange.
+
+    Was die Datei über die Karte sagte (Menge, Zustand, Foil, Preise,
+    Seltenheit, Kaufdatum), bleibt erhalten; die Identität kommt von Scryfall.
+    """
+    return {
+        "name": enrich.get("name") or entry.get("name", ""),
+        "set_code": enrich.get("set_code") or set_code,
+        "language": language or enrich.get("language", ""),
+        "condition": entry.get("condition", ""),
+        "quantity": entry.get("quantity", 1),
+        "price": entry.get("price", 0.0),
+        "cardmarket_id": enrich.get("cardmarket_id", ""),
+        "folder_id": folder_id,
+        "collector_number": collector or enrich.get("collector_number", ""),
+        "scryfall_id": enrich.get("scryfall_id", ""),
+        "image_url": enrich.get("image_url", ""),
+        "foil": bool(entry.get("foil", False)),
+        "item_type": "card",
+        "storage_code": "",
+        "location_hint": "",
+        "rarity": entry.get("rarity", ""),
+        "date_bought": entry.get("date_bought", ""),
+        "market_price": entry.get("market_price"),
+        "source_list": entry.get("source_list", ""),
+    }
+
+
+@app.route("/cards/needs_review/retry_all", methods=["POST"])
+@login_required
+def needs_review_retry_all():
+    """Alle Einträge mit Set und Nummer noch einmal auflösen.
+
+    Der Fall dahinter: ein neues Set, die Kartendaten waren älter — jede Zeile
+    der Datei landete hier. Nach dem Aktualisieren der Kartendaten soll ein
+    Klick genügen, statt jede Zeile einzeln anzufassen.
+
+    Es gilt dieselbe Regel wie beim Import: aufgelöst wird über Set, Nummer
+    und Sprache. Was weiterhin keinen Treffer hat, bleibt mit aktuellem Grund
+    stehen. Einträge ohne Set oder Nummer (etwa Namen mit mehreren Ausgaben)
+    bleiben unberührt — dort muss gewählt werden.
+    """
+    geloest = 0
+    offen = []
+    for entry in list(NEEDS_REVIEW):
+        set_code = normalize_set_code(entry.get("set_code", ""))
+        collector = (entry.get("collector_number") or "").strip()
+        if not set_code or not collector:
+            offen.append(entry)
+            continue
+        language = entry.get("language", "")
+        enrich = find_by_identity(set_code, collector, language)
+        if enrich:
+            UPLOAD_QUEUE.append(_aus_review_in_die_warteschlange(
+                entry, enrich, set_code, collector, language,
+                entry.get("folder_id")))
+            geloest += 1
+        else:
+            entry["reason"] = _grund_ohne_treffer(set_code, collector)
+            offen.append(entry)
+    NEEDS_REVIEW[:] = offen
+    flash(f"{geloest} aufgelöst und in die Warteschlange übernommen, "
+          f"{len(offen)} weiterhin offen.")
+    return redirect(url_for("needs_review_view" if offen else "upload_queue_view"))
 
 
 @app.route("/cards/needs_review/discard/<int:index>", methods=["POST"])

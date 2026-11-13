@@ -26,6 +26,9 @@ Current Price (<preisquelle>), List Cover Image, Parent List Cover Image
 
 Beide benennen die relevanten Felder gleich — deshalb genügt ein Codepfad.
 
+Der Dateiname spielt keine Rolle: manche Scan-Apps speichern denselben Inhalt
+als `.txt`. Das Formular bietet im Dateidialog `.csv` und `.txt` an.
+
 Eine führende Separator-Direktive (`sep=,`, auch in Anführungszeichen) und ein
 UTF-8-BOM werden übersprungen. Kartennamen dürfen Kommas enthalten
 (`"Balin, Loremaster"`); geparst wird immer mit dem `csv`-Modul.
@@ -77,6 +80,56 @@ Marktpreis vor — dann sind beide Werte identisch und der Einkaufspreis ist in
 Wahrheit unbekannt. Die Warteschlange markiert solche Zeilen mit 💶, damit der
 Einkaufspreis vor der Übernahme geprüft werden kann; für die Marge wäre er sonst
 falsch.
+
+## Lagerplätze: was die Warteschlange braucht
+
+Jeder Eintrag der Warteschlange belegt beim Übernehmen **einen** Platz im
+Zielordner — unabhängig von der Menge (drei Exemplare liegen im selben Fach).
+Vergeben wird in der Reihenfolge der Datei, also so, wie gescannt wurde. Eine
+Mappenseite hat neun Plätze.
+
+Die Warteschlange zeigt je Zielordner, wie viele Plätze gebraucht werden und
+wie viele frei sind (`web._platzbedarf`). Was im selben Ordner schon liegt
+(gleiche Identität), erhöht nur die Menge und zählt nicht.
+
+Reicht der Platz nicht, oder wurde **kein Zielordner** gewählt, kommen die
+überzähligen Einträge **ohne Lagerplatz** in den Bestand. Das bleibt möglich —
+ein voller Ordner soll den Import nicht abbrechen —, ist aber nicht mehr still:
+
+- vorher: Warnung in der Warteschlange mit der Zahl der fehlenden Seiten und
+  dem Weg zu „Ordner bearbeiten"; „Add All" fragt dann nach;
+- nachher: „… Einträge mit … Karten ohne Lagerplatz übernommen".
+
+Früher hieß es in beiden Fällen nur „Alle Karten aus der Warteschlange
+übernommen", und es fiel erst auf, wenn eine Bestellung „Kein Lagerort" zeigte.
+
+## Neues Set, ältere Kartendaten
+
+Die Kartendaten werden von Hand aktualisiert (*System → Kartendaten*). Ist ein
+Set neuer als die Daten, findet **keine** Zeile dieses Sets einen Treffer.
+Das ist etwas anderes als eine einzelne falsche Kartennummer, und es wird
+auch so benannt (`web._grund_ohne_treffer`):
+
+| Grund in Needs-Review | Bedeutung | Abhilfe |
+|---|---|---|
+| „Set 'trk' ist in der lokalen Kartendatenbank unbekannt" | die Datenbank kennt das ganze Set nicht | Kartendaten aktualisieren |
+| „die lokale Kartendatenbank fehlt" | es gibt noch gar keine | Kartendaten laden |
+| „Kein Scryfall-Treffer für Set 'trk' Nr. 9999" | das Set ist bekannt, diese Nummer nicht | Zeile korrigieren |
+
+Nach dem Import nennt die Meldung die unbekannten Sets mit der Zahl der
+betroffenen Zeilen, und Needs-Review zeigt oben einen Hinweis mit dem Weg zu
+den Kartendaten. Danach genügt **„Alle erneut versuchen"**
+(`/cards/needs_review/retry_all`): jeder Eintrag mit Set-Code und Nummer wird
+noch einmal aufgelöst, mit allen Angaben aus der Datei. Was weiterhin keinen
+Treffer hat, bleibt stehen; Namen mit mehreren Ausgaben bleiben unberührt.
+
+Bleibt das Set auch nach dem Aktualisieren unbekannt, weicht der Set-Code der
+Datei von Scryfall ab (siehe `SET_CODE_ALIASES` in `dragonshield.py`).
+
+Die Suche nach Set und Nummer (`card_scanner.find_by_identity`) nutzt den
+Index der Kartendatenbank. Der frühere Vergleich über `lower(set_code)` las
+für jede Zeile die ganze Tabelle; für anders erzeugte Datenbanken mit groß
+geschriebenen Set-Codes bleibt er als zweiter Versuch erhalten.
 
 ## Nicht auflösbare Zeilen
 

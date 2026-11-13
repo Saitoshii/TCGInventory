@@ -35,7 +35,11 @@
   </div>
   <div class="mb-3">
     <label class="form-label">CSV-Datei (Dragonshield oder Scan-App-Listenexport)</label>
-    <input type="file" name="csv_file" class="form-control" accept=".csv">
+    {# Manche Scan-Apps speichern den Export als .txt. Der Inhalt ist derselbe;
+       ohne .txt hier bot der Dateidialog die Datei gar nicht erst an. #}
+    <input type="file" name="csv_file" class="form-control"
+           accept=".csv,.txt,text/csv,text/plain">
+    <div class="form-text">Auch als <code>.txt</code> — der Dateiname spielt keine Rolle.</div>
   </div>
   <button type="submit" class="btn btn-primary">Hochladen</button>
   <div class="progress mt-3" style="display:none;" id="upload-progress">

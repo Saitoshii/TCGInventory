@@ -20,6 +20,8 @@ DEFAULT_DB_PATH = Path(__file__).resolve().parent / "data" / "default-cards.db"
 _CARDS_BY_ID: Dict[str, Dict] = {}
 _CARDS_BY_NAME: Dict[str, Dict] = {}
 _DB_CONN: sqlite3.Connection | None = None
+#: Gemerkte Antworten von ``set_bekannt`` — gelten bis zum Tausch der Datenbank.
+_SET_BEKANNT: Dict[str, bool] = {}
 
 #: Result type for ``fetch_card_info`` and queue entries
 CardInfo = Dict[str, str]
@@ -50,6 +52,7 @@ def reset_card_database() -> None:
     Verbindung noch auf die alte Datei; sie muss deshalb verworfen werden.
     """
     global _DB_CONN
+    _SET_BEKANNT.clear()
     if _DB_CONN is not None:
         try:
             _DB_CONN.close()
@@ -148,6 +151,57 @@ def kartendaten_vorhanden() -> bool:
     """
     _load_card_database()
     return _DB_CONN is not None
+
+
+def set_bekannt(set_code: str) -> bool:
+    """Kommt dieses Set in der lokalen Kartendatenbank überhaupt vor?
+
+    Unterscheidet zwei ganz verschiedene Fälle, die beide „kein Treffer"
+    heißen: eine einzelne falsche Kartennummer — und ein Set, das die
+    Datenbank noch gar nicht kennt, weil sie älter ist als das Set. Im zweiten
+    Fall hilft kein Korrigieren der Zeile, sondern das Aktualisieren der
+    Kartendaten.
+
+    Das Ergebnis wird je Set gemerkt, bis die Datenbank getauscht wird
+    (``reset_card_database``): bei einem unbekannten Set fragen sonst hunderte
+    Zeilen derselben Datei dasselbe.
+    """
+    schluessel = (set_code or "").strip().lower()
+    if not schluessel:
+        return False
+    if schluessel in _SET_BEKANNT:
+        return _SET_BEKANNT[schluessel]
+    _load_card_database()
+    if not _DB_CONN:
+        return False
+    bekannt = bool(_zeilen_zum_set(
+        "SELECT 1 FROM cards WHERE {set} LIMIT 1", schluessel, ()))
+    _SET_BEKANNT[schluessel] = bekannt
+    return bekannt
+
+
+def _zeilen_zum_set(abfrage: str, set_code: str, weitere: tuple) -> list:
+    """``abfrage`` für ein Set ausführen — erst über den Index, dann tolerant.
+
+    Scryfall liefert Set-Codes klein geschrieben, und so stehen sie in der
+    Datenbank. Der direkte Vergleich nutzt den Index ``idx_identity`` und
+    findet eine Karte in Bruchteilen einer Millisekunde. Der frühere Vergleich
+    über ``lower(set_code)`` las dafür bei jeder Zeile eines Imports die ganze
+    Tabelle (über 100.000 Karten).
+
+    Nur wenn der direkte Vergleich nichts findet, wird wie bisher ohne
+    Rücksicht auf die Schreibweise gesucht — für Datenbanken, die anders
+    erzeugt wurden. Am Ergebnis ändert sich dadurch nichts.
+
+    ``abfrage`` enthält ``{set}`` an der Stelle der Set-Bedingung.
+    """
+    zeilen = _DB_CONN.execute(
+        abfrage.format(set="set_code = ?"), (set_code.lower(), *weitere)).fetchall()
+    if zeilen:
+        return zeilen
+    return _DB_CONN.execute(
+        abfrage.format(set="lower(set_code) = lower(?)"),
+        (set_code, *weitere)).fetchall()
 
 
 def autocomplete_names(query: str) -> list[str]:
@@ -354,12 +408,10 @@ def find_by_identity(
     _load_card_database()
 
     if _DB_CONN:
-        c = _DB_CONN.execute(
+        rows = [dict(r) for r in _zeilen_zum_set(
             "SELECT id, name, set_code, lang, cardmarket_id, collector_number "
-            "FROM cards WHERE lower(set_code)=lower(?) AND collector_number=?",
-            (set_code, str(collector_number)),
-        )
-        rows = [dict(r) for r in c.fetchall()]
+            "FROM cards WHERE {set} AND collector_number = ?",
+            set_code, (str(collector_number),))]
         if not rows:
             return None
         row = _choose_by_language(rows, language)

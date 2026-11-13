@@ -3,12 +3,36 @@
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <h2 class="page-title mb-0">Needs-Review <small>· {{ entries|length }}</small></h2>
   {% if entries %}
-  <form method="post" action="{{ url_for('needs_review_clear') }}"
-        onsubmit="return confirm('Wirklich alle Einträge verwerfen?')">
-    <button class="btn btn-outline-danger btn-sm" type="submit">Alle verwerfen</button>
-  </form>
+  <div class="d-flex gap-2 flex-wrap">
+    <form method="post" action="{{ url_for('needs_review_retry_all') }}">
+      <button class="btn btn-outline-primary btn-sm" type="submit"
+              title="Alle Einträge mit Set-Code und Kartennummer noch einmal auflösen">
+        Alle erneut versuchen</button>
+    </form>
+    <form method="post" action="{{ url_for('needs_review_clear') }}"
+          onsubmit="return confirm('Wirklich alle Einträge verwerfen?')">
+      <button class="btn btn-outline-danger btn-sm" type="submit">Alle verwerfen</button>
+    </form>
+  </div>
   {% endif %}
 </div>
+
+{#
+  Kennt die Kartendatenbank ein ganzes Set nicht, liegt es fast immer an ihrem
+  Alter: das Set ist neuer als die Daten. Dann hilft kein Korrigieren einzelner
+  Zeilen — also einmal sagen, was zu tun ist, statt es hundertfach anzudeuten.
+#}
+{% if an_kartendaten %}
+<div class="alert alert-warning">
+  <strong>{{ an_kartendaten }} {{ 'Eintrag hängt' if an_kartendaten == 1 else 'Einträge hängen' }}
+  an den Kartendaten, nicht an der Zeile:</strong>
+  das Set ist in der lokalen Kartendatenbank unbekannt. Bei einem neuen Set
+  sind die Kartendaten meist älter als das Set.
+  <a href="{{ url_for('card_data_view') }}">Kartendaten aktualisieren</a>,
+  danach hier „Alle erneut versuchen". Bleibt das Set unbekannt, weicht der
+  Set-Code der Datei von Scryfall ab — dann den Set-Code an der Zeile korrigieren.
+</div>
+{% endif %}
 
 <p class="text-muted">
   Diese Zeilen konnten beim Import <strong>nicht eindeutig</strong> aufgelöst werden

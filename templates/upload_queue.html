@@ -7,6 +7,38 @@
     <button class="btn btn-outline-secondary" type="submit">Search</button>
   </div>
 </form>
+{#
+  Platzbedarf: wie viele Lagerplätze die Warteschlange je Zielordner braucht
+  und wie viele dort frei sind. Reicht es nicht, kommen die überzähligen
+  Karten ohne Lagerplatz in den Bestand — das soll hier zu sehen sein und
+  nicht erst, wenn eine Bestellung „Kein Lagerort" zeigt.
+#}
+{% set engpass = namespace(da=false) %}
+{% for b in platzbedarf %}
+{% if b.fehlen %}{% set engpass.da = true %}{% endif %}
+<div class="alert {{ 'alert-warning' if b.fehlen else 'alert-secondary' }} py-2">
+  {% if b.ordner_id %}
+  Ordner „{{ b.name }}" ({{ '%02d'|format(b.ordner_id) }}):
+  {% else %}
+  <strong>Kein Zielordner gewählt:</strong>
+  {% endif %}
+  {{ b.gebraucht }} {{ 'Platz' if b.gebraucht == 1 else 'Plätze' }} gebraucht, {{ b.frei }} frei.
+  {% if b.fehlen %}
+  <strong>{{ b.fehlen }} {{ 'Eintrag bekäme' if b.fehlen == 1 else 'Einträge bekämen' }} keinen Lagerplatz.</strong>
+  {% if b.ordner_id %}
+  Es fehlen {{ b.seiten }} {{ 'Seite' if b.seiten == 1 else 'Seiten' }} —
+  <a href="{{ url_for('edit_folder_view', folder_id=b.ordner_id) }}">Ordner bearbeiten</a>
+  und die Seitenzahl erhöhen, oder einen Teil in einen anderen Ordner legen.
+  {% else %}
+  Den Zielordner an der einzelnen Karte über „Edit" setzen, oder die
+  Warteschlange leeren und mit gewähltem Ordner neu hochladen.
+  {% endif %}
+  {% elif b.gebraucht == 0 %}
+  <span class="text-muted">Alles liegt dort schon — es werden nur Mengen erhöht.</span>
+  {% endif %}
+</div>
+{% endfor %}
+
 {% if queue %}
 <table class="table table-striped">
   <thead>
@@ -97,7 +129,8 @@
   </tbody>
 </table>
 <div class="mt-3">
-  <a class="btn btn-primary me-2" href="{{ url_for('upload_all_route') }}">Add All ({{ queue|length }})</a>
+  <a class="btn btn-primary me-2" href="{{ url_for('upload_all_route') }}"
+     {% if engpass.da %}onclick="return confirm('Nicht alle Karten bekommen einen Lagerplatz (siehe Hinweis oben).\n\nTrotzdem alle übernehmen?')"{% endif %}>Add All ({{ queue|length }})</a>
   <a class="btn btn-outline-danger" href="{{ url_for('clear_upload_queue') }}">Clear Queue</a>
 </div>
 {% else %}
