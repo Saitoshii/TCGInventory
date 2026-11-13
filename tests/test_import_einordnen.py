@@ -396,3 +396,123 @@ def test_set_bekannt_merkt_sich_die_antwort_bis_zum_tausch(alte_kartendaten,
     cs.reset_card_database()
     monkeypatch.setattr(cs, "DEFAULT_DB_PATH", alte_kartendaten.karten_db)
     assert cs.set_bekannt("TRK") is True
+
+
+# ---------------------------------------------------------------------------
+# 4) Kartendaten aus der Preview-Zeit: das Set ist bekannt, aber unvollständig
+#
+# Der Fall aus dem Betrieb: „Star Trek" erschien am 13.11. Bis kurz davor hatte
+# Scryfall nur die vorgestellten Karten. Kartendaten aus dieser Zeit kannten
+# das Set — 78 Zeilen wurden erkannt, 172 nicht, jede mit „Kein Treffer für
+# Set 'trk' Nr. …". Das sah aus wie 172 Einzelfehler.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def preview_kartendaten(anlage, monkeypatch):
+    """Nur drei Karten des Sets sind schon bekannt, mit Stand in der Datenbank."""
+    preview = [k for k in _scryfall()
+               if k["set"] != "trk" or k["collector_number"] in ("137", "92", "94")]
+    pfad = anlage.karten_db.with_name("preview.db")
+    bcd.schreibe_datenbank(preview, pfad)
+    bcd._merke_stand(pfad, "2026-10-28T10:00:00.000+00:00")
+    cs.reset_card_database()
+    monkeypatch.setattr(cs, "DEFAULT_DB_PATH", pfad)
+    return anlage
+
+
+def test_preview_daten_werden_als_ursache_benannt(preview_kartendaten):
+    _lade_hoch(_ordner(2))
+    fehlend = [e for e in web.NEEDS_REVIEW if e["set_code"] == "trk"]
+    assert len(fehlend) == 5                          # 350, 292, 138, 207, 203
+    assert "Karten fehlen in den Kartendaten: TRK (5 Zeilen)" in web.BULK_MESSAGE
+    assert "28.10.2026" in web.BULK_MESSAGE
+    assert "Preview" in web.BULK_MESSAGE
+
+
+def test_einzelne_falsche_nummer_loest_den_hinweis_nicht_aus(anlage):
+    zeilen = [(1, "Gibt Es Nicht", "TRK", "Star Trek", "9999", "Normal",
+               "common", "0.10", "2026-11-11", "0.10")]
+    _lade_hoch(_ordner(1), inhalt=_export(zeilen))
+    assert "Karten fehlen in den Kartendaten" not in (web.BULK_MESSAGE or "")
+
+
+def test_needs_review_bietet_aktualisieren_und_erneut_versuchen(preview_kartendaten):
+    _lade_hoch(_ordner(2))
+    html = _klient().get("/cards/needs_review").get_data(as_text=True)
+    assert "Karten fehlen in den Kartendaten" in html and "TRK (5 Einträge)" in html
+    assert "28.10.2026" in html
+    assert "Kartendaten aktualisieren und danach erneut versuchen" in html
+    assert 'name="zurueck" value="needs_review"' in html
+
+
+def test_nach_der_aktualisierung_wird_needs_review_von_selbst_aufgeloest(
+        preview_kartendaten, monkeypatch):
+    """Der eigentliche Ausweg: Kartendaten neu, und die offenen Einträge gehen
+    ohne weiteren Klick in die Warteschlange — mit allen Angaben der Datei."""
+    ordner = _ordner(2)
+    _lade_hoch(ordner)
+    assert len(web.NEEDS_REVIEW) == 5
+
+    vollstaendig = preview_kartendaten.karten_db
+
+    def aktualisiere(fortschritt=None, erzwingen=False, vor_tausch=None):
+        if vor_tausch:
+            vor_tausch()
+        monkeypatch.setattr(cs, "DEFAULT_DB_PATH", vollstaendig)
+        return {"aktualisiert": True, "anzahl": 10, "stand": "2026-11-13"}
+
+    monkeypatch.setattr(web.build_card_db, "aktualisiere_von_scryfall", aktualisiere)
+    web.CARDDATA_STATUS.update({"laeuft": False, "fertig": False, "fehler": None})
+    antwort = _klient().post("/system/kartendaten/aktualisieren",
+                             data={"zurueck": "needs_review"})
+    assert antwort.headers["Location"].endswith("/cards/needs_review")
+
+    assert web.NEEDS_REVIEW == []
+    assert len(web.UPLOAD_QUEUE) == len(ZEILEN)
+    assert "5 aufgelöst" in web.CARDDATA_STATUS["meldung"]
+    moopsy = [k for k in web.UPLOAD_QUEUE if k["collector_number"] == "207"][0]
+    assert moopsy["quantity"] == 4 and moopsy["market_price"] == 0.40
+    assert str(moopsy["folder_id"]) == str(ordner)
+
+
+def test_namen_mit_mehreren_ausgaben_bleiben_beim_nachziehen_stehen(
+        anlage, monkeypatch):
+    web.NEEDS_REVIEW.append({"name": "Lightning Bolt", "set_code": "",
+                             "collector_number": "", "reason": "3 Ausgaben"})
+    monkeypatch.setattr(web.build_card_db, "aktualisiere_von_scryfall",
+                        lambda **k: {"aktualisiert": False, "anzahl": 0, "stand": ""})
+    web._aktualisiere_kartendaten(False)
+    assert len(web.NEEDS_REVIEW) == 1
+    assert "1 weiterhin offen" in web.CARDDATA_STATUS["meldung"]
+
+
+# ---------------------------------------------------------------------------
+# Nächtliche Aktualisierung
+# ---------------------------------------------------------------------------
+
+from datetime import datetime as _dt                              # noqa: E402
+
+
+@pytest.mark.parametrize("uhrzeit,zuletzt,erwartet", [
+    ("2026-11-13 03:10", None, True),
+    ("2026-11-13 05:59", "2026-11-12", True),
+    ("2026-11-13 04:00", "2026-11-13", False),        # heute schon gelaufen
+    ("2026-11-13 02:59", None, False),                # zu früh
+    ("2026-11-13 06:00", None, False),                # zu spät — tagsüber nicht
+    ("2026-11-13 14:00", None, False),
+])
+def test_kartendaten_werden_nachts_einmal_geprueft(uhrzeit, zuletzt, erwartet):
+    jetzt = _dt.strptime(uhrzeit, "%Y-%m-%d %H:%M")
+    assert web._kartendaten_faellig(jetzt, zuletzt) is erwartet
+
+
+def test_waechter_startet_nichts_waehrend_einer_laufenden_aktualisierung(monkeypatch):
+    aufrufe = []
+    monkeypatch.setattr(web, "_aktualisiere_kartendaten", aufrufe.append)
+    monkeypatch.setitem(web.CARDDATA_STATUS, "laeuft", True)
+    waechter = web.KartendatenWaechter()
+    assert waechter.durchgang(_dt(2026, 11, 13, 3, 30)) is False
+    monkeypatch.setitem(web.CARDDATA_STATUS, "laeuft", False)
+    assert waechter.durchgang(_dt(2026, 11, 13, 3, 30)) is True
+    assert waechter.durchgang(_dt(2026, 11, 13, 4, 30)) is False   # nur einmal je Nacht
+    assert aufrufe == [False]

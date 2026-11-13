@@ -153,6 +153,25 @@ def kartendaten_vorhanden() -> bool:
     return _DB_CONN is not None
 
 
+def kartendaten_stand() -> Optional[str]:
+    """Stand der lokalen Kartendaten bei Scryfall (``updated_at``), falls bekannt.
+
+    Wichtig für die Diagnose bei neuen Sets: Scryfall nimmt während der
+    Preview-Zeit nur die vorgestellten Karten auf, den Rest des Sets erst kurz
+    vor dem Erscheinen. Kartendaten aus dieser Zeit kennen das Set — aber nur
+    zum Teil.
+    """
+    _load_card_database()
+    if not _DB_CONN:
+        return None
+    try:
+        zeile = _DB_CONN.execute(
+            "SELECT wert FROM meta WHERE schluessel = 'updated_at'").fetchone()
+    except sqlite3.Error:
+        return None
+    return zeile[0] if zeile else None
+
+
 def set_bekannt(set_code: str) -> bool:
     """Kommt dieses Set in der lokalen Kartendatenbank überhaupt vor?
 

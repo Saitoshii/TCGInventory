@@ -123,6 +123,29 @@ den Kartendaten. Danach genügt **„Alle erneut versuchen"**
 noch einmal aufgelöst, mit allen Angaben aus der Datei. Was weiterhin keinen
 Treffer hat, bleibt stehen; Namen mit mehreren Ausgaben bleiben unberührt.
 
+### Kartendaten aus der Preview-Zeit
+
+Tückischer als ein unbekanntes Set ist ein **halb** bekanntes. Scryfall nimmt
+während der Preview-Zeit nur die vorgestellten Karten auf, den Rest eines Sets
+erst kurz vor dem Erscheinen. Kartendaten aus dieser Zeit kennen das Set, aber
+nur zum Teil. So geschehen mit „Star Trek" (erschienen 13.11.2026): 78 von
+250 Zeilen wurden erkannt, 172 nicht — jede mit „Kein Treffer für Set 'trk'
+Nr. …", was wie 172 Einzelfehler aussah.
+
+Fehlen aus einem bekannten Set mindestens `HAEUFUNG_JE_SET` (3) Karten, nennt
+die Meldung nach dem Import das Set und den Stand der Kartendaten, und
+Needs-Review zeigt den Knopf **„Kartendaten aktualisieren und danach erneut
+versuchen"**.
+
+**Nach jeder Aktualisierung der Kartendaten** — von Hand, über diesen Knopf
+oder nachts — werden die offenen Einträge in Needs-Review von selbst erneut
+aufgelöst (`web._needs_review_erneut_aufloesen`, dieselbe Regel wie „Alle
+erneut versuchen").
+
+**Nachts zwischen 3 und 6 Uhr** sieht `web.KartendatenWaechter` einmal nach,
+ob Scryfall eine neuere Fassung hat; nur dann wird geladen. Er startet mit der
+Anwendung, wie der Bestelleingang und der Cardmarket-Katalog.
+
 Bleibt das Set auch nach dem Aktualisieren unbekannt, weicht der Set-Code der
 Datei von Scryfall ab (siehe `SET_CODE_ALIASES` in `dragonshield.py`).
 

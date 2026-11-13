@@ -845,6 +845,20 @@ def _json_eintrag(item) -> tuple[str, dict] | None:
     return None
 
 
+#: Ab so vielen fehlenden Karten im selben, bekannten Set liegt es an den
+#: Kartendaten und nicht an einzelnen Zeilen.
+HAEUFUNG_JE_SET = 3
+
+
+def _stand_text() -> str:
+    """Stand der Kartendaten zum Anzeigen (TT.MM.JJJJ) oder „unbekannt"."""
+    stand = card_scanner.kartendaten_stand() or ""
+    try:
+        return datetime.fromisoformat(stand[:10]).strftime("%d.%m.%Y")
+    except ValueError:
+        return "unbekannt"
+
+
 def _grund_ohne_treffer(set_code: str, nummer: str) -> str:
     """Warum eine Zeile mit Set und Nummer nicht aufgelöst werden konnte.
 
@@ -993,6 +1007,9 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
         # Sets, die die Kartendatenbank gar nicht kennt, und wie viele Zeilen
         # daran hängen — für einen Hinweis statt hunderter Einzelmeldungen.
         unbekannte_sets: Counter = Counter()
+        # Bekannte Sets, von denen trotzdem Karten fehlen. Viele Fehler im
+        # selben Set heißen fast immer: Kartendaten aus der Preview-Zeit.
+        fehlende_je_set: Counter = Counter()
 
         for idx, (kind, item) in enumerate(entries):
             if kind == "json":
@@ -1038,6 +1055,8 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
                         fields["set_code"], fields["collector_number"])
                     if "unbekannt" in reason:
                         unbekannte_sets[fields["set_code"]] += 1
+                    elif reason.startswith("Kein Scryfall-Treffer für Set"):
+                        fehlende_je_set[fields["set_code"]] += 1
                     NEEDS_REVIEW.append(
                         _needs_review_entry(fields, folder_id, reason, normalized)
                     )
@@ -1105,6 +1124,17 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
                 "Kartendaten älter sind als das Set – unter System → Kartendaten "
                 "aktualisieren und danach in Needs-Review „Alle erneut "
                 "versuchen\".")
+        gehaeuft = [(code, n) for code, n in fehlende_je_set.most_common()
+                    if n >= HAEUFUNG_JE_SET]
+        if gehaeuft:
+            liste = ", ".join(f"{code.upper()} ({n} Zeilen)" for code, n in gehaeuft)
+            hinweise.append(
+                f"Karten fehlen in den Kartendaten: {liste} – "
+                f"Stand der Kartendaten: {_stand_text()}. Bei neuen Sets nimmt "
+                "Scryfall in der Preview-Zeit nur die vorgestellten Karten auf, "
+                "den Rest erst kurz vor dem Erscheinen. Unter System → "
+                "Kartendaten aktualisieren; die offenen Zeilen werden danach "
+                "von selbst erneut versucht.")
         # Hinweise zu den Dateien voranstellen. Zuvor überschrieb die Meldung
         # oben jeden Lesefehler — er war dann nirgends mehr zu sehen.
         if hinweise:
@@ -1810,11 +1840,22 @@ def needs_review_view():
         1 for e in NEEDS_REVIEW
         if "unbekannt" in e.get("reason", "")
         or "Kartendatenbank fehlt" in e.get("reason", ""))
+    # Bekannte Sets, aus denen mehrere Karten fehlen: Kartendaten aus der
+    # Preview-Zeit eines neuen Sets.
+    fehlend = Counter(
+        e.get("set_code", "") for e in NEEDS_REVIEW
+        if "kein Treffer für Set" in e.get("reason", "")
+        or e.get("reason", "").startswith("Kein Scryfall-Treffer für Set"))
+    gehaeuft = [(code, n) for code, n in fehlend.most_common()
+                if code and n >= HAEUFUNG_JE_SET]
     return render_template(
         "needs_review.html",
         entries=list(enumerate(NEEDS_REVIEW)),
         folders=folders,
         an_kartendaten=an_kartendaten,
+        gehaeuft=gehaeuft,
+        stand=_stand_text(),
+        aktualisierung_laeuft=CARDDATA_STATUS["laeuft"],
     )
 
 
@@ -1918,6 +1959,18 @@ def needs_review_retry_all():
     stehen. Einträge ohne Set oder Nummer (etwa Namen mit mehreren Ausgaben)
     bleiben unberührt — dort muss gewählt werden.
     """
+    geloest, offen = _needs_review_erneut_aufloesen()
+    flash(f"{geloest} aufgelöst und in die Warteschlange übernommen, "
+          f"{offen} weiterhin offen.")
+    return redirect(url_for("needs_review_view" if offen else "upload_queue_view"))
+
+
+def _needs_review_erneut_aufloesen() -> tuple:
+    """Einträge mit Set und Nummer noch einmal auflösen: (gelöst, offen).
+
+    Wird auch nach jeder Aktualisierung der Kartendaten aufgerufen — sonst
+    blieben Einträge liegen, die inzwischen auflösbar sind.
+    """
     geloest = 0
     offen = []
     for entry in list(NEEDS_REVIEW):
@@ -1937,9 +1990,7 @@ def needs_review_retry_all():
             entry["reason"] = _grund_ohne_treffer(set_code, collector)
             offen.append(entry)
     NEEDS_REVIEW[:] = offen
-    flash(f"{geloest} aufgelöst und in die Warteschlange übernommen, "
-          f"{len(offen)} weiterhin offen.")
-    return redirect(url_for("needs_review_view" if offen else "upload_queue_view"))
+    return geloest, len(offen)
 
 
 @app.route("/cards/needs_review/discard/<int:index>", methods=["POST"])
@@ -2149,9 +2200,15 @@ def _aktualisiere_kartendaten(erzwingen: bool) -> None:
         ergebnis = build_card_db.aktualisiere_von_scryfall(
             fortschritt=melde, erzwingen=erzwingen,
             vor_tausch=card_scanner.reset_card_database)
-        CARDDATA_STATUS["meldung"] = (
-            f"Fertig – {ergebnis['anzahl']} Karten übernommen."
-            if ergebnis["aktualisiert"] else "Kartendaten waren bereits aktuell.")
+        meldung = (f"Fertig – {ergebnis['anzahl']} Karten übernommen."
+                   if ergebnis["aktualisiert"] else "Kartendaten waren bereits aktuell.")
+        # Was in Needs-Review an den Kartendaten hing, ist jetzt vielleicht
+        # auflösbar. Dieselbe Regel wie „Alle erneut versuchen" — kein Raten.
+        if NEEDS_REVIEW:
+            geloest, offen = _needs_review_erneut_aufloesen()
+            meldung += (f" Needs-Review erneut versucht: {geloest} aufgelöst und "
+                        f"in die Warteschlange übernommen, {offen} weiterhin offen.")
+        CARDDATA_STATUS["meldung"] = meldung
     except Exception as exc:                       # noqa: BLE001
         CARDDATA_STATUS["fehler"] = str(exc)
         CARDDATA_STATUS["meldung"] = f"Fehlgeschlagen: {exc}"
@@ -2207,7 +2264,69 @@ def card_data_update():
     erzwingen = bool(request.form.get("erzwingen"))
     threading.Thread(target=_aktualisiere_kartendaten, args=(erzwingen,),
                      daemon=True).start()
+    if request.form.get("zurueck") == "needs_review":
+        flash("Kartendaten werden aktualisiert. Danach werden die offenen "
+              "Einträge von selbst erneut versucht.")
+        return redirect(url_for("needs_review_view"))
     return redirect(url_for("card_data_view"))
+
+
+# ---------------------------------------------------------------------------
+# Kartendaten nachts von selbst aktualisieren
+# ---------------------------------------------------------------------------
+#: Zwischen diesen Stunden (Ortszeit des Pi) wird nachgesehen.
+KARTENDATEN_NACHT = (3, 6)
+
+
+def _kartendaten_faellig(jetzt: datetime, zuletzt: str | None) -> bool:
+    """Ist die nächtliche Prüfung der Kartendaten fällig?
+
+    Einmal je Nacht, innerhalb von ``KARTENDATEN_NACHT``. Ob dann wirklich
+    geladen wird, entscheidet ``aktualisiere_von_scryfall`` selbst: hat
+    Scryfall keine neuere Fassung, wird nichts heruntergeladen.
+    """
+    von, bis = KARTENDATEN_NACHT
+    if not (von <= jetzt.hour < bis):
+        return False
+    return zuletzt != jetzt.date().isoformat()
+
+
+class KartendatenWaechter:
+    """Hält die Scryfall-Kartendaten aktuell, ohne dass jemand daran denkt.
+
+    Anlass: ein neues Set wurde gescannt, die Kartendaten stammten aus der
+    Preview-Zeit — 172 von 250 Karten wurden nicht erkannt. Scryfall
+    aktualisiert seine Bulkdaten täglich; hier wird nachts nachgesehen.
+    Läuft gerade eine Aktualisierung (etwa von Hand), wird nichts gestartet.
+    """
+
+    TAKT = 900                    # alle 15 Minuten auf die Uhr sehen
+
+    def __init__(self):
+        self.zuletzt: str | None = None
+        self._stopp = threading.Event()
+
+    def durchgang(self, jetzt: datetime | None = None) -> bool:
+        jetzt = jetzt or datetime.now()
+        if CARDDATA_STATUS["laeuft"] or not _kartendaten_faellig(jetzt, self.zuletzt):
+            return False
+        self.zuletzt = jetzt.date().isoformat()
+        CARDDATA_STATUS.update({"laeuft": True, "anzahl": 0, "fertig": False,
+                                "fehler": None,
+                                "meldung": "Nächtliche Aktualisierung …"})
+        _aktualisiere_kartendaten(False)
+        return True
+
+    def _laufe(self) -> None:
+        while not self._stopp.wait(self.TAKT):
+            try:
+                self.durchgang()
+            except Exception as exc:               # noqa: BLE001
+                print(f"⚠️  Kartendaten nicht aktualisiert: {exc}")
+
+    def start(self) -> None:
+        threading.Thread(target=self._laufe, daemon=True,
+                         name="kartendaten").start()
 
 
 @app.route("/system/kartendaten/status")
@@ -3172,6 +3291,10 @@ if __name__ == "__main__":
     # Den Cardmarket-Produktkatalog im Hintergrund aktuell halten: einmal am
     # Tag nachfragen, geladen wird nur bei einer neuen Fassung.
     cardmarket_katalog.KatalogWaechter(cardmarket_katalog.DB_PATH).start()
+
+    # Die Scryfall-Kartendaten nachts aktualisieren, damit neue Sets erkannt
+    # werden, ohne dass jemand daran denken muss.
+    KartendatenWaechter().start()
     
     host = os.environ.get("FLASK_RUN_HOST", "0.0.0.0")
     port = int(os.environ.get("FLASK_RUN_PORT", 5000))

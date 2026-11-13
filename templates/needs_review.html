@@ -22,6 +22,32 @@
   Alter: das Set ist neuer als die Daten. Dann hilft kein Korrigieren einzelner
   Zeilen — also einmal sagen, was zu tun ist, statt es hundertfach anzudeuten.
 #}
+{#
+  Viele fehlende Karten aus einem Set, das die Kartendaten kennen: fast immer
+  Kartendaten aus der Preview-Zeit eines neuen Sets. Ein Knopf statt Anleitung.
+#}
+{% if gehaeuft %}
+<div class="alert alert-warning">
+  <strong>Karten fehlen in den Kartendaten:</strong>
+  {% for code, n in gehaeuft %}{{ code|upper }} ({{ n }} Einträge){% if not loop.last %}, {% endif %}{% endfor %}.
+  Stand der Kartendaten: {{ stand }}.
+  Bei neuen Sets nimmt Scryfall in der Preview-Zeit nur die vorgestellten Karten
+  auf, den Rest erst kurz vor dem Erscheinen.
+  {% if aktualisierung_laeuft %}
+  <div class="mt-2"><strong>Die Kartendaten werden gerade aktualisiert.</strong>
+    Danach werden die offenen Einträge von selbst erneut versucht —
+    <a href="{{ url_for('card_data_view') }}">Fortschritt ansehen</a>.</div>
+  {% else %}
+  <form method="post" action="{{ url_for('card_data_update') }}" class="mt-2">
+    <input type="hidden" name="zurueck" value="needs_review">
+    <button class="btn btn-warning btn-sm" type="submit">
+      Kartendaten aktualisieren und danach erneut versuchen</button>
+    <span class="small ms-2">Dauert einige Minuten; die Seite bleibt nutzbar.</span>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
 {% if an_kartendaten %}
 <div class="alert alert-warning">
   <strong>{{ an_kartendaten }} {{ 'Eintrag hängt' if an_kartendaten == 1 else 'Einträge hängen' }}
