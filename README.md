@@ -52,7 +52,10 @@ On first launch you are asked to register a single user. Subsequent starts
 require a login and sessions expire after 15 minutes of inactivity.
 
 The CLI can manage optional storage slots for physical binders. Use the option
-`Ordner anlegen` to create slots for a set (one page equals nine slots). When
+`Ordner anlegen` to create slots for a set. Each folder stores how many slots a
+page has: 18 for a binder sheet with front and back (P1–P9 front, P10–P18
+back, the default for new folders in the web interface) or 9 if only one side
+is counted. When
 adding a card without a storage code, the next free slot is used if available.
 If no slot exists the card is still stored without a location code. Existing
 folders can be edited via `Ordner bearbeiten` to change the name or page count

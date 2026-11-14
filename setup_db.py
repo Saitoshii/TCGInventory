@@ -52,6 +52,13 @@ def initialize_database() -> None:
         folder_columns = [row[1] for row in cursor.fetchall()]
         if "pages" not in folder_columns:
             cursor.execute("ALTER TABLE folders ADD COLUMN pages INTEGER DEFAULT 0")
+        # Plätze je Seite: 9 (nur eine Seite gezählt) oder 18 (Blatt mit
+        # Vorder- und Rückseite, P1–P9 vorne, P10–P18 hinten). Vorhandene
+        # Ordner behalten 9 — wie ihre Karten physisch liegen, weiß nur der
+        # Mensch; umgestellt wird im Ordner-Formular.
+        if "plaetze_je_seite" not in folder_columns:
+            cursor.execute(
+                "ALTER TABLE folders ADD COLUMN plaetze_je_seite INTEGER DEFAULT 9")
 
         cursor.execute("PRAGMA table_info(cards)")
         columns = [row[1] for row in cursor.fetchall()]

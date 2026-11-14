@@ -170,7 +170,7 @@
       </div>
       <div class="tcg-card__row">
         {% set loc = c[7] if c[7] else c[14] %}
-        {% if loc %}<span class="storage-badge">{{ loc }}</span>
+        {% if loc %}<span class="storage-badge" title="{{ loc|platz_lesbar }}">{{ loc }}</span>
         {% else %}<span class="storage-badge storage-badge--empty">Kein Lagerort</span>{% endif %}
         {% if c[8] %}<span class="chip">📁 {{ c[8] }}</span>{% endif %}
       </div>

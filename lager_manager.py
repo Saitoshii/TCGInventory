@@ -302,25 +302,58 @@ def add_storage_slot(code):
     print(f"📁 Lagerplatz '{code}' hinzugefügt oder bereits vorhanden.")
 
 
-def create_binder(folder_id: int, pages: int) -> None:
-    """Create storage slots for a binder consisting of several pages."""
+#: Erlaubte Werte für „Plätze je Seite": nur eine Seite gezählt, oder ein
+#: Blatt mit Vorder- und Rückseite (P1–P9 vorne, P10–P18 hinten).
+PLAETZE_JE_SEITE_WERTE = (9, 18)
+
+
+def plaetze_je_seite(folder_id) -> int:
+    """Wie viele Plätze eine Seite dieses Ordners hat (9 oder 18)."""
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            zeile = conn.execute(
+                "SELECT plaetze_je_seite FROM folders WHERE id = ?",
+                (int(folder_id),)).fetchone()
+    except (sqlite3.Error, TypeError, ValueError):
+        return 9
+    wert = zeile[0] if zeile else None
+    return wert if wert in PLAETZE_JE_SEITE_WERTE else 9
+
+
+def create_binder(folder_id: int, pages: int, plaetze: int | None = None) -> None:
+    """Lagerplätze für die Seiten 1 bis ``pages`` anlegen.
+
+    Vorhandene Plätze bleiben unberührt (``INSERT OR IGNORE``). Deshalb wird
+    beim Vergrößern immer der ganze Ordner angelegt — die frühere Variante
+    legte beim Erhöhen von 25 auf 30 Seiten die Seiten 1–5 noch einmal an
+    statt 26–30, und es kam kein einziger Platz dazu.
+    """
+    if plaetze is None:
+        plaetze = plaetze_je_seite(folder_id)
     prefix = f"O{int(folder_id):02d}-"
-    for page in range(1, pages + 1):
-        for slot in range(1, 10):
-            code = f"{prefix}S{page:02d}-P{slot}"
-            add_storage_slot(code)
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.executemany(
+            "INSERT OR IGNORE INTO storage_slots (code, is_occupied) VALUES (?, 0)",
+            [(f"{prefix}S{page:02d}-P{slot}",)
+             for page in range(1, int(pages) + 1)
+             for slot in range(1, int(plaetze) + 1)])
+        conn.commit()
+    print(f"📁 Ordner {folder_id}: {pages} Seiten mit je {plaetze} Plätzen.")
 
 
 def get_next_free_slot(prefix: str) -> str | None:
-    """Return the first free slot for a given prefix."""
+    """Den ersten freien Platz mit diesem Präfix — in natürlicher Reihenfolge.
+
+    SQLite sortiert Text zeichenweise: ``P10`` käme vor ``P2``. Bei Seiten mit
+    18 Plätzen würde so die Rückseite vor der Vorderseite gefüllt.
+    """
+    from TCGInventory.sortierung import platz
+
     with sqlite3.connect(DB_FILE) as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT code FROM storage_slots WHERE code LIKE ? AND is_occupied = 0 ORDER BY code LIMIT 1",
-            (f"{prefix}%",),
-        )
-        result = cursor.fetchone()
-        return result[0] if result else None
+        codes = [z[0] for z in conn.execute(
+            "SELECT code FROM storage_slots WHERE code LIKE ? AND is_occupied = 0",
+            (f"{prefix}%",))]
+    return min(codes, key=platz) if codes else None
 
 # 🔍 Funktion: Alle Karten anzeigen
 def list_all_cards():
@@ -608,22 +641,29 @@ def _next_folder_id(cursor: sqlite3.Cursor) -> int:
     return next_id
 
 
-def add_folder(name: str, pages: int = 0) -> int | None:
-    """Create a folder entry if it does not exist and return its ID."""
+def add_folder(name: str, pages: int = 0, plaetze: int = 9) -> int | None:
+    """Create a folder entry if it does not exist and return its ID.
+
+    ``plaetze`` = Plätze je Seite (9 oder 18, siehe ``PLAETZE_JE_SEITE_WERTE``).
+    """
+    if plaetze not in PLAETZE_JE_SEITE_WERTE:
+        plaetze = 9
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT id FROM folders WHERE name = ?", (name,))
         row = cursor.fetchone()
         if row:
-            cursor.execute("UPDATE folders SET pages = ? WHERE id = ?", (pages, row[0]))
+            cursor.execute(
+                "UPDATE folders SET pages = ?, plaetze_je_seite = ? WHERE id = ?",
+                (pages, plaetze, row[0]))
             conn.commit()
             print(f"📁 Ordner '{name}' angelegt.")
             return row[0]
 
         folder_id = _next_folder_id(cursor)
         cursor.execute(
-            "INSERT INTO folders (id, name, pages) VALUES (?, ?, ?)",
-            (folder_id, name, pages),
+            "INSERT INTO folders (id, name, pages, plaetze_je_seite) VALUES (?, ?, ?, ?)",
+            (folder_id, name, pages, plaetze),
         )
         conn.commit()
         print(f"📁 Ordner '{name}' angelegt.")
@@ -644,9 +684,15 @@ def rename_folder(folder_id: int, new_name: str) -> bool:
 
 
 def edit_folder(
-    folder_id: int, new_name: str, pages: int | None = None, new_id: int | None = None
+    folder_id: int, new_name: str, pages: int | None = None, new_id: int | None = None,
+    plaetze: int | None = None,
 ) -> bool:
-    """Update folder name, page count and optionally its id."""
+    """Update folder name, page count, places per page and optionally its id.
+
+    Mehr Seiten oder mehr Plätze je Seite legen die fehlenden Plätze an.
+    Weniger Plätze je Seite (18 → 9) entfernt die **freien** Plätze P10–P18;
+    belegte bleiben, damit keine Karte ihren Platz verliert.
+    """
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT pages FROM folders WHERE id = ?", (folder_id,))
@@ -688,17 +734,31 @@ def edit_folder(
                 "UPDATE folders SET name = ?, pages = ? WHERE id = ?",
                 (new_name, new_pages, folder_id),
             )
+        if plaetze in PLAETZE_JE_SEITE_WERTE:
+            cursor.execute("UPDATE folders SET plaetze_je_seite = ? WHERE id = ?",
+                           (plaetze, target_id))
         conn.commit()
 
-        if new_pages > current_pages:
-            create_binder(target_id, new_pages - current_pages)
+    neue_plaetze = plaetze_je_seite(target_id)
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        # Den ganzen Ordner anlegen; vorhandene Plätze bleiben (OR IGNORE).
+        create_binder(target_id, new_pages, neue_plaetze)
+        # Überzählige Plätze je Seite entfernen — nur freie.
+        prefix = f"O{int(target_id):02d}-"
+        zuviel = [
+            code for (code,) in cursor.execute(
+                "SELECT code FROM storage_slots WHERE code LIKE ? AND is_occupied = 0",
+                (f"{prefix}%",))
+            if code.rsplit("-P", 1)[-1].isdigit()
+            and int(code.rsplit("-P", 1)[-1]) > neue_plaetze]
+        cursor.executemany("DELETE FROM storage_slots WHERE code = ?",
+                           [(c,) for c in zuviel])
+        conn.commit()
 
-        if cursor.rowcount:
-            print(f"📁 Ordner {target_id} aktualisiert.")
-            return True
-
-        print(f"⚠️ Kein Ordner mit ID {folder_id} gefunden.")
-        return False
+    # Dass es den Ordner gibt, wurde oben geprüft.
+    print(f"📁 Ordner {target_id} aktualisiert.")
+    return True
 
 
 def delete_folder(folder_id: int) -> bool:
