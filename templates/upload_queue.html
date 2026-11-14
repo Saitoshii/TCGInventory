@@ -26,7 +26,7 @@
   {% if b.fehlen %}
   <strong>{{ b.fehlen }} {{ 'Eintrag bekäme' if b.fehlen == 1 else 'Einträge bekämen' }} keinen Lagerplatz.</strong>
   {% if b.ordner_id %}
-  Es fehlen {{ b.seiten }} {{ 'Seite' if b.seiten == 1 else 'Seiten' }} (je {{ b.je_seite }} Plätze) —
+  Es fehlen {{ b.seiten }} {{ 'Seite' if b.seiten == 1 else 'Seiten' }} —
   <a href="{{ url_for('edit_folder_view', folder_id=b.ordner_id) }}">Ordner bearbeiten</a>
   und die Seitenzahl erhöhen, oder einen Teil in einen anderen Ordner legen.
   {% else %}

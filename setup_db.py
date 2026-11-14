@@ -52,13 +52,6 @@ def initialize_database() -> None:
         folder_columns = [row[1] for row in cursor.fetchall()]
         if "pages" not in folder_columns:
             cursor.execute("ALTER TABLE folders ADD COLUMN pages INTEGER DEFAULT 0")
-        # Plätze je Seite: 9 (nur eine Seite gezählt) oder 18 (Blatt mit
-        # Vorder- und Rückseite, P1–P9 vorne, P10–P18 hinten). Vorhandene
-        # Ordner behalten 9 — wie ihre Karten physisch liegen, weiß nur der
-        # Mensch; umgestellt wird im Ordner-Formular.
-        if "plaetze_je_seite" not in folder_columns:
-            cursor.execute(
-                "ALTER TABLE folders ADD COLUMN plaetze_je_seite INTEGER DEFAULT 9")
 
         cursor.execute("PRAGMA table_info(cards)")
         columns = [row[1] for row in cursor.fetchall()]
@@ -540,6 +533,35 @@ def initialize_database() -> None:
             END
             """
         )
+
+        _ergaenze_fehlende_plaetze(cursor)
+
+
+def _ergaenze_fehlende_plaetze(cursor) -> int:
+    """Fehlende Lagerplätze für die eingetragene Seitenzahl jedes Ordners anlegen.
+
+    Reparatur für einen früheren Fehler: Beim Erhöhen der Seitenzahl wurden
+    keine neuen Plätze angelegt. Ein Ordner, der von 25 auf 30 Seiten erhöht
+    wurde, hatte deshalb 225 statt 270 Plätze. Angelegt wird nur, was fehlt;
+    vorhandene Plätze und ihre Belegung bleiben unberührt. Neue Plätze, auf
+    die eine Karte bereits verweist, werden als belegt markiert.
+    """
+    vorher = cursor.execute("SELECT COUNT(*) FROM storage_slots").fetchone()[0]
+    ordner = cursor.execute(
+        "SELECT id, pages FROM folders WHERE COALESCE(pages, 0) > 0").fetchall()
+    for ordner_id, seiten in ordner:
+        cursor.executemany(
+            "INSERT OR IGNORE INTO storage_slots (code, is_occupied) VALUES (?, 0)",
+            [(f"O{int(ordner_id):02d}-S{seite:02d}-P{platz}",)
+             for seite in range(1, int(seiten) + 1) for platz in range(1, 10)])
+    neu = cursor.execute("SELECT COUNT(*) FROM storage_slots").fetchone()[0] - vorher
+    if neu:
+        cursor.execute(
+            "UPDATE storage_slots SET is_occupied = 1 WHERE is_occupied = 0 "
+            "AND code IN (SELECT storage_code FROM cards "
+            "WHERE COALESCE(storage_code, '') <> '')")
+        print(f"📁 {neu} fehlende Lagerplätze ergänzt.")
+    return neu
 
 
 if __name__ == "__main__":

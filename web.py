@@ -18,7 +18,6 @@ from flask import (
 import csv
 import io
 
-from TCGInventory import lager_manager as lager_manager_modul
 from TCGInventory.lager_manager import (
     add_card,
     add_or_increment_card,
@@ -149,22 +148,6 @@ def _needs_review_entry(fields: dict, folder_id, reason: str, raw: dict) -> dict
         "reason": reason,
         "raw": raw,
     }
-
-
-@app.template_filter("platz_lesbar")
-def platz_lesbar(code) -> str:
-    """„O07-S03-P12" → „Ordner 07 · Seite 3 · Rückseite · Platz 3".
-
-    Bei Seiten mit 18 Plätzen liegen P10–P18 auf der Rückseite. Der Code
-    selbst bleibt, wie er ist; das hier ist nur die Lesehilfe.
-    """
-    m = re.fullmatch(r"O(\d+)-S(\d+)-P(\d+)", (code or "").strip())
-    if not m:
-        return code or ""
-    ordner, seite, nr = (int(g) for g in m.groups())
-    if nr > 9:
-        return f"Ordner {ordner:02d} · Seite {seite} · Rückseite · Platz {nr - 9}"
-    return f"Ordner {ordner:02d} · Seite {seite} · Platz {nr}"
 
 
 def make_storage_code(
@@ -1515,23 +1498,12 @@ def add_folder_view():
     if request.method == "POST":
         name = request.form["name"]
         pages = int(request.form.get("pages", "1"))
-        plaetze = _plaetze_aus_formular(18)
-        folder_id = add_folder(name, pages, plaetze)
+        folder_id = add_folder(name, pages)
         if folder_id is not None:
-            create_binder(folder_id, pages, plaetze)
-        flash(f"Ordner angelegt: {pages} Seiten mit je {plaetze} Plätzen "
-              f"= {pages * plaetze} Plätze.")
+            create_binder(folder_id, pages)
+        flash("Folder added")
         return redirect(url_for("list_folders_view"))
-    return render_template("folder_form.html", plaetze=18)
-
-
-def _plaetze_aus_formular(vorgabe: int) -> int:
-    """„Plätze je Seite" aus dem Formular — nur 9 oder 18."""
-    try:
-        wert = int(request.form.get("plaetze_je_seite", vorgabe))
-    except (TypeError, ValueError):
-        return vorgabe
-    return wert if wert in lager_manager_modul.PLAETZE_JE_SEITE_WERTE else vorgabe
+    return render_template("folder_form.html")
 
 
 @app.route("/folders/edit/<int:folder_id>", methods=["GET", "POST"])
@@ -1548,18 +1520,10 @@ def edit_folder_view(folder_id: int):
         pages = int(request.form.get("pages", folder[2] or 0))
         new_id_val = request.form.get("id")
         new_id = int(new_id_val) if new_id_val and new_id_val.isdigit() else None
-        plaetze = _plaetze_aus_formular(lager_manager_modul.plaetze_je_seite(folder_id))
-        edit_folder(folder_id, request.form["name"], pages, new_id, plaetze)
-        ziel = new_id or folder_id
-        with sqlite3.connect(DB_FILE) as conn:
-            gesamt, frei = conn.execute(
-                "SELECT COUNT(*), COALESCE(SUM(is_occupied = 0), 0) FROM storage_slots "
-                "WHERE code LIKE ?", (f"O{int(ziel):02d}-%",)).fetchone()
-        flash(f"Ordner gespeichert: {pages} Seiten mit je {plaetze} Plätzen — "
-              f"{gesamt} Plätze, davon {frei} frei.")
+        edit_folder(folder_id, request.form["name"], pages, new_id)
+        flash("Folder updated")
         return redirect(url_for("list_folders_view"))
-    return render_template("folder_form.html", folder=folder,
-                           plaetze=lager_manager_modul.plaetze_je_seite(folder_id))
+    return render_template("folder_form.html", folder=folder)
 
 
 @app.route("/storage/add", methods=["GET", "POST"])
@@ -1626,7 +1590,7 @@ def upload_queue_view():
                            search=search, platzbedarf=_platzbedarf())
 
 
-#: Vorgabe, wenn kein Ordner bekannt ist. Je Ordner einstellbar (9 oder 18).
+#: Plätze je Mappenseite (siehe ``create_binder``).
 PLAETZE_JE_SEITE = 9
 
 
@@ -1681,16 +1645,13 @@ def _platzbedarf() -> list:
                     "SELECT COUNT(*) FROM storage_slots WHERE code LIKE ? "
                     "AND is_occupied = 0", (f"O{ordner:02d}-%",)).fetchone()[0]
             fehlen = max(len(plaetze) - frei, 0)
-            je_seite = (lager_manager_modul.plaetze_je_seite(ordner)
-                        if ordner is not None else PLAETZE_JE_SEITE)
             ergebnis.append({
                 "ordner_id": ordner,
                 "name": namen.get(ordner, ""),
                 "gebraucht": len(plaetze),
                 "frei": frei,
                 "fehlen": fehlen,
-                "seiten": -(-fehlen // je_seite),              # aufgerundet
-                "je_seite": je_seite,
+                "seiten": -(-fehlen // PLAETZE_JE_SEITE),      # aufgerundet
             })
     return ergebnis
 

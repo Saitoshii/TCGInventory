@@ -140,14 +140,9 @@ def _klient():
     return klient
 
 
-def _ordner(seiten, name="Star Trek", plaetze=9):
-    """Ordner anlegen wie in der Oberfläche — das legt auch die Plätze an.
-
-    Die Tests hier rechnen mit 9 Plätzen je Seite; Ordner mit 18 Plätzen
-    (Vorder- und Rückseite) prüft ``test_ordner_seiten.py``.
-    """
-    _klient().post("/folders/add", data={"name": name, "pages": str(seiten),
-                                         "plaetze_je_seite": str(plaetze)})
+def _ordner(seiten, name="Star Trek"):
+    """Ordner anlegen wie in der Oberfläche — das legt auch die Plätze an."""
+    _klient().post("/folders/add", data={"name": name, "pages": str(seiten)})
     with sqlite3.connect(web.DB_FILE) as conn:
         return conn.execute("SELECT id FROM folders WHERE name = ?",
                             (name,)).fetchone()[0]

@@ -155,8 +155,7 @@
                     {% if item.match_status == 'matched' %}
                     <span class="status-badge status-badge--verfuegbar">Zugeordnet</span>
                     <div class="mt-1">
-                      {% if item.storage_code %}<span class="storage-badge" title="{{ item.storage_code|platz_lesbar }}">{{ item.storage_code }}</span>
-                      {% if item.storage_code|platz_lesbar != item.storage_code %}<div class="small text-muted">{{ item.storage_code|platz_lesbar }}</div>{% endif %}
+                      {% if item.storage_code %}<span class="storage-badge">{{ item.storage_code }}</span>
                       {% else %}<span class="storage-badge storage-badge--empty">kein Lagerort</span>{% endif %}
                     </div>
                     {# Von Hand zugeordnetes Produkt: beim nächsten Mal stünde

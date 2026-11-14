@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<h2 class="mb-4">{{ 'Ordner bearbeiten' if folder else 'Ordner anlegen' }}</h2>
+<h2 class="mb-4">{{ 'Edit Folder' if folder else 'Add Folder' }}</h2>
 <form method="post">
   <div class="mb-3">
     <label class="form-label">Name</label>
@@ -13,32 +13,12 @@
   </div>
   {% endif %}
   <div class="mb-3">
-    <label class="form-label">Seiten (Blätter)</label>
+    <label class="form-label">Pages</label>
     <input type="number" class="form-control" name="pages" min="1" value="{{ folder[2] if folder else 1 }}" required>
   </div>
-  {#
-    Ein Blatt einer Sammelmappe hat Vorder- und Rückseite mit je 9 Fächern.
-    Bisher waren 9 Plätze je Seite fest eingebaut — eine 30-Blatt-Mappe hatte
-    im System 270 statt 540 Plätze.
-  #}
-  <div class="mb-3">
-    <label class="form-label">Plätze je Seite</label>
-    <select class="form-select" name="plaetze_je_seite">
-      <option value="18" {% if plaetze == 18 %}selected{% endif %}>18 – Vorder- und Rückseite (P1–P9 vorne, P10–P18 hinten)</option>
-      <option value="9" {% if plaetze == 9 %}selected{% endif %}>9 – nur eine Seite je Blatt</option>
-    </select>
-    {% if folder and plaetze == 9 %}
-    <div class="form-text text-warning">
-      Dieser Ordner zählt bisher 9 Plätze je Seite. Beim Umstellen auf 18
-      bekommt jede Seite die Plätze P10–P18 (Rückseite) dazu; vorhandene Karten
-      behalten ihren Platz (P1–P9 = Vorderseite). Passt das zu dem, wie die
-      Karten in der Mappe liegen?
-    </div>
-    {% endif %}
-  </div>
-  <button type="submit" class="btn btn-primary">{{ 'Speichern' if folder else 'Anlegen' }}</button>
+  <button type="submit" class="btn btn-primary">{{ 'Save' if folder else 'Add' }}</button>
   {% if folder %}
-    <a href="{{ url_for('delete_folder_view', folder_id=folder[0]) }}" class="btn btn-outline-danger ms-2">Löschen</a>
+    <a href="{{ url_for('delete_folder_view', folder_id=folder[0]) }}" class="btn btn-outline-danger ms-2">Delete</a>
   {% endif %}
 </form>
 {% endblock %}
