@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <h2 class="page-title mb-0">Offene Bestellungen <small>· {{ orders|length }}</small></h2>
+  <h2 class="page-title mb-0" id="bestellungen-titel">Offene Bestellungen <small>· {{ orders|length }}</small></h2>
   <div class="d-flex align-items-center gap-2 flex-wrap">
     {# Nach „Verkauft" verschwindet die Bestellung hier — der Nachdruck liegt
        dahinter, deshalb der Verweis direkt neben der Liste. #}
@@ -33,7 +33,7 @@
 {% endif %}
 
 {% for order in orders %}
-<div class="card mb-4">
+<div class="card mb-4 bestellung" id="bestellung-{{ order.id }}">
   <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
     <div>
       <strong>{{ order.buyer_name }}</strong>
@@ -144,7 +144,7 @@
                     <form method="post" action="{{ url_for('update_order_item_condition', item_id=item.id) }}"
                           class="d-flex align-items-center gap-1 mt-1">
                       <label class="form-label mb-0 small text-muted">Zustand</label>
-                      <select name="condition" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
+                      <select name="condition" class="form-select form-select-sm w-auto" onchange="this.form.requestSubmit ? this.form.requestSubmit() : this.form.submit()">
                         {% for cond in ['', 'MT', 'NM', 'EX', 'GD', 'LP', 'PL', 'PO'] %}
                         <option value="{{ cond }}" {% if (item.condition or '')|upper == cond %}selected{% endif %}>{{ cond or '—' }}</option>
                         {% endfor %}
@@ -288,12 +288,84 @@ document.addEventListener('DOMContentLoaded', function() {
       if (src && modalImg) { modalImg.src = src; if (modal) modal.show(); }
     }
   });
-  document.querySelectorAll('.delete-order-form').forEach(form => {
-    form.addEventListener('submit', function(e) {
-      if (!confirm('Diese Bestellung wirklich löschen? Dies kann nicht rückgängig gemacht werden.')) {
-        e.preventDefault();
+  /*
+   * Speichern ohne Neuladen.
+   *
+   * Zustand, Zuordnung, Adresse, Sprache usw. werden im Hintergrund
+   * abgeschickt. Der Server antwortet wie bisher mit der Bestellseite; daraus
+   * wird nur die eine Bestellung übernommen. Die Seite springt nicht nach
+   * oben, und was man anderswo begonnen hat, bleibt stehen.
+   *
+   * Am Server ändert sich dafür nichts. Geht etwas schief (keine Verbindung,
+   * unerwartete Antwort), wird das Formular ganz normal abgeschickt — dann
+   * eben mit Neuladen, aber nie ohne Speichern.
+   */
+  const titel = document.getElementById('bestellungen-titel');
+
+  function meldungenAus(doc) {
+    return Array.from(doc.querySelectorAll('.container-fluid > .alert'))
+      .map(a => a.innerText.trim()).filter(Boolean);
+  }
+
+  function zeigeMeldungen(karte, texte, fehler) {
+    karte.querySelectorAll('.ajax-meldung').forEach(m => m.remove());
+    if (!texte.length) return;
+    const box = document.createElement('div');
+    box.className = 'alert py-1 px-2 small mb-0 mt-2 ajax-meldung ' + (fehler ? 'alert-danger' : 'alert-info');
+    box.setAttribute('role', 'status');
+    box.innerText = texte.join(' ');
+    const ziel = karte.querySelector('.card-header');
+    ziel.after(box);
+  }
+
+  document.addEventListener('submit', async function (e) {
+    const form = e.target;
+    const karte = form.closest('.bestellung');
+    // Nur Formulare innerhalb einer Bestellung; bestätigungspflichtige
+    // Formulare (onsubmit mit confirm) haben hier schon entschieden.
+    if (!karte || e.defaultPrevented || (form.target && form.target !== '_self')) return;
+    if (form.classList.contains('delete-order-form') &&
+        !confirm('Diese Bestellung wirklich löschen? Dies kann nicht rückgängig gemacht werden.')) {
+      e.preventDefault();
+      return;
+    }
+    e.preventDefault();
+
+    const daten = new FormData(form);
+    if (e.submitter && e.submitter.name) daten.append(e.submitter.name, e.submitter.value);
+    karte.classList.add('bestellung--speichert');
+    try {
+      const antwort = await fetch(form.action, {
+        method: 'POST', body: daten, credentials: 'same-origin',
+        headers: { 'X-Requested-With': 'fetch' },
+      });
+      const ziel = new URL(antwort.url, location.href);
+      if (!antwort.ok || ziel.pathname !== location.pathname) throw new Error('unerwartet');
+      const doc = new DOMParser().parseFromString(await antwort.text(), 'text/html');
+      const texte = meldungenAus(doc);
+      const neu = doc.getElementById(karte.id);
+      const neuerTitel = doc.getElementById('bestellungen-titel');
+      if (titel && neuerTitel) titel.innerHTML = neuerTitel.innerHTML;
+      if (neu) {
+        // Aufgeklappte „Nicht lieferbar"-Bereiche offen lassen.
+        const offen = Array.from(karte.querySelectorAll('details'))
+          .map((d, i) => d.open ? i : -1).filter(i => i >= 0);
+        karte.replaceWith(neu);
+        const details = neu.querySelectorAll('details');
+        offen.forEach(i => { if (details[i]) details[i].open = true; });
+        zeigeMeldungen(neu, texte, doc.querySelector('.container-fluid > .alert-danger'));
+      } else {
+        // Verkauft oder gelöscht: die Bestellung ist nicht mehr offen.
+        const hinweis = document.createElement('div');
+        hinweis.className = 'alert alert-success';
+        hinweis.innerText = texte.join(' ') || 'Erledigt.';
+        karte.replaceWith(hinweis);
+        if (!document.querySelector('.bestellung')) location.reload();
       }
-    });
+    } catch (fehler) {
+      karte.classList.remove('bestellung--speichert');
+      form.submit();                     // Rückfall: normal abschicken
+    }
   });
 });
 </script>

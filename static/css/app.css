@@ -391,3 +391,10 @@ code { color: #ffb3c7; }
   max-height: 22rem;
   overflow-y: auto;
 }
+
+/* Bestellung wird im Hintergrund gespeichert (orders.html). */
+.bestellung--speichert {
+  opacity: .6;
+  pointer-events: none;
+  transition: opacity .15s;
+}
