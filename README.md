@@ -255,6 +255,9 @@ python -m pytest
 - [docs/FEATURES.md](docs/FEATURES.md) — UI/UX and data-model capabilities
   (filtering, dashboard, audit log, item types, import/export).
 - [docs/ORDERS.md](docs/ORDERS.md) — how the Open Orders feature is implemented.
+- [docs/INVENTUR.md](docs/INVENTUR.md) — Bestand im System und im Regal: was zu
+  viel Bestand erzeugte, und wie „System → Bestand prüfen" vorhandene Daten
+  bereinigt.
 - [docs/GMAIL_SETUP.md](docs/GMAIL_SETUP.md) — Gmail OAuth setup for order
   ingestion.
 - [docs/FUTURE_IMPROVEMENTS.md](docs/FUTURE_IMPROVEMENTS.md) — suggested future

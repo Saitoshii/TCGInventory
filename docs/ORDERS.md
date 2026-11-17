@@ -29,7 +29,11 @@ as long as they exist in `default-cards.db`.
 - Route `/orders/<int:order_id>/delete` (POST).
 - Enables `PRAGMA foreign_keys = ON` so CASCADE deletion works.
 - Deletes an order and all associated items in one atomic operation.
-- Flash message confirms deletion; redirects back to the orders list.
+- Nur **offene** Bestellungen; eine verkaufte hat den Bestand verändert und
+  gehört zur Buchhaltung.
+- **Der Bestand bleibt unverändert** — das sagen Rückfrage und Meldung. Für
+  verschickte Bestellungen ist „Versendet / Verkauft" der richtige Weg.
+- Das Löschen steht im Audit-Log (`bestellung-geloescht`).
 
 **File:** `templates/orders.html`
 
@@ -301,6 +305,37 @@ dass dort der richtige Name steht.
 - **Keine Preise aus dem Katalog.** Cardmarket bietet daneben einen
   Preisführer an; er wird nicht geladen.
 
+## 10. Abschließen und Bestand
+
+„Versendet / Verkauft" (`mark_order_sold`) läuft in **einer** Transaktion:
+erst wird der Status auf `sold` gesetzt — nur wenn die Bestellung noch offen
+ist —, dann wird je Position abgezogen (`lager_manager.buche_aus`). Ein
+Doppelklick findet die Bestellung deshalb schon verkauft vor; bricht etwas ab,
+ist nichts geschrieben.
+
+- Je Position steht danach in `order_items.abgezogen`, wie viele Exemplare
+  wirklich abgezogen wurden. Gibt der Bestand weniger her, sagt die Meldung
+  „Spock (1 von 3)".
+- Positionen ohne zugeordnete Karte werden nicht abgezogen. Das steht **vor**
+  dem Knopf, und abgeschlossen wird nur mit Häkchen. Ebenso bei einer
+  Bestellung ohne erkannte Positionen.
+- Die Bestellübersicht zeigt je Position, was der Bestand hergibt: „Nicht mehr
+  im Bestand" (zugeordnete Karte inzwischen weg — Kandidaten werden wieder
+  angeboten), „Im Bestand nur 1 von 3", „in offenen Bestellungen verlangt: 2".
+- Offene Bestellungen, die älter als `ORDER_CUTOFF_DAYS` sind, nennt die
+  Liste mit ihrer Zahl; `?alle=1` zeigt sie.
+- Was nachträglich auszubuchen ist, zeigt **System → Bestand prüfen** (siehe
+  [INVENTUR.md](INVENTUR.md)).
+
+### Bestelleingang
+
+- Eine Mail ohne erkannte Positionen wird trotzdem als Bestellung angelegt
+  (mit Hinweis), statt verworfen zu werden.
+- Gibt es die Bestellung schon — gleiche Message-ID oder gleiche
+  Bestellnummer, etwa bei einer Erinnerungsmail —, wird die Mail nur markiert.
+- Nach abgelaufener Anmeldung führt ein Formular zur Seite zurück, mit der
+  Warnung, dass die Aktion nicht ausgeführt wurde (`auth.login_required`).
+
 ## Tests
 
 - **`test_cardmarket_katalog.py`** — Katalog lesen und bereinigen, neue
@@ -325,6 +360,13 @@ dass dort der richtige Name steht.
   `test_get_image_from_default_db`.
 - **`test_order_deletion.py`** — `test_order_deletion_cascade`,
   `test_email_date_column`.
+- **`test_bestellung_abschliessen.py`** — Doppelklick zieht einmal ab,
+  Abbruch schreibt nichts, Fehlbestand und nicht Zugeordnetes werden vorher
+  und nachher gemeldet, ältere offene Bestellungen, Löschen.
+- **`test_bestelleingang_und_anmeldung.py`** — Mails ohne Positionen, zweite
+  Mail zur selben Bestellung, abgelaufene Anmeldung, Doppelklick beim Anlegen
+  und beim Direktverkauf.
+- **`test_bestand_pruefen.py`** — Prüfseite und Bereinigung der Lagerplätze.
 - **`test_email_parser.py`** — buyer-name parsing (subject and body), card item
   parsing in various formats, card-name cleaning, German and English formats.
 - **`test_schema_migration.py`** — existing schema tests continue to pass.

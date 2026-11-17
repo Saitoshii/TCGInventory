@@ -54,6 +54,15 @@ including the collector number. Available collector numbers are also listed in a
 dropdown next to the input field so you can quickly pick the desired one.
 
 To change an existing card, click **Edit** next to the card and modify the fields in the form.
+Das Formular hat ein eigenes Feld **Set-Code**; die Kartensuche füllt es. Früher
+wurde beim Speichern der Name des Ordners als Set-Code eingetragen — damit fand
+keine Bestellung die Karte mehr. Bei mehreren Ausgaben eines Namens wird die
+Ausgabe gewählt, nicht still die erste eingetragen. Ein neuer Lagerplatz muss
+existieren (Plätze 1–9 je Seite); der alte wird beim Umzug frei.
+
+**Aus dem Bestand entfernen** (unten im Bearbeiten-Formular) ist für
+Berichtigungen, wenn die Ware nicht da ist — kein Verkauf, im Audit-Log als
+`delete` vermerkt.
 Use the *Foil* checkbox to mark shiny versions. Foil cards are shown with a **★** symbol next to their name in the card and folder overviews.
 
 ## Bulk adding cards
@@ -62,10 +71,13 @@ Use the **Bulk Add** page to quickly insert many cards. Enter one card name per 
 
 After submitting the form the cards appear in the **Upload Queue** where each entry can be reviewed and edited before adding it to the database.
 A small checkbox lets you mark whether a card is foil before uploading.
+Dieselbe Datei ein zweites Mal einzulesen geht nur mit ausdrücklichem Häkchen,
+und die Warteschlange zeigt, was schon im Bestand liegt („Nur neue übernehmen")
+— siehe [IMPORT.md](IMPORT.md), „Nichts doppelt einlesen".
 
 ## Managing folders
 
-Folders correspond to sets or binders. The **Folders** page lists all folders and the cards stored inside each one. When clicking **Add Folder** you can enter a name and the number of pages of the binder. Each page provides nine storage slots. Cards can then be assigned to a folder and stored on a specific page and slot when adding or editing them. Existing folders can be edited using the **Edit** link next to each entry to change the name or page count. Increasing the number of pages automatically adds more storage slots. Folders can be removed from within the edit view using the **Delete** button.
+Folders correspond to sets or binders. The **Folders** page lists all folders and the cards stored inside each one. When clicking **Add Folder** you can enter a name and the number of pages of the binder. Each page provides nine storage slots. Cards can then be assigned to a folder and stored on a specific page and slot when adding or editing them. Existing folders can be edited using the **Edit** link next to each entry to change the name or page count. Increasing the number of pages automatically adds more storage slots. Folders can be removed from within the edit view using the **Ordner löschen** button; the confirmation names how many cards leave the inventory with it.
 The folder ID can also be changed in the edit view if needed. Newly created folders automatically receive the lowest free ID so the numbering stays compact.
 
 The overview also offers a small form to filter the listed cards by name, number or storage code and to sort them by name, number or storage.
@@ -99,11 +111,20 @@ Each order shows:
 ### Order Actions
 
 - **Jetzt synchronisieren** – Manually check Gmail for new orders
-- **Verkauft** – Mark an order as sold/completed (hides it from the open orders list)
-- **Delete (×)** – Permanently delete an order and all its items
-  - A confirmation dialog appears before deletion
-  - This action cannot be undone
-  - The order and all associated items are removed from the database
+- **Versendet / Verkauft** – Bestellung abschließen und die zugeordneten Karten
+  abziehen. Was nicht zugeordnet ist, steht vorher da und braucht ein Häkchen
+  (siehe [ORDERS.md](ORDERS.md), Abschnitt 10).
+- **Delete (×)** – Für stornierte oder doppelte Bestellungen. Der Bestand
+  bleibt dabei unverändert; nur offene Bestellungen lassen sich löschen.
+- **Ältere anzeigen** – offene Bestellungen, die älter als 30 Tage sind.
+
+## Bestand prüfen
+
+**System → Bestand prüfen** zeigt, wo Bestand im System und im Regal
+auseinanderlaufen können: verkaufte, aber nicht abgezogene Positionen, Karten
+mit verlorenem Set-Code, doppelte Einträge, Karten auf Plätzen, die es nicht
+gibt, und ältere offene Bestellungen. Bereinigt wird nur per Klick. Ablauf und
+Hintergrund: [INVENTUR.md](INVENTUR.md).
 
 ### Automatic Polling
 

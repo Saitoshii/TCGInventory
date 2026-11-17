@@ -253,4 +253,27 @@ der Auswahl.
 Identische Identitäten (`set_code` + `collector_number` + `language` + `foil`)
 im selben Ordner werden beim Übernehmen zusammengeführt: die Menge wird erhöht,
 statt eine zweite Zeile anzulegen (`add_or_increment_card`). Foil und Normal
-derselben Karte bleiben getrennt.
+derselben Karte bleiben getrennt. Der Set-Code wird dabei ohne Groß- und
+Kleinschreibung verglichen (`TRK` = `trk`), „kein Ordner" als `NULL` und als
+leerer Text gleich behandelt.
+
+## Nichts doppelt einlesen
+
+Genau dieses Zusammenführen macht ein doppeltes Einlesen unsichtbar: die
+Mengen steigen einfach. Deshalb:
+
+- **Dieselbe Datei** wird erkannt (Fingerabdruck in der Tabelle `importe`,
+  unabhängig vom Zeilenende). Ein zweites Einlesen geht nur mit dem Häkchen
+  „Diese Datei absichtlich noch einmal einlesen" — etwa wenn die Warteschlange
+  damals geleert wurde, ohne zu übernehmen.
+- **Ein zweiter Klick auf „Hochladen"** startet keinen zweiten Import; der
+  Knopf sperrt sich, und der Server lehnt einen Lauf ab, solange einer läuft.
+- **Warteschlange und Needs-Review** werden nur unter einer Sperre verändert
+  (`WARTESCHLANGE_SPERRE`). „Alle erneut versuchen" und das selbsttätige
+  Wiederholen nach einem Kartendaten-Update nehmen einen Eintrag nie zweimal
+  auf. Ein Import kommt erst am Ende, in einem Schritt, in die Warteschlange.
+- **Die Warteschlange zeigt** je Zeile „schon im Bestand: 2 → 4" und
+  „doppelt"; darüber steht, wie viele es sind. „Nur neue übernehmen" lässt
+  diese Zeilen stehen, „Alle übernehmen" fragt vorher nach.
+- Die Knöpfe zeigen auf eine feste Kennung des Eintrags (`uid`), nicht auf
+  seine Stelle in der Liste, und ändern nur per Formular (POST).
