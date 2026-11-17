@@ -266,6 +266,25 @@ def initialize_database() -> None:
             if col not in item_columns:
                 cursor.execute(f"ALTER TABLE order_items ADD COLUMN {col} {coltype}")
 
+        # Eingelesene Importdateien (Fingerabdruck). Dieselbe Datei ein
+        # zweites Mal einzulesen, erhöhte früher still die Mengen aller Karten,
+        # die schon im Bestand waren. Jetzt fragt der Import vorher nach.
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS importe (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fingerabdruck TEXT NOT NULL,
+                dateiname TEXT,
+                eingelesen_am TEXT NOT NULL,
+                benutzer TEXT
+            )
+            """
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_importe_fingerabdruck "
+            "ON importe(fingerabdruck)"
+        )
+
         # Tabelle 6: Audit log for tracking changes
         cursor.execute(
             """

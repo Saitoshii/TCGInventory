@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<h2 class="mb-4">{{ 'Edit Folder' if folder else 'Add Folder' }}</h2>
+<h2 class="page-title mb-4">{{ 'Ordner bearbeiten' if folder else 'Ordner anlegen' }}</h2>
 <form method="post">
   <div class="mb-3">
     <label class="form-label">Name</label>
@@ -8,17 +8,37 @@
   </div>
   {% if folder %}
   <div class="mb-3">
-    <label class="form-label">ID</label>
+    <label class="form-label">Nummer</label>
     <input type="number" class="form-control" name="id" min="1" value="{{ folder[0] }}">
+    <div class="form-text">Steht vorne im Lagerplatz (O{{ '%02d'|format(folder[0]) }}-S01-P1). Beim Ändern ziehen alle Karten und Plätze mit um.</div>
   </div>
   {% endif %}
   <div class="mb-3">
-    <label class="form-label">Pages</label>
+    <label class="form-label">Seiten</label>
     <input type="number" class="form-control" name="pages" min="1" value="{{ folder[2] if folder else 1 }}" required>
+    <div class="form-text">Jede Seite hat 9 Plätze (P1–P9). Mehr Seiten legen die fehlenden Plätze an.</div>
   </div>
-  <button type="submit" class="btn btn-primary">{{ 'Save' if folder else 'Add' }}</button>
-  {% if folder %}
-    <a href="{{ url_for('delete_folder_view', folder_id=folder[0]) }}" class="btn btn-outline-danger ms-2">Delete</a>
-  {% endif %}
+  <button type="submit" class="btn btn-primary">{{ 'Speichern' if folder else 'Anlegen' }}</button>
+  <a class="btn btn-outline-secondary ms-2" href="{{ url_for('list_folders_view') }}">Abbrechen</a>
 </form>
+
+{% if folder %}
+{# Löschen nur per Formular mit Rückfrage. Als Link genügte ein Fehlklick —
+   und weil Ordner-Nummern wiederverwendet werden, traf derselbe Link später
+   womöglich einen anderen Ordner. #}
+<hr class="my-4">
+<form method="post" action="{{ url_for('delete_folder_view', folder_id=folder[0]) }}"
+      data-frage="Ordner „{{ folder[1] }}“ wirklich löschen?
+
+{% if karten and karten.zeilen %}Dabei werden {{ karten.zeilen }} Einträge mit {{ karten.stueck }} Karten aus dem Bestand entfernt.{% else %}Der Ordner ist leer.{% endif %}
+
+Das lässt sich nicht rückgängig machen."
+      onsubmit="return confirm(this.dataset.frage)">
+  <button type="submit" class="btn btn-outline-danger">Ordner löschen</button>
+  <span class="text-muted small ms-2">
+    {% if karten and karten.zeilen %}entfernt auch {{ karten.zeilen }} Einträge mit {{ karten.stueck }} Karten aus dem Bestand
+    {% else %}der Ordner ist leer{% endif %}
+  </span>
+</form>
+{% endif %}
 {% endblock %}

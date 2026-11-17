@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
-<h2 class="mb-4">Processing Upload</h2>
+<h2 class="page-title mb-4">Import wird verarbeitet</h2>
 <div class="progress mt-3">
   <div class="progress-bar progress-bar-striped progress-bar-animated bg-info" role="progressbar" style="width:0%">0%</div>
 </div>
-<div class="mt-2 text-muted" id="upload-status">Processing...</div>
+<div class="mt-2 text-muted" id="upload-status">Die Datei wird gelesen und mit den Kartendaten abgeglichen …</div>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   const bar = document.querySelector('.progress-bar');

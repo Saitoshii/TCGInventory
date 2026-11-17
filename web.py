@@ -1,7 +1,9 @@
+import hashlib
 import os
 import sqlite3
 import re
 import threading
+import uuid
 from collections import Counter
 from datetime import datetime, timedelta
 from flask import (
@@ -98,6 +100,18 @@ NEEDS_REVIEW: list[dict] = []
 BULK_PROGRESS = 0
 BULK_DONE = False
 BULK_MESSAGE: str | None = None
+#: Läuft gerade ein Import? Ein zweiter Klick auf „Hochladen" startete
+#: früher einen zweiten, gleichzeitigen Lauf derselben Datei — jede Zeile
+#: stand danach zweimal in der Warteschlange.
+BULK_LAEUFT = False
+
+#: Schützt Warteschlange und Needs-Review. Beide liegen im Speicher und werden
+#: von mehreren Stellen aus verändert: vom Import im Hintergrund, vom erneuten
+#: Auflösen nach einem Kartendaten-Update und von den Knöpfen der Seiten.
+#: Ohne Sperre nahmen zwei gleichzeitige Läufe von „erneut auflösen" dieselben
+#: Einträge zweimal in die Warteschlange — und „Alle übernehmen" zählte die
+#: Karten doppelt in den Bestand.
+WARTESCHLANGE_SPERRE = threading.RLock()
 
 # Order display settings
 ORDER_CUTOFF_DAYS = 30  # Only show orders from the last N days
@@ -131,9 +145,73 @@ def _buchhaltung_url() -> str:
     return f"{teile.scheme or 'http'}://{rechner}:5001"
 
 
+def _mit_kennung(eintrag: dict) -> dict:
+    """Jedem Eintrag in Warteschlange und Needs-Review eine feste Kennung.
+
+    Die Knöpfe der Seiten zeigten früher nur auf die Stelle in der Liste. Hatte
+    sich die Liste inzwischen geändert (ein Import im Hintergrund, ein zweiter
+    Tab), traf der Klick einen anderen Eintrag.
+    """
+    eintrag.setdefault("uid", uuid.uuid4().hex)
+    return eintrag
+
+
+def _stelle_von(liste: list, index: int, uid: str | None):
+    """Die Stelle des gemeinten Eintrags — über die Kennung, sonst die Nummer.
+
+    Mit Kennung zählt nur die Kennung: steht der Eintrag nicht mehr in der
+    Liste, ist das Ergebnis ``None`` und es passiert nichts.
+    """
+    uid = (uid or "").strip()
+    if uid:
+        for stelle, eintrag in enumerate(liste):
+            if eintrag.get("uid") == uid:
+                return stelle
+        return None
+    return index if 0 <= index < len(liste) else None
+
+
+def _fingerabdruck(inhalt: bytes) -> str:
+    """Prüfsumme einer hochgeladenen Datei, unabhängig vom Zeilenende."""
+    return hashlib.sha256(
+        inhalt.replace(b"\r\n", b"\n").strip()).hexdigest()
+
+
+def _frueher_eingelesen(dateien: list) -> list:
+    """Welche dieser Dateien wurden schon einmal eingelesen?
+
+    ``dateien`` ist eine Liste von ``(dateiname, fingerabdruck)``. Ergebnis:
+    je bekannter Datei Name und Zeitpunkt des letzten Einlesens.
+    """
+    treffer = []
+    with sqlite3.connect(DB_FILE) as conn:
+        for name, abdruck in dateien:
+            zeile = conn.execute(
+                "SELECT dateiname, eingelesen_am, benutzer FROM importe "
+                "WHERE fingerabdruck = ? ORDER BY id DESC LIMIT 1",
+                (abdruck,)).fetchone()
+            if zeile:
+                treffer.append({"dateiname": name,
+                                "frueher_als": zeile[0],
+                                "am": (zeile[1] or "")[:16].replace("T", " "),
+                                "benutzer": zeile[2] or ""})
+    return treffer
+
+
+def _merke_eingelesen(dateien: list, benutzer: str) -> None:
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.executemany(
+            "INSERT INTO importe (fingerabdruck, dateiname, eingelesen_am, benutzer) "
+            "VALUES (?, ?, ?, ?)",
+            [(abdruck, name, datetime.now().isoformat(timespec="seconds"), benutzer)
+             for name, abdruck in dateien])
+        conn.commit()
+
+
 def _needs_review_entry(fields: dict, folder_id, reason: str, raw: dict) -> dict:
     """Build a Needs-Review record from extracted fields + failure reason."""
     return {
+        "uid": uuid.uuid4().hex,
         "name": fields.get("name", ""),
         "set_code": fields.get("set_code", "") or fields.get("set_code_raw", ""),
         "collector_number": fields.get("collector_number", ""),
@@ -162,6 +240,32 @@ def make_storage_code(
         except ValueError:
             pass
     return ""
+
+
+def _ordner_aus_formular():
+    """Die Ordner-ID aus dem Formular als Zahl — oder ``None`` ohne Ordner.
+
+    Das Formular schickt Text. Ohne Ordner wurde früher eine leere
+    Zeichenkette gespeichert statt „kein Ordner"; solche Zeilen fand der
+    Import später nicht wieder und legte die Karte ein zweites Mal an.
+    """
+    wert = (request.form.get("folder_id") or "").strip()
+    return int(wert) if wert.isdigit() else None
+
+
+def _platz_vorhanden(code: str) -> bool:
+    """Gibt es diesen Lagerplatz? Nur für Plätze im Ordner-Schema geprüft."""
+    if not re.fullmatch(r"O\d+-S\d+-P\d+", code or ""):
+        return True
+    with sqlite3.connect(DB_FILE) as conn:
+        return conn.execute("SELECT 1 FROM storage_slots WHERE code = ?",
+                            (code,)).fetchone() is not None
+
+
+def _platz_fehlt_text(code: str) -> str:
+    return (f"Den Lagerplatz {code} gibt es nicht. Jede Seite hat die Plätze "
+            f"1 bis 9; fehlt die Seite, zuerst beim Ordner die Seitenzahl "
+            f"erhöhen. Es wurde nichts gespeichert.")
 
 
 def init_db() -> None:
@@ -950,9 +1054,20 @@ def _ueber_den_namen(fields: dict, folder_id, raw: dict) -> tuple[bool, dict]:
     return False, eintrag
 
 
-def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: bytes | None) -> None:
-    """Background task to process bulk upload files."""
-    global BULK_PROGRESS, BULK_DONE, BULK_MESSAGE
+def _process_bulk_upload(form_data: dict, json_bytes: bytes | None,
+                         csv_bytes: bytes | None, dateien: list | None = None,
+                         benutzer: str = "system") -> None:
+    """Background task to process bulk upload files.
+
+    Die Ergebnisse kommen erst am Ende, in einem Schritt und unter der Sperre,
+    in Warteschlange und Needs-Review — nie halb, und nie zugleich mit einem
+    anderen Lauf. ``dateien`` (Name und Fingerabdruck je Datei) wird nach
+    erfolgreichem Lauf gemerkt: dieselbe Datei ein zweites Mal einzulesen,
+    erhöhte früher still alle Mengen.
+    """
+    global BULK_PROGRESS, BULK_DONE, BULK_MESSAGE, BULK_LAEUFT
+    neu_warteschlange: list[dict] = []
+    neu_review: list[dict] = []
     try:
         # Der Zielordner ist nur das Ziel. Früher wurde sein Name bei Einträgen
         # ohne Set als Set-Code eingetragen — zusammen mit der Kartennummer
@@ -1023,10 +1138,10 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
                 fields, _ = extract_row(item)
                 eindeutig, eintrag = _ueber_den_namen(fields, folder_id, item)
                 if eindeutig:
-                    UPLOAD_QUEUE.append(eintrag)
+                    neu_warteschlange.append(eintrag)
                     added_any = True
                 else:
-                    NEEDS_REVIEW.append(eintrag)
+                    neu_review.append(eintrag)
             elif kind == "csv":
                 row = item
                 normalized = {}
@@ -1041,7 +1156,7 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
                 # language, foil from "Printing"). Malformed rows are not guessed.
                 fields, error = extract_row(normalized)
                 if error:
-                    NEEDS_REVIEW.append(
+                    neu_review.append(
                         _needs_review_entry(fields, folder_id, error, normalized)
                     )
                     BULK_PROGRESS = int((idx + 1) / total * 100)
@@ -1059,13 +1174,13 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
                         unbekannte_sets[fields["set_code"]] += 1
                     elif reason.startswith("Kein Scryfall-Treffer für Set"):
                         fehlende_je_set[fields["set_code"]] += 1
-                    NEEDS_REVIEW.append(
+                    neu_review.append(
                         _needs_review_entry(fields, folder_id, reason, normalized)
                     )
                     BULK_PROGRESS = int((idx + 1) / total * 100)
                     continue
 
-                UPLOAD_QUEUE.append(
+                neu_warteschlange.append(
                     {
                         "name": enrich.get("name") or fields["name"],
                         "set_code": enrich.get("set_code") or fields["set_code"],
@@ -1098,12 +1213,21 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
                 eindeutig, eintrag = _ueber_den_namen(
                     fields, folder_id, {"name": item})
                 if eindeutig:
-                    UPLOAD_QUEUE.append(eintrag)
+                    neu_warteschlange.append(eintrag)
                     added_any = True
                 else:
-                    NEEDS_REVIEW.append(eintrag)
+                    neu_review.append(eintrag)
 
             BULK_PROGRESS = int((idx + 1) / total * 100)
+
+        # Erst jetzt, in einem Schritt und unter der Sperre: so sieht niemand
+        # einen halben Import, und ein gleichzeitiges „erneut auflösen" kann
+        # nichts doppelt übernehmen.
+        with WARTESCHLANGE_SPERRE:
+            UPLOAD_QUEUE.extend(_mit_kennung(e) for e in neu_warteschlange)
+            NEEDS_REVIEW.extend(_mit_kennung(e) for e in neu_review)
+        if dateien:
+            _merke_eingelesen(dateien, benutzer)
 
         BULK_PROGRESS = 100
         BULK_DONE = True
@@ -1157,7 +1281,10 @@ def _process_bulk_upload(form_data: dict, json_bytes: bytes | None, csv_bytes: b
     except Exception as exc:
         BULK_DONE = True
         BULK_PROGRESS = 100
-        BULK_MESSAGE = f"Fehler bei der Verarbeitung: {exc}"
+        BULK_MESSAGE = (f"Fehler bei der Verarbeitung: {exc}. Es wurde nichts "
+                        "in die Warteschlange übernommen.")
+    finally:
+        BULK_LAEUFT = False
 
 
 
@@ -1218,18 +1345,24 @@ def _vorgabe_fuer_neuen_artikel() -> dict:
 def add_card_view():
     folders = list_folders()
     if request.method == "POST":
-        folder_id = request.form.get("folder_id")
-        set_code = ""
-        for f in folders:
-            if str(f[0]) == str(folder_id):
-                set_code = f[1]
-                break
-        
+        folder_id = _ordner_aus_formular()
+        # Der Set-Code kommt von der Karte (aus dem Formular, dort füllt ihn
+        # die Kartensuche), nicht vom Ordner. Früher wurde hier der NAME des
+        # Ordners eingetragen — „Star Trek" statt „trk". Damit fand keine
+        # Bestellung die Karte mehr von selbst.
+        set_code = normalize_set_code(request.form.get("set_code", ""))
+
         item_type = request.form.get("item_type", "card")
         page = request.form.get("page")
         slot = request.form.get("slot")
         storage_code = make_storage_code(folder_id, page, slot)
         location_hint = request.form.get("location_hint", "")
+        if storage_code and not _platz_vorhanden(storage_code):
+            flash(_platz_fehlt_text(storage_code), "error")
+            return render_template(
+                "card_form.html", card=None, folders=folders, folder_part="",
+                page=page or "", slot=slot or "",
+                vorgabe=_vorgabe_fuer_neuen_artikel())
         
         # Top up an identical card on its existing slot instead of creating a
         # new row/place (same rule as the CSV import). Identity =
@@ -1256,6 +1389,11 @@ def add_card_view():
             user=session.get("user", "system"),
         )
         if success:
+            if item_type == "card" and not set_code:
+                flash("Ohne Set-Code kann eine Bestellung diese Karte nicht "
+                      "von selbst finden – sie muss dann von Hand zugeordnet "
+                      "werden. Der Set-Code lässt sich an der Karte nachtragen.",
+                      "warning")
             # Aus einer Bestellposition heraus angelegt: zurueck zu ihr. Dort
             # steht der neue Artikel in der Trefferliste und wird mit einem
             # Klick zugeordnet -- von selbst zugeordnet wird nichts.
@@ -1279,16 +1417,48 @@ def add_card_view():
 def edit_card_view(card_id: int):
     card = get_card(card_id)
     folders = list_folders()
+    if card is None:
+        flash("Diesen Artikel gibt es nicht mehr.", "error")
+        return redirect(url_for("list_cards"))
     if request.method == "POST":
-        folder_id = request.form.get("folder_id")
-        set_code = card[2]
-        for f in folders:
-            if str(f[0]) == str(folder_id):
-                set_code = f[1]
-                break
-        page = request.form.get("page")
-        slot = request.form.get("slot")
-        storage_code = make_storage_code(folder_id, page, slot)
+        folder_id = _ordner_aus_formular()
+        # Der Set-Code bleibt, wie er ist, solange das Formular nichts anderes
+        # sagt. Früher wurde er bei jedem Speichern durch den NAMEN des Ordners
+        # ersetzt („trk" → „Star Trek"): wer bei der Inventur nur die Menge
+        # berichtigte, machte die Karte für den Bestelleingang unauffindbar.
+        if "set_code" in request.form:
+            set_code = normalize_set_code(request.form.get("set_code", ""))
+        else:
+            set_code = card[2]
+        page = (request.form.get("page") or "").strip()
+        slot = (request.form.get("slot") or "").strip()
+        alter_platz = card[7] or ""
+        bisher = re.fullmatch(r"O(\d+)-S(\d+)-P(\d+)", alter_platz)
+        unveraendert = bool(
+            bisher and page.isdigit() and slot.isdigit()
+            and int(page) == int(bisher.group(2))
+            and int(slot) == int(bisher.group(3))
+            and folder_id in (None, int(bisher.group(1))))
+        if unveraendert:
+            # Seite und Platz wurden nicht angefasst: der Platz bleibt, wie er
+            # ist — auch bei einer Zeile, der der Ordner fehlt.
+            storage_code = alter_platz
+        elif page or slot:
+            storage_code = make_storage_code(folder_id, page, slot)
+            if not storage_code:
+                flash("Der Lagerplatz ist unvollständig: bitte Ordner, Seite "
+                      "und Platz angeben – oder Seite und Platz leer lassen.",
+                      "error")
+                return redirect(url_for("edit_card_view", card_id=card_id))
+            if storage_code != alter_platz and not _platz_vorhanden(storage_code):
+                flash(_platz_fehlt_text(storage_code), "error")
+                return redirect(url_for("edit_card_view", card_id=card_id))
+        elif bisher:
+            storage_code = ""          # Seite und Platz geleert: kein Platz mehr
+        else:
+            # Ein Platz, der nicht ins Ordner-Schema passt (z. B. „BOX-1"),
+            # steht nicht in den drei Feldern — er bleibt erhalten.
+            storage_code = alter_platz
         item_type = request.form.get("item_type", "card")
         location_hint = request.form.get("location_hint", "")
         
@@ -1312,7 +1482,7 @@ def edit_card_view(card_id: int):
             location_hint=location_hint,
             cardmarket_name=request.form.get("cardmarket_name", ""),
         )
-        flash("Card updated")
+        flash("Artikel gespeichert.")
         return redirect(url_for("list_cards"))
     folder_part = page = slot = ""
     if card and card[7]:
@@ -1372,11 +1542,21 @@ def _mailnamen_des_artikels(card) -> list:
     return namen
 
 
-@app.route("/cards/<int:card_id>/delete")
+@app.route("/cards/<int:card_id>/delete", methods=["POST"])
 @login_required
 def delete_card_route(card_id: int):
-    delete_card(card_id)
-    flash("Card deleted")
+    """Einen Artikel ganz aus dem Bestand entfernen — kein Verkauf.
+
+    Für Berichtigungen: die Ware ist nicht (mehr) da. Nur per POST: als
+    einfacher Link ließ sich die Adresse versehentlich ein zweites Mal
+    aufrufen (Zurück-Taste, wiederhergestellter Tab).
+    """
+    karte = get_card(card_id)
+    if karte is None:
+        flash("Diesen Artikel gibt es nicht mehr.", "error")
+        return redirect(url_for("list_cards"))
+    delete_card(card_id, session.get("user", "system"))
+    flash(f"„{karte[1]}“ ({karte[6] or 0} Stück) aus dem Bestand entfernt.")
     return redirect(url_for("list_cards"))
 
 
@@ -1429,11 +1609,32 @@ def inventory_cleanup_view():
     return render_template("inventory_cleanup.html", archived_count=count_archived())
 
 
-@app.route("/folders/delete/<int:folder_id>")
+@app.route("/folders/delete/<int:folder_id>", methods=["POST"])
 @login_required
 def delete_folder_view(folder_id: int):
-    delete_folder(folder_id)
-    flash("Folder deleted")
+    """Einen Ordner samt seinen Karten und Plätzen löschen.
+
+    Nur per POST und mit Rückfrage im Formular. Als Link neben „Speichern"
+    genügte ein Fehlklick für einen ganzen Ordner — und weil Ordner-Nummern
+    neu vergeben werden, traf derselbe Link später einen anderen Ordner.
+    """
+    with sqlite3.connect(DB_FILE) as conn:
+        zeile = conn.execute("SELECT name FROM folders WHERE id = ?",
+                             (folder_id,)).fetchone()
+        zeilen, stueck = conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(quantity), 0) FROM cards "
+            "WHERE folder_id = ?", (folder_id,)).fetchone()
+    if not zeile:
+        flash("Diesen Ordner gibt es nicht.", "error")
+        return redirect(url_for("list_folders_view"))
+    # Die Karten einzeln mit Namen ins Protokoll (delete_card), der Ordner
+    # selbst mit einer eigenen Zeile.
+    log_audit(None, session.get("user", "system"), "ordner-geloescht", "folder",
+              f"{zeile[0]} (Nr. {folder_id})",
+              f"{zeilen} Einträge, {stueck} Stück entfernt")
+    delete_folder(folder_id, session.get("user", "system"))
+    flash(f"Ordner „{zeile[0]}“ gelöscht – {zeilen} Einträge mit {stueck} "
+          f"Karten aus dem Bestand entfernt.", "warning" if zeilen else None)
     return redirect(url_for("list_folders_view"))
 
 
@@ -1503,7 +1704,7 @@ def add_folder_view():
         folder_id = add_folder(name, pages)
         if folder_id is not None:
             create_binder(folder_id, pages)
-        flash("Folder added")
+        flash("Ordner angelegt.")
         return redirect(url_for("list_folders_view"))
     return render_template("folder_form.html")
 
@@ -1516,16 +1717,23 @@ def edit_folder_view(folder_id: int):
         c.execute("SELECT id, name, pages FROM folders WHERE id=?", (folder_id,))
         folder = c.fetchone()
     if not folder:
-        flash("Folder not found", "error")
+        flash("Diesen Ordner gibt es nicht.", "error")
         return redirect(url_for("list_folders_view"))
     if request.method == "POST":
         pages = int(request.form.get("pages", folder[2] or 0))
         new_id_val = request.form.get("id")
         new_id = int(new_id_val) if new_id_val and new_id_val.isdigit() else None
-        edit_folder(folder_id, request.form["name"], pages, new_id)
-        flash("Folder updated")
+        if edit_folder(folder_id, request.form["name"], pages, new_id):
+            flash("Ordner gespeichert.")
+        else:
+            flash("Nicht gespeichert: die Ordner-Nummer ist schon vergeben.", "error")
         return redirect(url_for("list_folders_view"))
-    return render_template("folder_form.html", folder=folder)
+    with sqlite3.connect(DB_FILE) as conn:
+        zeilen, stueck = conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(quantity), 0) FROM cards "
+            "WHERE folder_id = ?", (folder_id,)).fetchone()
+    return render_template("folder_form.html", folder=folder,
+                           karten={"zeilen": zeilen, "stueck": stueck})
 
 
 @app.route("/storage/add", methods=["GET", "POST"])
@@ -1543,10 +1751,7 @@ def add_storage_view():
 def bulk_add_view():
     folders = list_folders()
     if request.method == "POST":
-        global BULK_PROGRESS, BULK_DONE, BULK_MESSAGE
-        BULK_PROGRESS = 0
-        BULK_DONE = False
-        BULK_MESSAGE = None
+        global BULK_PROGRESS, BULK_DONE, BULK_MESSAGE, BULK_LAEUFT
 
         form_data = request.form.to_dict()
         # Die Dateien werden hier nur gelesen. Verarbeitet werden sie im
@@ -1556,11 +1761,40 @@ def bulk_add_view():
         json_bytes = json_file.read() if json_file and json_file.filename else None
         csv_bytes = csv_file.read() if csv_file and csv_file.filename else None
 
-        threading.Thread(
-            target=_process_bulk_upload,
-            args=(form_data, json_bytes, csv_bytes),
-            daemon=True,
-        ).start()
+        # Dieselbe Datei noch einmal? Dann würden alle Karten, die schon im
+        # Bestand sind, ein zweites Mal gezählt. Nur mit ausdrücklichem
+        # Häkchen — etwa wenn die Warteschlange damals geleert wurde.
+        dateien = [(f.filename, _fingerabdruck(inhalt))
+                   for f, inhalt in ((json_file, json_bytes), (csv_file, csv_bytes))
+                   if inhalt]
+        if dateien and request.form.get("erneut") != "1":
+            frueher = _frueher_eingelesen(dateien)
+            if frueher:
+                return render_template("bulk_add.html", folders=folders,
+                                       schon_eingelesen=frueher)
+
+        with WARTESCHLANGE_SPERRE:
+            if BULK_LAEUFT:
+                # Doppelklick oder zweiter Tab: nicht noch einmal starten,
+                # sondern den laufenden Import zeigen.
+                flash("Es läuft bereits ein Import – dieser Upload wurde nicht "
+                      "noch einmal gestartet.", "warning")
+                return render_template("bulk_add_progress.html")
+            BULK_LAEUFT = True
+            BULK_PROGRESS = 0
+            BULK_DONE = False
+            BULK_MESSAGE = None
+
+        try:
+            threading.Thread(
+                target=_process_bulk_upload,
+                args=(form_data, json_bytes, csv_bytes, dateien,
+                      session.get("user", "system")),
+                daemon=True,
+            ).start()
+        except Exception:
+            BULK_LAEUFT = False
+            raise
 
         return render_template("bulk_add_progress.html")
     return render_template("bulk_add.html", folders=folders)
@@ -1581,15 +1815,76 @@ def bulk_add_progress():
 def upload_queue_view():
     """Display queued cards from the bulk upload."""
     search = request.args.get("q", "").strip()
-    enumerated_queue = list(enumerate(UPLOAD_QUEUE))
+    with WARTESCHLANGE_SPERRE:
+        abgleich = _abgleich_warteschlange()
+        enumerated_queue = list(enumerate(UPLOAD_QUEUE))
+        gesamt = len(UPLOAD_QUEUE)
     if search:
         enumerated_queue = [
             (i, c)
             for i, c in enumerated_queue
             if search.lower() in c.get("name", "").lower()
         ]
+    schon_da = sum(1 for a in abgleich.values() if a["im_bestand"] is not None)
+    doppelt = sum(1 for a in abgleich.values() if a["doppelt"])
+    neue = gesamt - sum(1 for a in abgleich.values()
+                        if a["im_bestand"] is not None or a["doppelt"])
     return render_template("upload_queue.html", queue=enumerated_queue,
-                           search=search, platzbedarf=_platzbedarf())
+                           search=search, platzbedarf=_platzbedarf(),
+                           abgleich=abgleich, schon_da=schon_da,
+                           doppelt=doppelt, neue=neue, gesamt=gesamt)
+
+
+def _ordner_als_zahl(wert):
+    text = str(wert if wert is not None else "").strip()
+    return int(text) if text.isdigit() else None
+
+
+def _abgleich_warteschlange() -> dict:
+    """Je Eintrag der Warteschlange: liegt diese Karte schon im Bestand?
+
+    Ergebnis ``{uid: {"im_bestand": Menge oder None, "doppelt": bool}}``.
+
+    * ``im_bestand`` — so viele Exemplare dieser Identität (Set, Nummer,
+      Sprache, Foil) liegen im Zielordner schon. „Übernehmen" erhöht dort die
+      Menge.
+    * ``doppelt`` — dieselbe Identität steht weiter oben schon einmal in der
+      Warteschlange.
+
+    Beides kann richtig sein (eine zweite Lieferung derselben Karte), darf
+    aber nicht unsichtbar bleiben: genau so kamen beim zweiten Einlesen
+    derselben Datei Karten doppelt in den Bestand.
+
+    Aufrufen nur unter ``WARTESCHLANGE_SPERRE``.
+    """
+    ergebnis: dict = {}
+    gesehen: set = set()
+    with sqlite3.connect(DB_FILE) as conn:
+        for eintrag in UPLOAD_QUEUE:
+            uid = _mit_kennung(eintrag)["uid"]
+            set_code = (eintrag.get("set_code") or "").strip()
+            nummer = str(eintrag.get("collector_number") or "").strip()
+            if eintrag.get("item_type", "card") != "card" or not (set_code and nummer):
+                continue
+            ordner = _ordner_als_zahl(eintrag.get("folder_id"))
+            sprache = eintrag.get("language") or ""
+            foil = int(bool(eintrag.get("foil")))
+            schluessel = (set_code.lower(), nummer, sprache, foil, ordner)
+            abfrage = ("SELECT COUNT(*), COALESCE(SUM(quantity), 0) FROM cards "
+                       "WHERE set_code IN (?, ?, ?) AND collector_number = ? "
+                       "AND language = ? AND foil = ? AND ")
+            werte = [set_code, set_code.lower(), set_code.upper(), nummer,
+                     sprache, foil]
+            if ordner is None:
+                abfrage += "(folder_id IS NULL OR folder_id = '')"
+            else:
+                abfrage += "folder_id = ?"
+                werte.append(ordner)
+            zeilen, menge = conn.execute(abfrage, werte).fetchone()
+            ergebnis[uid] = {"im_bestand": menge if zeilen else None,
+                             "doppelt": schluessel in gesehen}
+            gesehen.add(schluessel)
+    return ergebnis
 
 
 #: Plätze je Mappenseite (siehe ``create_binder``).
@@ -1694,8 +1989,12 @@ def _melde_fehlende_plaetze(karten_id: int) -> None:
 @login_required
 def toggle_queued_foil(index: int):
     """Toggle the foil flag for a queued card."""
-    if 0 <= index < len(UPLOAD_QUEUE):
-        UPLOAD_QUEUE[index]["foil"] = bool(request.form.get("foil"))
+    with WARTESCHLANGE_SPERRE:
+        stelle = _stelle_von(UPLOAD_QUEUE, index, request.form.get("uid"))
+        if stelle is None:
+            return ("", 404)
+        # Das Formular schickt ein verstecktes „0" und, wenn angehakt, „1".
+        UPLOAD_QUEUE[stelle]["foil"] = "1" in request.form.getlist("foil")
     return ("", 204)
 
 
@@ -1703,20 +2002,24 @@ def toggle_queued_foil(index: int):
 @login_required
 def edit_queued_card(index: int):
     """Edit details of a queued card before adding it."""
-    if not (0 <= index < len(UPLOAD_QUEUE)):
-        flash("Invalid card index", "error")
-        return redirect(url_for("upload_queue_view"))
+    with WARTESCHLANGE_SPERRE:
+        stelle = _stelle_von(UPLOAD_QUEUE, index,
+                             request.form.get("uid") or request.args.get("uid"))
+        if stelle is None:
+            flash("Dieser Eintrag steht nicht mehr in der Warteschlange.", "warning")
+            return redirect(url_for("upload_queue_view"))
+        card = _mit_kennung(UPLOAD_QUEUE[stelle])
 
     folders = list_folders()
-    card = UPLOAD_QUEUE[index]
 
     if request.method == "POST":
         folder_id = request.form.get("folder_id") or None
-        set_code = card.get("set_code", "")
-        for f in folders:
-            if str(f[0]) == str(folder_id):
-                set_code = f[1]
-                break
+        # Wie beim Bearbeiten im Bestand: der Set-Code gehört zur Karte und
+        # wird nicht durch den Namen des Zielordners ersetzt.
+        if "set_code" in request.form:
+            set_code = normalize_set_code(request.form.get("set_code", ""))
+        else:
+            set_code = card.get("set_code", "")
 
         card.update(
             {
@@ -1734,7 +2037,7 @@ def edit_queued_card(index: int):
                 "foil": bool(request.form.get("foil")),
             }
         )
-        flash("Card updated")
+        flash("Eintrag gespeichert.")
         return redirect(url_for("upload_queue_view"))
 
     tuple_card = (
@@ -1763,80 +2066,106 @@ def edit_queued_card(index: int):
         folder_part=folder_part,
         page="",
         slot="",
+        queue_uid=card.get("uid"),
     )
 
 
-@app.route("/cards/upload_queue/add/<int:index>")
+def _uebernimm(card: dict) -> None:
+    """Einen Eintrag der Warteschlange in den Bestand übernehmen."""
+    add_or_increment_card(
+        card["name"],
+        card.get("set_code", ""),
+        card.get("language", ""),
+        card.get("condition", ""),
+        card.get("price", 0) or 0,
+        card.get("quantity", 1),
+        card.get("storage_code", None),
+        card.get("cardmarket_id", ""),
+        _ordner_als_zahl(card.get("folder_id")),
+        card.get("collector_number", ""),
+        card.get("scryfall_id", ""),
+        card.get("image_url", ""),
+        card.get("foil", False),
+        card.get("item_type", "card"),
+        card.get("location_hint", ""),
+        session.get("user", "system"),
+        rarity=card.get("rarity", ""),
+        date_bought=card.get("date_bought", ""),
+        market_price=card.get("market_price"),
+    )
+
+
+@app.route("/cards/upload_queue/add/<int:index>", methods=["POST"])
 @login_required
 def upload_card_route(index: int):
-    """Add a queued card to the database and remove it from the queue."""
-    if 0 <= index < len(UPLOAD_QUEUE):
-        card = UPLOAD_QUEUE.pop(index)
+    """Add a queued card to the database and remove it from the queue.
+
+    Nur per POST und über die Kennung des Eintrags: ein Link mit der Stelle in
+    der Liste traf einen anderen Eintrag, sobald sich die Liste geändert hatte.
+    """
+    with WARTESCHLANGE_SPERRE:
+        stelle = _stelle_von(UPLOAD_QUEUE, index, request.form.get("uid"))
+        if stelle is None:
+            flash("Dieser Eintrag steht nicht mehr in der Warteschlange – "
+                  "es wurde nichts übernommen.", "warning")
+            return redirect(url_for("upload_queue_view"))
+        card = UPLOAD_QUEUE.pop(stelle)
         vorher = _hoechste_karten_id()
-        add_or_increment_card(
-            card["name"],
-            card.get("set_code", ""),
-            card.get("language", ""),
-            card.get("condition", ""),
-            card.get("price", 0) or 0,
-            card.get("quantity", 1),
-            card.get("storage_code", None),
-            card.get("cardmarket_id", ""),
-            card.get("folder_id"),
-            card.get("collector_number", ""),
-            card.get("scryfall_id", ""),
-            card.get("image_url", ""),
-            card.get("foil", False),
-            card.get("item_type", "card"),
-            card.get("location_hint", ""),
-            rarity=card.get("rarity", ""),
-            date_bought=card.get("date_bought", ""),
-            market_price=card.get("market_price"),
-        )
-        # ``add_card`` meldet auch ohne Lagerplatz Erfolg — der frühere Zweig
-        # „Kein Lagerplatz für …" konnte deshalb nie erreicht werden.
-        flash("Karte übernommen")
-        _melde_fehlende_plaetze(vorher)
+        _uebernimm(card)
+    # ``add_card`` meldet auch ohne Lagerplatz Erfolg — der frühere Zweig
+    # „Kein Lagerplatz für …" konnte deshalb nie erreicht werden.
+    flash("Karte übernommen")
+    _melde_fehlende_plaetze(vorher)
     return redirect(url_for("upload_queue_view"))
 
 
-@app.route("/cards/upload_queue/add_all")
+@app.route("/cards/upload_queue/add_all", methods=["POST"])
 @login_required
 def upload_all_route():
-    """Add all cards from the upload queue."""
-    vorher = _hoechste_karten_id()
-    while UPLOAD_QUEUE:
-        card = UPLOAD_QUEUE.pop(0)
-        add_or_increment_card(
-            card["name"],
-            card.get("set_code", ""),
-            card.get("language", ""),
-            card.get("condition", ""),
-            card.get("price", 0) or 0,
-            card.get("quantity", 1),
-            card.get("storage_code", None),
-            card.get("cardmarket_id", ""),
-            card.get("folder_id"),
-            card.get("collector_number", ""),
-            card.get("scryfall_id", ""),
-            card.get("image_url", ""),
-            card.get("foil", False),
-            card.get("item_type", "card"),
-            card.get("location_hint", ""),
-            rarity=card.get("rarity", ""),
-            date_bought=card.get("date_bought", ""),
-            market_price=card.get("market_price"),
-        )
-    flash("Alle Karten aus der Warteschlange übernommen")
+    """Alle Einträge übernehmen — mit ``nur_neue=1`` nur die neuen.
+
+    „Neu" heißt: diese Karte liegt im Zielordner noch nicht und steht auch
+    nicht schon weiter oben in der Warteschlange. Alles andere bleibt in der
+    Warteschlange stehen und wird einzeln entschieden.
+    """
+    nur_neue = request.form.get("nur_neue") == "1"
+    uebernommen = 0
+    with WARTESCHLANGE_SPERRE:
+        abgleich = _abgleich_warteschlange() if nur_neue else {}
+        vorher = _hoechste_karten_id()
+        for card in list(UPLOAD_QUEUE):
+            info = abgleich.get(card.get("uid"))
+            if nur_neue and info and (info["im_bestand"] is not None or info["doppelt"]):
+                continue
+            # Erst aus der Liste nehmen, dann übernehmen: bricht etwas ab,
+            # steht kein schon übernommener Eintrag mehr in der Warteschlange.
+            for stelle, eintrag in enumerate(UPLOAD_QUEUE):
+                if eintrag is card:
+                    UPLOAD_QUEUE.pop(stelle)
+                    break
+            _uebernimm(card)
+            uebernommen += 1
+        bleiben = len(UPLOAD_QUEUE)
+    if nur_neue:
+        meldung = f"{uebernommen} neue Einträge übernommen."
+        if bleiben:
+            meldung += (f" {bleiben} {'bleibt' if bleiben == 1 else 'bleiben'} in "
+                        "der Warteschlange, weil diese Karten schon im Bestand "
+                        "sind oder doppelt in der Warteschlange stehen – bitte "
+                        "einzeln entscheiden.")
+        flash(meldung, "warning" if bleiben else "success")
+    else:
+        flash(f"Alle {uebernommen} Einträge aus der Warteschlange übernommen.")
     _melde_fehlende_plaetze(vorher)
-    return redirect(url_for("list_cards"))
+    return redirect(url_for("upload_queue_view" if (nur_neue and bleiben) else "list_cards"))
 
 
-@app.route("/cards/upload_queue/clear")
+@app.route("/cards/upload_queue/clear", methods=["POST"])
 @login_required
 def clear_upload_queue():
     """Remove all cards from the upload queue."""
-    UPLOAD_QUEUE.clear()
+    with WARTESCHLANGE_SPERRE:
+        UPLOAD_QUEUE.clear()
     flash("Warteschlange geleert")
     return redirect(url_for("upload_queue_view"))
 
@@ -1864,9 +2193,13 @@ def needs_review_view():
     gehaeuft = [(code, n, card_scanner.karten_im_set(code))
                 for code, n in fehlend.most_common()
                 if code and n >= HAEUFUNG_JE_SET]
+    with WARTESCHLANGE_SPERRE:
+        for eintrag in NEEDS_REVIEW:
+            _mit_kennung(eintrag)
+        eintraege = list(enumerate(NEEDS_REVIEW))
     return render_template(
         "needs_review.html",
-        entries=list(enumerate(NEEDS_REVIEW)),
+        entries=eintraege,
         folders=folders,
         an_kartendaten=an_kartendaten,
         gehaeuft=gehaeuft,
@@ -1884,9 +2217,17 @@ def needs_review_retry(index: int):
     On success the row is enriched and moved to the upload queue; otherwise it
     stays in Needs-Review with an updated reason. Nothing is guessed.
     """
-    if not (0 <= index < len(NEEDS_REVIEW)):
-        flash("Ungültiger Eintrag", "error")
+    with WARTESCHLANGE_SPERRE:
+        return _needs_review_retry(index)
+
+
+def _needs_review_retry(index: int):
+    stelle = _stelle_von(NEEDS_REVIEW, index, request.form.get("uid"))
+    if stelle is None:
+        flash("Dieser Eintrag steht nicht mehr in Needs-Review – vermutlich "
+              "wurde er inzwischen aufgelöst. Bitte die Liste prüfen.", "warning")
         return redirect(url_for("needs_review_view"))
+    index = stelle
 
     entry = NEEDS_REVIEW[index]
     set_roh = request.form.get("set_code", entry.get("set_code", ""))
@@ -1923,9 +2264,9 @@ def needs_review_retry(index: int):
         flash("Kein Scryfall-Treffer – bitte Angaben prüfen.", "error")
         return redirect(url_for("needs_review_view"))
 
-    UPLOAD_QUEUE.append(
+    UPLOAD_QUEUE.append(_mit_kennung(
         _aus_review_in_die_warteschlange(entry, enrich, set_code, collector,
-                                         language, folder_id))
+                                         language, folder_id)))
     NEEDS_REVIEW.pop(index)
     flash(f"'{enrich.get('name')}' aufgelöst und in die Warteschlange übernommen.")
     return redirect(url_for("needs_review_view"))
@@ -1987,7 +2328,17 @@ def _needs_review_erneut_aufloesen() -> tuple:
 
     Wird auch nach jeder Aktualisierung der Kartendaten aufgerufen — sonst
     blieben Einträge liegen, die inzwischen auflösbar sind.
+
+    Läuft ganz unter der Sperre. Früher konnte der Lauf nach dem Update
+    gleichzeitig mit einem Klick auf „Alle erneut versuchen" laufen: beide
+    nahmen dieselben Einträge in die Warteschlange, und „Alle übernehmen"
+    zählte diese Karten doppelt in den Bestand.
     """
+    with WARTESCHLANGE_SPERRE:
+        return _needs_review_erneut_aufloesen_gesperrt()
+
+
+def _needs_review_erneut_aufloesen_gesperrt() -> tuple:
     geloest = 0
     offen = []
     for entry in list(NEEDS_REVIEW):
@@ -1999,9 +2350,9 @@ def _needs_review_erneut_aufloesen() -> tuple:
         language = entry.get("language", "")
         enrich = find_by_identity(set_code, collector, language)
         if enrich:
-            UPLOAD_QUEUE.append(_aus_review_in_die_warteschlange(
+            UPLOAD_QUEUE.append(_mit_kennung(_aus_review_in_die_warteschlange(
                 entry, enrich, set_code, collector, language,
-                entry.get("folder_id")))
+                entry.get("folder_id"))))
             geloest += 1
         else:
             entry["reason"] = _grund_ohne_treffer(set_code, collector)
@@ -2014,9 +2365,13 @@ def _needs_review_erneut_aufloesen() -> tuple:
 @login_required
 def needs_review_discard(index: int):
     """Discard a single Needs-Review row."""
-    if 0 <= index < len(NEEDS_REVIEW):
-        NEEDS_REVIEW.pop(index)
-        flash("Eintrag verworfen")
+    with WARTESCHLANGE_SPERRE:
+        stelle = _stelle_von(NEEDS_REVIEW, index, request.form.get("uid"))
+        if stelle is None:
+            flash("Dieser Eintrag steht nicht mehr in Needs-Review.", "warning")
+        else:
+            NEEDS_REVIEW.pop(stelle)
+            flash("Eintrag verworfen")
     return redirect(url_for("needs_review_view"))
 
 
@@ -2024,7 +2379,8 @@ def needs_review_discard(index: int):
 @login_required
 def needs_review_clear():
     """Discard all Needs-Review rows."""
-    NEEDS_REVIEW.clear()
+    with WARTESCHLANGE_SPERRE:
+        NEEDS_REVIEW.clear()
     flash("Needs-Review geleert")
     return redirect(url_for("needs_review_view"))
 

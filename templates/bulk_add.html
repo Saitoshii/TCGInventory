@@ -10,6 +10,23 @@
   eindeutig auflösbare Zeilen landen unter
   <a href="{{ url_for('needs_review_view') }}">Needs-Review</a>, nicht im Bestand.
 </p>
+{#
+  Dieselbe Datei ein zweites Mal einzulesen, erhöhte früher still die Mengen
+  aller Karten, die schon im Bestand waren. Jetzt wird vorher gefragt.
+#}
+{% if schon_eingelesen %}
+<div class="alert alert-warning" id="schon-eingelesen">
+  <strong>Nichts eingelesen: diese Datei wurde schon einmal eingelesen.</strong>
+  <ul class="mb-2 mt-1">
+    {% for d in schon_eingelesen %}
+    <li>„{{ d.dateiname }}" – zuletzt am {{ d.am }}{% if d.benutzer %} von {{ d.benutzer }}{% endif %}</li>
+    {% endfor %}
+  </ul>
+  Ein zweites Einlesen würde alle Karten, die schon im Bestand sind, <strong>noch einmal zählen</strong>.
+  Nur wenn das gewollt ist – etwa weil die Warteschlange damals geleert wurde, ohne zu übernehmen –,
+  die Datei unten erneut auswählen und das Häkchen setzen.
+</div>
+{% endif %}
 <form id="bulk-add-form" method="post" enctype="multipart/form-data">
   <div class="mb-3">
     <label class="form-label">Zielordner</label>
@@ -41,11 +58,19 @@
            accept=".csv,.txt,text/csv,text/plain">
     <div class="form-text">Auch als <code>.txt</code> — der Dateiname spielt keine Rolle.</div>
   </div>
-  <button type="submit" class="btn btn-primary">Hochladen</button>
+  {% if schon_eingelesen %}
+  <div class="form-check mb-3">
+    <input class="form-check-input" type="checkbox" name="erneut" value="1" id="erneut-check">
+    <label class="form-check-label" for="erneut-check">
+      Diese Datei absichtlich noch einmal einlesen
+    </label>
+  </div>
+  {% endif %}
+  <button type="submit" class="btn btn-primary" id="hochladen-knopf">Hochladen</button>
   <div class="progress mt-3" style="display:none;" id="upload-progress">
     <div class="progress-bar progress-bar-striped progress-bar-animated bg-info" role="progressbar" style="width:0%">0%</div>
   </div>
-  <div class="mt-2 text-muted" id="upload-status" style="display:none;">Uploading...</div>
+  <div class="mt-2 text-muted" id="upload-status" style="display:none;">Wird hochgeladen …</div>
 </form>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
@@ -55,8 +80,15 @@ document.addEventListener('DOMContentLoaded', function () {
   const status = document.getElementById('upload-status');
   let startTime = 0;
 
+  const knopf = document.getElementById('hochladen-knopf');
+  let laeuft = false;
+
   form.addEventListener('submit', function (e) {
     e.preventDefault();
+    // Ein zweiter Klick startete früher einen zweiten Import derselben Datei.
+    if (laeuft) return;
+    laeuft = true;
+    if (knopf) knopf.disabled = true;
     const xhr = new XMLHttpRequest();
     xhr.open('POST', form.action);
     xhr.responseType = 'text';
@@ -65,14 +97,6 @@ document.addEventListener('DOMContentLoaded', function () {
       if (ev.lengthComputable) {
         const percent = (ev.loaded / ev.total) * 100;
         bar.style.width = percent + '%';
-
-
-        bar.textContent = Math.round(percent) + '%';
-
-
-        bar.textContent = Math.round(percent) + '%';
-
-
         bar.textContent = Math.round(percent) + '%';
 
         const elapsed = (Date.now() - startTime) / 1000;
@@ -80,7 +104,7 @@ document.addEventListener('DOMContentLoaded', function () {
           const speed = ev.loaded / elapsed;
           const remaining = (ev.total - ev.loaded) / speed;
           if (isFinite(remaining)) {
-            status.textContent = 'Uploading... ' + Math.round(remaining) + 's left';
+            status.textContent = 'Wird hochgeladen … noch ' + Math.round(remaining) + ' s';
           }
         }
 
@@ -94,10 +118,16 @@ document.addEventListener('DOMContentLoaded', function () {
       document.write(xhr.responseText);
       document.close();
     });
+    xhr.addEventListener('error', function () {
+      // Keine Verbindung: wieder freigeben, damit es erneut versucht werden kann.
+      laeuft = false;
+      if (knopf) knopf.disabled = false;
+      status.textContent = 'Hochladen fehlgeschlagen – bitte erneut versuchen.';
+    });
 
     progress.style.display = 'block';
     status.style.display = 'block';
-    status.textContent = 'Uploading...';
+    status.textContent = 'Wird hochgeladen …';
     bar.style.width = '0%';
     startTime = Date.now();
 

@@ -197,16 +197,25 @@ def find_card_by_identity(set_code, collector_number, language, foil, folder_id)
     Identity = ``set_code`` + ``collector_number`` + ``language`` + ``foil``
     (condition and price are deliberately not part of the key, matching the
     canonical identity in CLAUDE.md). ``folder_id`` may be ``None`` (no folder).
+
+    Der Set-Code wird ohne Rücksicht auf Groß- und Kleinschreibung verglichen
+    (``TRK`` = ``trk``): es ist dasselbe Set, und zwei Zeilen für dieselbe
+    Karte im selben Ordner wären eine Dublette. Die drei Schreibweisen stehen
+    einzeln in der Abfrage, damit der Index weiter greift.
     """
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
         query = (
-            "SELECT id FROM cards WHERE set_code = ? AND collector_number = ? "
+            "SELECT id FROM cards WHERE set_code IN (?, ?, ?) AND collector_number = ? "
             "AND language = ? AND foil = ? AND "
         )
-        params = [set_code, collector_number, language, int(bool(foil))]
+        code = set_code or ""
+        params = [code, code.lower(), code.upper(), collector_number, language,
+                  int(bool(foil))]
         if folder_id in (None, ""):
-            query += "folder_id IS NULL"
+            # „Kein Ordner" steht je nach Herkunft als NULL oder als leerer
+            # Text in der Tabelle — beides ist dasselbe.
+            query += "(folder_id IS NULL OR folder_id = '')"
         else:
             query += "folder_id = ?"
             params.append(int(folder_id))
@@ -450,6 +459,20 @@ def update_card(card_id, user="system", **kwargs):
 
         query = f"UPDATE cards SET {', '.join(fields)} WHERE id = ?"
         cursor.execute(query, values)
+
+        # Zieht die Karte um, zieht die Belegung mit: der alte Platz wird
+        # frei (wenn dort sonst nichts liegt), der neue belegt. Ohne das
+        # blieb der alte Platz für immer „belegt", und der neue galt als
+        # frei — die nächste Karte landete auf demselben Platz.
+        if "storage_code" in kwargs:
+            alt = old_row[list(kwargs).index("storage_code")] or ""
+            neu = kwargs["storage_code"] or ""
+            if alt != neu:
+                _free_slot_if_unused(cursor, alt, card_id)
+                if neu:
+                    cursor.execute(
+                        "UPDATE storage_slots SET is_occupied = 1 WHERE code = ?",
+                        (neu,))
         
     # Note: reaching quantity 0 no longer archives the card. Archiving was
     # removed (CLAUDE.md — no archiving); a sold-out card is removed via
@@ -458,16 +481,24 @@ def update_card(card_id, user="system", **kwargs):
     print(f"📝 Karte mit ID {card_id} wurde aktualisiert.")
 
 # ❌ Funktion: Karte löschen
-def delete_card(card_id):
+def delete_card(card_id, user="system"):
+    """Eine Zeile ganz aus dem Bestand entfernen (kein Verkauf).
+
+    Das Entfernen steht im Änderungsprotokoll — mit Name und Menge. Zuvor
+    verschwand eine gelöschte Karte spurlos; nach einer Inventur ließ sich
+    nicht mehr sagen, was berichtigt worden war.
+    """
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
 
         # Lagerplatz freigeben
-        cursor.execute("SELECT storage_code FROM cards WHERE id = ?", (card_id,))
+        cursor.execute("SELECT storage_code, name, quantity FROM cards WHERE id = ?", (card_id,))
         result = cursor.fetchone()
 
         if result:
             storage_code = result[0]
+            log_audit(card_id, user, 'delete', 'name',
+                      f"{result[1]} (Menge {result[2] or 0})", 'entfernt', cursor)
             _free_slot_if_unused(cursor, storage_code, card_id)
             cursor.execute("DELETE FROM cards WHERE id = ?", (card_id,))
             if storage_code:
@@ -743,7 +774,7 @@ def edit_folder(
         return False
 
 
-def delete_folder(folder_id: int) -> bool:
+def delete_folder(folder_id: int, user="system") -> bool:
     """Delete a folder along with its cards and storage slots."""
     prefix = f"O{int(folder_id):02d}-"
 
@@ -755,7 +786,7 @@ def delete_folder(folder_id: int) -> bool:
 
     # Remove cards and free their slots
     for card_id in card_ids:
-        delete_card(card_id)
+        delete_card(card_id, user)
 
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()

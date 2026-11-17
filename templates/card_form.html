@@ -21,6 +21,8 @@
 {% endif %}
 <form method="post">
   {% if vorgabe.position %}<input type="hidden" name="aus_position" value="{{ vorgabe.position }}">{% endif %}
+  {# Beim Bearbeiten in der Warteschlange: welcher Eintrag gemeint ist. #}
+  {% if queue_uid %}<input type="hidden" name="uid" value="{{ queue_uid }}">{% endif %}
   <div class="mb-3">
     <label class="form-label">Typ</label>
     {% set type = card[14] if card else (vorgabe.item_type or 'card') %}
@@ -42,6 +44,15 @@
       Cardmarket-Katalog — von dort kommen Cardmarkets Schreibweise und die
       Produktnummer. Mehrere Wörter grenzen ein („hobbit play box").
     </div>
+  </div>
+  {# Gibt es die Karte in mehreren Ausgaben, wird hier gewählt. Vorbelegt
+     wird nichts: früher trug das Formular still die erste Ausgabe der Liste
+     ein, und die Auswahl stand unbeschriftet ganz unten neben „Speichern". #}
+  <div class="mb-3 d-none" id="variant-block">
+    <label class="form-label" for="variant-select">Ausgabe <small class="text-muted">(Set · Nummer · Sprache)</small></label>
+    <select id="variant-select" class="form-select"></select>
+    <div class="form-text">Diese Karte gibt es mehrfach. Bitte die Ausgabe wählen, die vor Ihnen liegt –
+      Set-Code, Sammlernummer und Bild werden danach eingetragen.</div>
   </div>
   <img id="preview-image" class="img-thumbnail mb-3{% if not card or not card[12] %} d-none{% endif %}" style="max-width:200px;" src="{{ card[12] if card else '' }}">
 
@@ -172,6 +183,18 @@
       <div class="form-text">Leer lassen, damit automatisch der nächste freie Platz vergeben wird.</div>
     </div>
 
+    {# Der Set-Code gehört zur Karte. Er wurde früher gar nicht angezeigt und
+       beim Speichern durch den Namen des Ordners ersetzt — damit fand keine
+       Bestellung die Karte mehr. Die Kartensuche füllt ihn von selbst. #}
+    <div class="mb-3">
+      <label class="form-label">Set-Code</label>
+      <input class="form-control" name="set_code" id="set-code-input" autocomplete="off"
+             value="{{ card[2] if card else '' }}" placeholder="z. B. trk" style="max-width: 12rem;">
+      <div class="form-text">Das Kürzel der Edition wie bei Scryfall. Zusammen mit
+        Sammlernummer, Sprache und Foil macht es die Karte eindeutig – daran
+        erkennt eine Bestellung sie wieder.</div>
+    </div>
+
     <div class="mb-3">
       <label class="form-label">Cardmarket-ID</label>
       <input class="form-control" name="cardmarket_id" value="{{ card[8] if card else vorgabe.cardmarket_id or '' }}">
@@ -188,11 +211,13 @@
     </div>
     {% if folders is not none %}
     <div class="mb-3">
-      <label class="form-label">Ordner (Set)</label>
+      <label class="form-label">Ordner</label>
       <select name="folder_id" class="form-select">
         <option value="">– keiner –</option>
         {% for f in folders %}
-        <option value="{{ f[0] }}" {% if card and card[9]==f[0] %}selected{% endif %}>{{ f[1] }} ({{ '%02d'|format(f[0]) }})</option>
+        {# Als Text verglichen: aus der Warteschlange kommt die Ordner-ID als
+           Zeichenkette, aus dem Bestand als Zahl. #}
+        <option value="{{ f[0] }}" {% if card and card[9] is not none and card[9]|string == f[0]|string %}selected{% endif %}>{{ f[1] }} ({{ '%02d'|format(f[0]) }})</option>
         {% endfor %}
       </select>
     </div>
@@ -204,15 +229,32 @@
     <input class="form-control" name="image_url" value="{{ card[12] if card else '' }}">
   </div>
 
-  <select id="variant-select" class="form-select mb-3 d-none"></select>
   <button type="submit" class="btn btn-primary">Speichern</button>
   <a class="btn btn-outline-secondary" href="{{ url_for('list_cards') }}">Abbrechen</a>
 </form>
+{# Berichtigung nach der Inventur: der Artikel ist gar nicht da. Das ist
+   kein Verkauf — deshalb ein eigener Knopf, der im Protokoll als „entfernt"
+   steht. Zuvor ging das nur über „Verkauft". #}
+{% if card and card[0] and request.endpoint == 'edit_card_view' %}
+<hr class="my-4">
+{# Der Text steht im Datenattribut statt im Skript: ein Name mit Apostroph
+   („Urza's …") hätte sonst das Skript zerbrochen — und dann wäre ohne
+   Rückfrage gelöscht worden. #}
+<form method="post" action="{{ url_for('delete_card_route', card_id=card[0]) }}"
+      data-frage="„{{ card[1] }}“ ({{ card[6] }} Stück) ganz aus dem Bestand entfernen?
+
+Für Berichtigungen, wenn die Ware nicht da ist. Ein Verkauf ist das nicht – dafür „Verkauft“ in der Kartenliste."
+      onsubmit="return confirm(this.dataset.frage)">
+  <button type="submit" class="btn btn-outline-danger btn-sm">Aus dem Bestand entfernen</button>
+  <span class="text-muted small ms-2">wenn die Ware nicht (mehr) da ist – wird im Änderungsprotokoll vermerkt</span>
+</form>
+{% endif %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
   const nameInput = document.getElementById('name-input');
   const suggestions = document.getElementById('name-suggestions');
   const variantSelect = document.getElementById('variant-select');
+  const variantBlock = document.getElementById('variant-block');
   const previewImg = document.getElementById('preview-image');
   const folderSel = document.querySelector('select[name=folder_id]');
   const folderPart = document.querySelector('input[name=folder_part]');
@@ -374,6 +416,7 @@ document.addEventListener('DOMContentLoaded', function() {
   function updateItemTypeVisibility() {
     const isCard = itemTypeSelect.value === 'card';
     cardOnlyFields.classList.toggle('d-none', !isCard);
+    if (!isCard && variantBlock) variantBlock.classList.add('d-none');
     locationHintSection.classList.toggle('d-none', isCard);
     typeHint.textContent = isCard
       ? 'Einzelkarte – bekommt automatisch einen Ordnerplatz.'
@@ -491,10 +534,15 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!Array.isArray(list) || !list.length) return;
         populateNumbers(list);
         if (list.length === 1) {
-          variantSelect.classList.add('d-none');
+          variantBlock.classList.add('d-none');
           fillFields(list[0]);
         } else {
+          // Mehrere Ausgaben: nichts vorbelegen, sondern wählen lassen.
           variantSelect.innerHTML = '';
+          const leer = document.createElement('option');
+          leer.value = '';
+          leer.textContent = `– bitte die Ausgabe wählen (${list.length}) –`;
+          variantSelect.appendChild(leer);
           list.forEach(info => {
             const opt = document.createElement('option');
             opt.value = JSON.stringify(info);
@@ -504,8 +552,7 @@ document.addEventListener('DOMContentLoaded', function() {
             opt.textContent = label;
             variantSelect.appendChild(opt);
           });
-          variantSelect.classList.remove('d-none');
-          fillFields(list[0]);
+          variantBlock.classList.remove('d-none');
         }
       });
   }
@@ -518,6 +565,8 @@ document.addEventListener('DOMContentLoaded', function() {
       }
     }
     document.querySelector('input[name=cardmarket_id]').value = info.cardmarket_id || '';
+    const setFeld = document.querySelector('input[name=set_code]');
+    if (setFeld) setFeld.value = info.set_code || '';
     document.querySelector('input[name=collector_number]').value = info.collector_number || '';
     if (numberSelect) {
       for (const opt of numberSelect.options) {
@@ -540,7 +589,10 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  if (nameInput.value.trim() && numberInput && !numberInput.value) {
+  // Nur beim Anlegen von selbst nachschlagen. Beim Bearbeiten überschrieb
+  // das die gespeicherten Angaben einer Karte ohne Sammlernummer mit denen
+  // der ersten gefundenen Ausgabe — ohne dass jemand etwas gewählt hatte.
+  if (!IST_BEARBEITEN && nameInput.value.trim() && numberInput && !numberInput.value) {
     lookupCard();
   }
 

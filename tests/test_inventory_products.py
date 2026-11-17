@@ -129,6 +129,9 @@ def test_manual_add_tops_up_identical_card_on_existing_slot(tmp_path):
 
     form = {
         "item_type": "card", "name": "Rumble Arena", "folder_id": str(fid),
+        # Der Set-Code kommt aus dem eigenen Feld des Formulars, nicht mehr
+        # aus dem Namen des Ordners.
+        "set_code": "tla",
         "collector_number": "42", "language": "en", "condition": "NM",
         "price": "1.0", "quantity": "1", "page": "", "slot": "",
     }

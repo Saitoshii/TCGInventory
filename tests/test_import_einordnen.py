@@ -148,11 +148,14 @@ def _ordner(seiten, name="Star Trek"):
                             (name,)).fetchone()[0]
 
 
-def _lade_hoch(ordner_id="", dateiname="export.txt", inhalt=None):
-    return _klient().post("/cards/bulk_add", data={
-        "folder_id": str(ordner_id), "cards": "",
-        "csv_file": (io.BytesIO(inhalt or _export()), dateiname)},
-        content_type="multipart/form-data")
+def _lade_hoch(ordner_id="", dateiname="export.txt", inhalt=None, erneut=False):
+    daten = {"folder_id": str(ordner_id), "cards": "",
+             "csv_file": (io.BytesIO(inhalt or _export()), dateiname)}
+    if erneut:
+        # Dieselbe Datei ein zweites Mal: nur mit ausdrücklichem Häkchen.
+        daten["erneut"] = "1"
+    return _klient().post("/cards/bulk_add", data=daten,
+                          content_type="multipart/form-data")
 
 
 def _bestand():
@@ -189,7 +192,7 @@ def test_export_wird_vollstaendig_gelesen_und_aufgeloest(anlage):
 def test_alle_angaben_der_datei_landen_im_bestand(anlage):
     ordner = _ordner(2)
     _lade_hoch(ordner)
-    _klient().get("/cards/upload_queue/add_all")
+    _klient().post("/cards/upload_queue/add_all")
     karten = {(k["name"], k["collector_number"], k["foil"]): k for k in _bestand()}
     moopsy = karten[("Moopsy", "207", 0)]
     assert moopsy["quantity"] == 4
@@ -206,7 +209,7 @@ def test_alle_angaben_der_datei_landen_im_bestand(anlage):
 def test_plaetze_werden_in_der_reihenfolge_der_datei_vergeben(anlage):
     """Die Datei ist so sortiert, wie die Karten gescannt in der Mappe liegen."""
     _lade_hoch(_ordner(2))
-    _klient().get("/cards/upload_queue/add_all")
+    _klient().post("/cards/upload_queue/add_all")
     plaetze = [k["storage_code"] for k in _bestand()]
     assert plaetze[:3] == ["O01-S01-P1", "O01-S01-P2", "O01-S01-P3"]
     assert plaetze[9] == "O01-S02-P1"                 # zehnte Zeile, zweite Seite
@@ -261,8 +264,8 @@ def test_bedarf_zaehlt_nicht_was_schon_einen_platz_hat(anlage):
     """Eine zweite Lieferung derselben Karten erhöht nur die Menge."""
     ordner = _ordner(2)
     _lade_hoch(ordner)
-    _klient().get("/cards/upload_queue/add_all")
-    _lade_hoch(ordner)
+    _klient().post("/cards/upload_queue/add_all")
+    _lade_hoch(ordner, erneut=True)
     html = _klient().get("/cards/upload_queue").get_data(as_text=True)
     assert "0 Plätze gebraucht" in html
     assert "bekäme" not in html
@@ -272,7 +275,7 @@ def test_uebernahme_meldet_karten_ohne_lagerplatz(anlage):
     """Vorher hieß es nur „Alle Karten übernommen" — auch wenn die Mehrzahl
     ohne Platz im Bestand stand."""
     _lade_hoch(_ordner(1))
-    antwort = _klient().get("/cards/upload_queue/add_all", follow_redirects=True)
+    antwort = _klient().post("/cards/upload_queue/add_all", follow_redirects=True)
     text = antwort.get_data(as_text=True)
     ohne = [k for k in _bestand() if not k["storage_code"]]
     assert len(ohne) == 1                             # die zehnte Zeile
@@ -282,7 +285,7 @@ def test_uebernahme_meldet_karten_ohne_lagerplatz(anlage):
 
 def test_uebernahme_ohne_engpass_meldet_nichts_weiter(anlage):
     _lade_hoch(_ordner(2))
-    text = _klient().get("/cards/upload_queue/add_all",
+    text = _klient().post("/cards/upload_queue/add_all",
                          follow_redirects=True).get_data(as_text=True)
     assert "ohne Lagerplatz" not in text
     assert all(k["storage_code"] for k in _bestand())
@@ -290,7 +293,7 @@ def test_uebernahme_ohne_engpass_meldet_nichts_weiter(anlage):
 
 def test_einzelne_uebernahme_meldet_den_fehlenden_platz(anlage):
     _lade_hoch("")                                    # kein Ordner, also kein Platz
-    text = _klient().get("/cards/upload_queue/add/0",
+    text = _klient().post("/cards/upload_queue/add/0",
                          follow_redirects=True).get_data(as_text=True)
     assert "ohne Lagerplatz" in text
 

@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
-<h2 class="mb-4">Upload Queue</h2>
+<h2 class="page-title mb-4">Warteschlange <small>· {{ gesamt }}</small></h2>
 <form method="get" class="mb-3">
   <div class="input-group">
-    <input class="form-control" type="text" name="q" placeholder="Search" value="{{ search }}">
-    <button class="btn btn-outline-secondary" type="submit">Search</button>
+    <input class="form-control" type="text" name="q" placeholder="Name suchen" value="{{ search }}">
+    <button class="btn btn-outline-secondary" type="submit">Suchen</button>
   </div>
 </form>
 {#
@@ -30,7 +30,7 @@
   <a href="{{ url_for('edit_folder_view', folder_id=b.ordner_id) }}">Ordner bearbeiten</a>
   und die Seitenzahl erhöhen, oder einen Teil in einen anderen Ordner legen.
   {% else %}
-  Den Zielordner an der einzelnen Karte über „Edit" setzen, oder die
+  Den Zielordner an der einzelnen Karte über „Bearbeiten" setzen, oder die
   Warteschlange leeren und mit gewähltem Ordner neu hochladen.
   {% endif %}
   {% elif b.gebraucht == 0 %}
@@ -39,44 +39,66 @@
 </div>
 {% endfor %}
 
+{#
+  Karten, die schon im Bestand liegen oder doppelt in der Warteschlange
+  stehen. Beides kann richtig sein (eine zweite Lieferung), war aber genau
+  der Weg, auf dem beim zweiten Einlesen derselben Datei Karten doppelt in
+  den Bestand kamen. Deshalb steht es hier groß und vor dem Übernehmen.
+#}
+{% if schon_da or doppelt %}
+<div class="alert alert-warning" id="abgleich-hinweis">
+  {% if schon_da %}
+  <strong>{{ schon_da }} {{ 'Eintrag liegt' if schon_da == 1 else 'Einträge liegen' }} schon im Bestand</strong>
+  (gleiche Karte im selben Ordner) – „Übernehmen" erhöht dort die Menge.
+  {% endif %}
+  {% if doppelt %}
+  <strong>{{ doppelt }} {{ 'Eintrag steht' if doppelt == 1 else 'Einträge stehen' }} doppelt in der Warteschlange.</strong>
+  {% endif %}
+  <div class="mt-1">Wurde dieselbe Datei schon einmal übernommen, wären diese Karten danach
+    <strong>doppelt gezählt</strong>. Im Zweifel nur die neuen übernehmen und den Rest einzeln prüfen.</div>
+</div>
+{% endif %}
+
 {% if queue %}
-<table class="table table-striped">
+<div class="table-responsive">
+<table class="table table-striped align-middle">
   <thead>
     <tr>
-      <th>Image</th>
+      <th>Bild</th>
       <th>Name</th>
-      <th>Type</th>
-      <th>Qty</th>
+      <th>Art</th>
+      <th>Menge</th>
       <th>Set</th>
-      <th>Language</th>
-      <th>Condition</th>
-      <th>Rarity</th>
+      <th>Sprache</th>
+      <th>Zustand</th>
+      <th>Seltenheit</th>
       <th>Einkauf</th>
       <th>Marktpreis</th>
-      <th>Storage/Location</th>
+      <th>Lagerplatz</th>
       <th>Foil</th>
-      <th>Warnings</th>
-      <th>Actions</th>
+      <th>Hinweise</th>
+      <th>Aktionen</th>
     </tr>
   </thead>
   <tbody>
     {% for idx, card in queue %}
+    {% set info = abgleich.get(card.uid) %}
     <tr>
       <td>
         {% if card.image_url %}
-          <img src="{{ card.image_url }}" style="max-width:60px;" class="img-thumbnail">
+          <img src="{{ card.image_url }}" style="max-width:60px;" class="img-thumbnail" alt="">
         {% else %}
-          <span class="badge bg-warning text-dark">No Image</span>
+          <span class="badge bg-warning text-dark">kein Bild</span>
         {% endif %}
       </td>
       <td>{{ card.name }}</td>
       <td>
         <span class="badge {% if card.get('item_type', 'card') == 'card' %}bg-primary{% else %}bg-info{% endif %}">
-          {{ card.get('item_type', 'card')|title }}
+          {{ {'card': 'Karte', 'display': 'Versiegelt', 'zubehoer': 'Zubehör', 'sonstiges': 'Sonstiges'}.get(card.get('item_type', 'card'), card.get('item_type')) }}
         </span>
       </td>
       <td>{{ card.quantity }}</td>
-      <td>{{ card.set_code }}</td>
+      <td>{{ card.set_code }}{% if card.get('collector_number') %} <small class="text-muted">#{{ card.collector_number }}</small>{% endif %}</td>
       <td>{{ card.language|upper if card.language else '—' }}</td>
       <td>
         {{ card.condition if card.condition else '—' }}
@@ -104,36 +126,67 @@
       </td>
       <td>
         <form method="post" action="{{ url_for('toggle_queued_foil', index=idx) }}" class="d-inline">
+          <input type="hidden" name="uid" value="{{ card.uid }}">
           <input type="hidden" name="foil" value="0">
           <input type="checkbox" name="foil" value="1" onchange="this.form.submit()" {% if card.foil %}checked{% endif %}>
         </form>
       </td>
       <td>
-        {% if not card.image_url %}
-          <span class="badge bg-warning text-dark" title="Missing image">⚠️</span>
+        {% if info and info.im_bestand is not none %}
+          <span class="badge bg-warning text-dark schon-im-bestand"
+                title="Diese Karte liegt im Zielordner schon – Übernehmen erhöht die Menge.">
+            schon im Bestand: {{ info.im_bestand }} → {{ info.im_bestand + (card.quantity or 1) }}</span>
         {% endif %}
-        {% if card.get('item_type') == 'card' and not card.get('storage_code') %}
-          <span class="badge bg-info" title="No storage assigned">ℹ️</span>
+        {% if info and info.doppelt %}
+          <span class="badge bg-danger doppelt-in-warteschlange"
+                title="Dieselbe Karte steht weiter oben schon in der Warteschlange.">doppelt</span>
+        {% endif %}
+        {% if not card.image_url %}
+          <span class="badge bg-warning text-dark" title="Kein Bild">⚠️</span>
         {% endif %}
         {% if card.get('market_price') is not none and card.get('price') == card.get('market_price') %}
           <span class="badge bg-warning text-dark"
                 title="Der Einkaufspreis aus der Datei entspricht exakt dem Marktpreis – die Scan-App hat ihn vermutlich vorbelegt. Vor der Übernahme prüfen.">💶</span>
         {% endif %}
       </td>
-      <td>
-        <a class="btn btn-sm btn-outline-secondary me-1" href="{{ url_for('edit_queued_card', index=idx) }}">Edit</a>
-        <a class="btn btn-sm btn-primary" href="{{ url_for('upload_card_route', index=idx) }}">Add</a>
+      <td class="text-nowrap">
+        <a class="btn btn-sm btn-outline-secondary me-1" href="{{ url_for('edit_queued_card', index=idx, uid=card.uid) }}">Bearbeiten</a>
+        <form method="post" action="{{ url_for('upload_card_route', index=idx) }}" class="d-inline">
+          <input type="hidden" name="uid" value="{{ card.uid }}">
+          <button class="btn btn-sm btn-primary" type="submit">Übernehmen</button>
+        </form>
       </td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
-<div class="mt-3">
-  <a class="btn btn-primary me-2" href="{{ url_for('upload_all_route') }}"
-     {% if engpass.da %}onclick="return confirm('Nicht alle Karten bekommen einen Lagerplatz (siehe Hinweis oben).\n\nTrotzdem alle übernehmen?')"{% endif %}>Add All ({{ queue|length }})</a>
-  <a class="btn btn-outline-danger" href="{{ url_for('clear_upload_queue') }}">Clear Queue</a>
+</div>
+
+{# Vor dem Übernehmen sagen, was passiert. Die Fragen stehen in
+   Datenattributen, damit Sonderzeichen das Skript nicht zerbrechen. #}
+{% set fragen = [] %}
+{% if engpass.da %}{% set _ = fragen.append('Nicht alle Karten bekommen einen Lagerplatz (siehe Hinweis oben).') %}{% endif %}
+{% if schon_da or doppelt %}{% set _ = fragen.append((schon_da + doppelt)|string ~ ' Einträge liegen schon im Bestand oder stehen doppelt in der Warteschlange – sie würden die Mengen dort erhöhen. Wurde diese Datei schon einmal übernommen, wären die Karten doppelt gezählt.') %}{% endif %}
+<div class="mt-3 d-flex gap-2 flex-wrap">
+  {% if schon_da or doppelt %}
+  <form method="post" action="{{ url_for('upload_all_route') }}">
+    <input type="hidden" name="nur_neue" value="1">
+    <button class="btn btn-primary" type="submit" {% if not neue %}disabled{% endif %}>Nur neue übernehmen ({{ neue }})</button>
+  </form>
+  {% endif %}
+  <form method="post" action="{{ url_for('upload_all_route') }}"
+        {% if fragen %}data-frage="{{ fragen|join('\n\n') }}
+
+Trotzdem alle übernehmen?" onsubmit="return confirm(this.dataset.frage)"{% endif %}>
+    <button class="btn {{ 'btn-outline-primary' if (schon_da or doppelt) else 'btn-primary' }}" type="submit">Alle übernehmen ({{ gesamt }})</button>
+  </form>
+  <form method="post" action="{{ url_for('clear_upload_queue') }}"
+        data-frage="Die ganze Warteschlange leeren? Die Einträge werden nicht übernommen."
+        onsubmit="return confirm(this.dataset.frage)">
+    <button class="btn btn-outline-danger" type="submit">Warteschlange leeren</button>
+  </form>
 </div>
 {% else %}
-<p class="text-muted">No cards in queue.</p>
+<p class="text-muted">Die Warteschlange ist leer.</p>
 {% endif %}
 {% endblock %}

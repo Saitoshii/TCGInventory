@@ -22,7 +22,7 @@ def test_clear_upload_queue():
             sess['user'] = 'test'
         UPLOAD_QUEUE.extend([{'name': 'a'}, {'name': 'b'}])
         assert len(UPLOAD_QUEUE) == 2
-        resp = client.get('/cards/upload_queue/clear')
+        resp = client.post('/cards/upload_queue/clear')
         assert resp.status_code == 302
         assert len(UPLOAD_QUEUE) == 0
 
