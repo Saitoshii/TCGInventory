@@ -124,7 +124,7 @@
           <td>{{ row[1] }}</td>
           <td>{{ row[2] }}</td>
           <td><span class="status-badge status-badge--reserviert">{{ row[3] }}</span></td>
-          <td>€{{ "%.2f"|format(row[4]) }}</td>
+          <td>{% if row[4] is not none %}€{{ "%.2f"|format(row[4]) }}{% else %}—{% endif %}</td>
           <td><a href="{{ url_for('edit_card_view', card_id=row[0]) }}" class="btn btn-sm btn-outline-primary">Bearbeiten</a></td>
         </tr>
         {% endfor %}

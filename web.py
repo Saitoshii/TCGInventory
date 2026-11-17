@@ -56,6 +56,7 @@ from TCGInventory.auth import (
     register_user,
     verify_user,
     login_required,
+    lokaler_pfad,
 )
 from TCGInventory.repo_updater import update_repo
 from TCGInventory.order_service import (
@@ -67,6 +68,8 @@ from TCGInventory import positionen as positionen_modul
 from TCGInventory.shipping_note import render_shipping_note, detect_language
 from TCGInventory.quittung import render_quittung
 from TCGInventory import direktverkauf
+from TCGInventory import lager_manager
+from TCGInventory import bestandspruefung
 from TCGInventory import sales_export
 from TCGInventory import sortierung
 from TCGInventory import backup_status
@@ -388,7 +391,7 @@ def login():
             session["user"] = username
             session.permanent = True
             flash("Logged in")
-            next_page = request.args.get("next") or url_for("index")
+            next_page = lokaler_pfad(request.args.get("next")) or url_for("index")
             return redirect(next_page)
         flash("Invalid credentials", "error")
     return render_template("login.html")
@@ -1593,6 +1596,103 @@ def backup_status_view():
     return render_template("backup_status.html", status=backup_status.lies_status())
 
 
+@app.route("/system/bestand-pruefen")
+@login_required
+def bestand_pruefen_view():
+    """Wo Bestand im System und Regal auseinanderlaufen — siehe bestandspruefung."""
+    with sqlite3.connect(DB_FILE) as conn:
+        positionen = bestandspruefung.nicht_abgezogen(conn)
+        c = conn.cursor()
+        for p in positionen:
+            p["karte"] = None
+            if p["card_id"]:
+                karte = c.execute(
+                    "SELECT id, name, set_code, language, foil, condition, "
+                    "collector_number, storage_code, image_url, quantity "
+                    "FROM cards WHERE id = ?", (p["card_id"],)).fetchone()
+                p["karte"] = dict(karte) if karte else None
+            # Kandidaten nur, wo noch keine (vorhandene) Karte feststeht.
+            p["kandidaten"] = ([] if p["karte"]
+                               else _order_item_candidates(c, p["card_name"]))
+        daten = {
+            "positionen": positionen,
+            "set_codes": bestandspruefung.falscher_set_code(conn),
+            "doppelte": bestandspruefung.doppelte_eintraege(conn),
+            "plaetze": bestandspruefung.plaetze_die_es_nicht_gibt(conn),
+            "alte_offene": bestandspruefung.alte_offene_bestellungen(
+                conn, ORDER_CUTOFF_DAYS),
+            "menge_null": bestandspruefung.menge_null(conn),
+        }
+    daten["korrigierbar"] = sum(1 for k in daten["set_codes"] if k["korrektur"])
+    daten["kartendaten"] = card_scanner.kartendaten_vorhanden()
+    return render_template("bestand_pruefen.html", frist_tage=ORDER_CUTOFF_DAYS,
+                           **daten)
+
+
+def _pruefung_ausfuehren(aktion, erfolg: str):
+    """Eine Aktion der Prüfseite ausführen und zur Seite zurückkehren."""
+    with sqlite3.connect(DB_FILE) as conn:
+        try:
+            ergebnis = aktion(conn)
+        except bestandspruefung.PruefFehler as exc:
+            flash(str(exc), "error")
+        else:
+            flash(erfolg.format(e=ergebnis), "success")
+    return redirect(url_for("bestand_pruefen_view"))
+
+
+@app.route("/system/bestand-pruefen/position/<int:item_id>/ausbuchen", methods=["POST"])
+@login_required
+def bestand_position_ausbuchen(item_id: int):
+    karte = (request.form.get("card_id") or "").strip()
+    if not karte.isdigit():
+        flash("Bitte zuerst die Karte wählen, die verkauft wurde.", "error")
+        return redirect(url_for("bestand_pruefen_view"))
+    benutzer = session.get("user", "system")
+    with sqlite3.connect(DB_FILE) as conn:
+        try:
+            ergebnis = bestandspruefung.nachtraeglich_ausbuchen(
+                conn, item_id, int(karte), benutzer)
+        except bestandspruefung.PruefFehler as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("bestand_pruefen_view"))
+    if ergebnis["offen"]:
+        flash(f"{ergebnis['abgezogen']} Exemplar(e) nachträglich abgezogen. "
+              f"{ergebnis['offen']} konnte(n) nicht abgezogen werden – der "
+              f"Bestand gab nicht mehr her.", "warning")
+    else:
+        flash(f"{ergebnis['abgezogen']} Exemplar(e) nachträglich abgezogen.",
+              "success")
+    return redirect(url_for("bestand_pruefen_view"))
+
+
+@app.route("/system/bestand-pruefen/position/<int:item_id>/erledigt", methods=["POST"])
+@login_required
+def bestand_position_erledigt(item_id: int):
+    benutzer = session.get("user", "system")
+    return _pruefung_ausfuehren(
+        lambda conn: bestandspruefung.als_erledigt_markieren(conn, item_id, benutzer),
+        "Als erledigt vermerkt – der Bestand wurde nicht verändert.")
+
+
+@app.route("/system/bestand-pruefen/karte/<int:card_id>/set-code", methods=["POST"])
+@login_required
+def bestand_set_code(card_id: int):
+    benutzer = session.get("user", "system")
+    return _pruefung_ausfuehren(
+        lambda conn: bestandspruefung.set_code_wiederherstellen(conn, card_id, benutzer),
+        "Set-Code „{e}“ wiederhergestellt.")
+
+
+@app.route("/system/bestand-pruefen/set-codes", methods=["POST"])
+@login_required
+def bestand_alle_set_codes():
+    benutzer = session.get("user", "system")
+    return _pruefung_ausfuehren(
+        lambda conn: bestandspruefung.alle_set_codes_wiederherstellen(conn, benutzer),
+        "{e} Set-Code(s) wiederhergestellt.")
+
+
 @app.route("/system/inventar-aufraeumen", methods=["GET", "POST"])
 @login_required
 def inventory_cleanup_view():
@@ -1938,9 +2038,9 @@ def _platzbedarf() -> list:
                                       key=lambda p: (p[0] is None, p[0] or 0)):
             frei = 0
             if ordner is not None:
-                frei = conn.execute(
-                    "SELECT COUNT(*) FROM storage_slots WHERE code LIKE ? "
-                    "AND is_occupied = 0", (f"O{ordner:02d}-%",)).fetchone()[0]
+                # Dieselbe Zählung wie bei der Vergabe: ohne übrig gebliebene
+                # Plätze ab P10 und ohne Plätze, auf denen schon eine Karte liegt.
+                frei = len(lager_manager.freie_plaetze(f"O{ordner:02d}-"))
             fehlen = max(len(plaetze) - frei, 0)
             ergebnis.append({
                 "ordner_id": ordner,
@@ -2833,10 +2933,11 @@ def upload_database():
                 flash(f"Invalid SQLite database file: {e}", "error")
                 return redirect(request.url)
             
-            # Validation passed, replace the actual database file
-            if db_path.exists():
-                db_path.unlink()
-            temp_path.rename(db_path)
+            # Validation passed, replace the actual database file. Atomar
+            # tauschen und die offene Verbindung verwerfen — sonst las die
+            # Anwendung bis zum Neustart weiter die alte Datei.
+            os.replace(temp_path, db_path)
+            card_scanner.reset_card_database()
             
             flash("Database file uploaded successfully!", "success")
             return redirect(url_for("upload_database"))

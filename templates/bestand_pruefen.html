@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block content %}
+<h2 class="page-title mb-2">Bestand prüfen</h2>
+<p class="text-muted mb-4">
+  Hier steht, wo der Bestand im System und das Regal auseinanderlaufen können.
+  Geändert wird nur, was Sie anklicken – jede Änderung steht im Änderungsprotokoll.
+</p>
+
+{% set alles_gut = not positionen and not set_codes and not doppelte and not plaetze and not alte_offene and not menge_null %}
+{% if alles_gut %}
+<div class="alert alert-success" id="alles-in-ordnung">Nichts gefunden – hier gibt es nichts zu tun.</div>
+{% endif %}
+
+{# --------------------------------------------------------------------- #}
+{% if alte_offene %}
+<div class="alert alert-warning">
+  <strong>{{ alte_offene }} offene Bestellung{{ 'en' if alte_offene != 1 }} älter als {{ frist_tage }} Tage.</strong>
+  Wurde{{ 'n' if alte_offene != 1 }} sie verschickt, sind die Karten noch nicht abgezogen.
+  <a href="{{ url_for('list_orders', alle=1) }}">Ältere Bestellungen anzeigen →</a>
+</div>
+{% endif %}
+
+{# --------------------------------------------------------------------- #}
+<section class="mb-5" id="nicht-abgezogen">
+  <h3 class="h5">Verkauft, aber nicht vom Bestand abgezogen <span class="badge bg-secondary">{{ positionen|length }}</span></h3>
+  <p class="text-muted small">
+    Positionen verkaufter Bestellungen, die beim Abschließen keiner Karte zugeordnet waren – oder für die der
+    Bestand zu wenig hergab. Ihre Ware steht noch im Bestand. Bitte die verkaufte Karte wählen und ausbuchen,
+    oder als erledigt vermerken, wenn die Ware nie im Bestand geführt wurde.
+  </p>
+  {% for p in positionen %}
+  <div class="card mb-2 position-pruefen">
+    <div class="card-body py-2">
+      <div class="d-flex justify-content-between flex-wrap gap-2">
+        <div>
+          <strong>{{ p.offen }}× {{ p.card_name }}</strong>
+          {% if p.abgezogen %}<span class="text-muted small">({{ p.abgezogen }} von {{ p.quantity }} schon abgezogen)</span>{% endif %}
+          <div class="tcg-card__meta">
+            {% if p.set_name %}<span>{{ p.set_name }}</span><span class="sep">·</span>{% endif %}
+            {% if p.language %}<span>{{ p.language|upper }}</span><span class="sep">·</span>{% endif %}
+            <span>Bestellung {{ p.order_number or p.order_id }}{% if p.buyer_name %} ({{ p.buyer_name }}){% endif %}</span>
+            <span class="sep">·</span><span>{{ (p.datum or '')[:10] }}</span>
+            {% if p.quelle == 'manuell' %}<span class="sep">·</span><span class="badge bg-success">{{ p.verkaufskanal }}</span>{% endif %}
+          </div>
+        </div>
+        <form method="post" action="{{ url_for('bestand_position_erledigt', item_id=p.id) }}"
+              data-frage="„{{ p.card_name }}“ als erledigt vermerken? Der Bestand bleibt unverändert."
+              onsubmit="return confirm(this.dataset.frage)">
+          <button class="btn btn-sm btn-outline-secondary" type="submit">Erledigt – nichts abzuziehen</button>
+        </form>
+      </div>
+
+      {% if p.karte %}
+      <form method="post" action="{{ url_for('bestand_position_ausbuchen', item_id=p.id) }}" class="mt-2">
+        <input type="hidden" name="card_id" value="{{ p.karte.id }}">
+        <span class="small">Zugeordnet: {{ p.karte.name }} · {{ p.karte.set_code|upper }}
+          {% if p.karte.storage_code %}· <span class="storage-badge">{{ p.karte.storage_code }}</span>{% endif %}
+          (Bestand {{ p.karte.quantity }})</span>
+        <button class="btn btn-sm btn-outline-primary ms-2" type="submit">Rest ausbuchen</button>
+      </form>
+      {% elif p.kandidaten %}
+      <form method="post" action="{{ url_for('bestand_position_ausbuchen', item_id=p.id) }}" class="mt-2">
+        <div class="tcg-card__meta mb-1">Welche Karte wurde verkauft?</div>
+        {% for k in p.kandidaten %}
+        <label class="d-flex align-items-center gap-2 mb-1">
+          <input type="radio" name="card_id" value="{{ k.id }}" class="form-check-input" required>
+          <span class="small">
+            {{ k.name }} · {{ k.set_code|upper }}{% if k.collector_number %} #{{ k.collector_number }}{% endif %}{% if k.language %} · {{ k.language|upper }}{% endif %}{% if k.foil %} · ★ Foil{% endif %}
+            {% if k.storage_code %} · <span class="storage-badge">{{ k.storage_code }}</span>{% endif %}
+            (Bestand {{ k.quantity }})
+          </span>
+        </label>
+        {% endfor %}
+        <button class="btn btn-sm btn-outline-primary mt-1" type="submit">Ausbuchen</button>
+      </form>
+      {% else %}
+      <div class="small text-muted mt-2">Keine Karte dieses Namens im Bestand – vermutlich war sie nie erfasst
+        oder ist schon ausgebucht. Dann „Erledigt" wählen.</div>
+      {% endif %}
+    </div>
+  </div>
+  {% else %}
+  <p class="text-success small">Nichts offen.</p>
+  {% endfor %}
+</section>
+
+{# --------------------------------------------------------------------- #}
+<section class="mb-5" id="set-codes">
+  <h3 class="h5">Set-Code fehlt oder ist falsch <span class="badge bg-secondary">{{ set_codes|length }}</span></h3>
+  <p class="text-muted small">
+    Beim Bearbeiten einer Karte wurde ihr Set-Code früher durch den Namen des Ordners ersetzt
+    („Star Trek" statt „trk"). Solche Karten findet keine Bestellung von selbst, und ein neuer Import
+    legt sie ein zweites Mal an. Wo die Scryfall-ID an der Karte steht, lässt sich der Set-Code genau
+    wiederherstellen.
+  </p>
+  {% if set_codes and not kartendaten %}
+  <div class="alert alert-warning py-2 small">Die Kartendaten fehlen – ohne sie lässt sich kein Set-Code
+    wiederherstellen. <a href="{{ url_for('card_data_view') }}">Kartendaten laden →</a></div>
+  {% endif %}
+  {% if korrigierbar %}
+  <form method="post" action="{{ url_for('bestand_alle_set_codes') }}" class="mb-2"
+        data-frage="{{ korrigierbar }} Set-Code(s) aus der Scryfall-ID wiederherstellen?"
+        onsubmit="return confirm(this.dataset.frage)">
+    <button class="btn btn-sm btn-primary" type="submit">Alle {{ korrigierbar }} wiederherstellen</button>
+  </form>
+  {% endif %}
+  {% if set_codes %}
+  <div class="table-responsive">
+  <table class="table table-sm align-middle">
+    <thead><tr><th>Karte</th><th>Ordner</th><th>Set-Code jetzt</th><th>Grund</th><th>Richtig wäre</th><th></th></tr></thead>
+    <tbody>
+    {% for k in set_codes %}
+    <tr>
+      <td>{{ k.name }}{% if k.collector_number %} <small class="text-muted">#{{ k.collector_number }}</small>{% endif %} <small class="text-muted">(Menge {{ k.quantity }})</small></td>
+      <td>{{ k.ordner or '—' }}</td>
+      <td><code>{{ k.set_code or '—' }}</code></td>
+      <td class="small">{{ k.grund }}</td>
+      <td>{% if k.korrektur %}<code>{{ k.korrektur.set_code }}</code>{% else %}<span class="text-muted small">nicht sicher bestimmbar</span>{% endif %}</td>
+      <td class="text-nowrap">
+        {% if k.korrektur %}
+        <form method="post" action="{{ url_for('bestand_set_code', card_id=k.id) }}" class="d-inline">
+          <button class="btn btn-sm btn-outline-primary" type="submit">Wiederherstellen</button>
+        </form>
+        {% endif %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('edit_card_view', card_id=k.id) }}">Bearbeiten</a>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="text-success small">Alle Set-Codes sehen gut aus.</p>
+  {% endif %}
+</section>
+
+{# --------------------------------------------------------------------- #}
+<section class="mb-5" id="doppelte">
+  <h3 class="h5">Dieselbe Karte mehrfach im selben Ordner <span class="badge bg-secondary">{{ doppelte|length }}</span></h3>
+  <p class="text-muted small">
+    Dieselbe Karte (Set, Nummer, Sprache, Foil) gehört in eine Zeile mit der richtigen Menge. Bitte im Ordner
+    nachzählen, die Menge an einer Zeile berichtigen und die andere über „Bearbeiten → Aus dem Bestand entfernen"
+    löschen. Zusammengelegt wird hier nichts von selbst.
+  </p>
+  {% for gruppe in doppelte %}
+  <div class="card mb-2"><div class="card-body py-2">
+    <strong>{{ gruppe[0].name }}</strong>
+    <span class="text-muted small">· {{ gruppe[0].set_code|upper }} #{{ gruppe[0].collector_number }} · {{ (gruppe[0].language or '')|upper }}{% if gruppe[0].foil %} · ★ Foil{% endif %} · Ordner {{ gruppe[0].ordner or '—' }}</span>
+    <ul class="small mb-0 mt-1">
+      {% for k in gruppe %}
+      <li>Menge {{ k.quantity }}{% if k.storage_code %} auf <span class="storage-badge">{{ k.storage_code }}</span>{% endif %}
+        · Set-Code <code>{{ k.set_code }}</code> · angelegt {{ (k.date_added or '')[:10] }}
+        · <a href="{{ url_for('edit_card_view', card_id=k.id) }}">Bearbeiten</a></li>
+      {% endfor %}
+    </ul>
+  </div></div>
+  {% else %}
+  <p class="text-success small">Keine doppelten Einträge.</p>
+  {% endfor %}
+</section>
+
+{# --------------------------------------------------------------------- #}
+<section class="mb-5" id="plaetze">
+  <h3 class="h5">Karten auf Plätzen, die es nicht gibt <span class="badge bg-secondary">{{ plaetze|length }}</span></h3>
+  <p class="text-muted small">Jede Seite hat die Plätze 1 bis 9. Plätze ab P10 stammen aus einer kurzzeitig
+    aktiven Fassung mit 18 Plätzen je Seite. Bitte die Karte im Ordner suchen und ihren echten Platz eintragen.</p>
+  {% if plaetze %}
+  <ul class="small">
+    {% for k in plaetze %}
+    <li>{{ k.name }} (Menge {{ k.quantity }}) auf <span class="storage-badge">{{ k.storage_code }}</span>
+      · <a href="{{ url_for('edit_card_view', card_id=k.id) }}">Bearbeiten</a></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="text-success small">Alle Karten liegen auf Plätzen 1–9.</p>
+  {% endif %}
+</section>
+
+{% if menge_null %}
+<div class="alert alert-secondary">
+  {{ menge_null }} Zeile{{ 'n' if menge_null != 1 }} mit Menge 0 oder „archiviert".
+  <a href="{{ url_for('inventory_cleanup_view') }}">Inventar aufräumen →</a>
+</div>
+{% endif %}
+{% endblock %}

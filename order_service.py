@@ -158,42 +158,57 @@ class OrderIngestionService:
                 return True, "No new orders found", 0
             
             new_orders_count = 0
-            
+            ohne_positionen = 0
+
             # Process each message
             for message in messages:
                 message_id = message['id']
-                
+
+                # Schon als Bestellung vorhanden — etwa weil das Markieren in
+                # Gmail beim letzten Mal scheiterte. Dann nur noch markieren.
+                # Sonst kam dieselbe Mail bei jeder Abfrage wieder und belegte
+                # einen der 100 Plätze, die eine Abfrage höchstens liefert:
+                # sammelten sich genug davon an, kamen neue Bestellungen nicht
+                # mehr durch.
+                if self._bereits_eingelesen(message_id):
+                    if mark_message_processed(service, message_id):
+                        self.processed_message_ids.add(message_id)
+                    continue
+
                 # Extract email body, subject, and date
                 email_body = get_email_body(message)
                 email_subject = get_email_subject(message)
                 email_date = get_email_date(message)
-                
-                if not email_body:
-                    print(f"Could not extract body from message {message_id}")
-                    continue
-                
-                # Parse the email with subject and date (lossless WP2a extraction)
-                parsed = parse_order_email(email_body, message_id, subject=email_subject, email_date=email_date)
 
+                # Parse the email with subject and date (lossless WP2a extraction)
+                parsed = parse_order_email(email_body or "", message_id,
+                                           subject=email_subject, email_date=email_date)
+
+                # Auch ohne erkannte Positionen wird die Bestellung angelegt.
+                # Früher wurde eine solche Mail als erledigt markiert und
+                # verworfen: die Bestellung tauchte nirgends auf, die Ware
+                # ging nicht raus und wurde nie abgezogen. Jetzt steht sie in
+                # der Liste — mit dem Hinweis, sie bei Cardmarket anzusehen.
                 if not parsed['items']:
                     print(f"No items found in message {message_id}")
-                    # Still mark as processed to avoid reprocessing
-                    mark_message_processed(service, message_id)
-                    self.processed_message_ids.add(message_id)
-                    continue
-                
+                    ohne_positionen += 1
+
                 # Save order to database
                 success = self._save_order(parsed)
-                
+
                 if success:
                     # Mark email as processed
                     mark_message_processed(service, message_id)
                     self.processed_message_ids.add(message_id)
                     new_orders_count += 1
                     print(f"Processed order from {parsed['buyer_name']} with {len(parsed['items'])} items")
-            
+
             if new_orders_count > 0:
-                return True, f"Successfully imported {new_orders_count} new order(s)", new_orders_count
+                meldung = f"Successfully imported {new_orders_count} new order(s)"
+                if ohne_positionen:
+                    meldung += (f" – bei {ohne_positionen} wurden keine Positionen "
+                                "erkannt, bitte bei Cardmarket prüfen")
+                return True, meldung, new_orders_count
             else:
                 return True, "No new orders to import", 0
                 
@@ -201,6 +216,16 @@ class OrderIngestionService:
             print(f"Error syncing orders: {e}")
             return False, f"Error syncing orders: {str(e)}", 0
     
+    def _bereits_eingelesen(self, message_id):
+        """Gibt es zu dieser Mail schon eine Bestellung?"""
+        try:
+            with sqlite3.connect(DB_FILE) as conn:
+                return conn.execute(
+                    "SELECT 1 FROM orders WHERE email_message_id = ?",
+                    (message_id,)).fetchone() is not None
+        except sqlite3.Error:
+            return False
+
     def _save_order(self, parsed_order):
         """
         Save a parsed order to the database.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sqlite3
 from datetime import datetime
 from tabulate import tabulate
@@ -22,6 +23,7 @@ __all__ = [
     "count_archived",
     "reconcile_slot_occupancy",
     "get_next_free_slot",
+    "freie_plaetze",
     "add_folder",
     "edit_folder",
     "rename_folder",
@@ -328,16 +330,45 @@ def create_binder(folder_id: int, pages: int) -> None:
         conn.commit()
 
 
+#: Lagerplatz im Ordner-Schema: O<Ordner>-S<Seite>-P<Platz>.
+_ORDNERPLATZ = re.compile(r"O(\d+)-S(\d+)-P(\d+)")
+
+
+def platz_gibt_es_im_ordner(code: str | None) -> bool:
+    """Ist das ein Platz 1–9 einer Seite? Andere Schemata gelten als gültig.
+
+    Plätze ab P10 stammen aus einer kurzzeitig aktiven Fassung mit 18 Plätzen
+    je Seite. Im Ordner gibt es sie nicht: jede Seite hat 9 Fächer.
+    """
+    treffer = _ORDNERPLATZ.fullmatch(code or "")
+    return not treffer or 1 <= int(treffer.group(3)) <= 9
+
+
 def get_next_free_slot(prefix: str) -> str | None:
-    """Return the first free slot for a given prefix."""
+    """Den ersten freien Platz mit diesem Präfix — in der Reihenfolge im Ordner.
+
+    * Nur Plätze 1–9 einer Seite. Übrig gebliebene Plätze ab P10 sortierte
+      SQLite als Text sogar **vor** P2 — neue Karten bekamen Plätze, die es
+      im Ordner nicht gibt.
+    * Ein Platz, auf den schon eine Karte verweist, ist nicht frei, auch wenn
+      die Belegung anderes sagt. Die Belegung lief früher beim Umziehen einer
+      Karte auseinander; dann landeten zwei Karten auf demselben Platz.
+    """
+    from TCGInventory.sortierung import platz
+
+    codes = freie_plaetze(prefix)
+    return min(codes, key=platz) if codes else None
+
+
+def freie_plaetze(prefix: str) -> list[str]:
+    """Alle wirklich freien Plätze mit diesem Präfix (Regeln wie oben)."""
     with sqlite3.connect(DB_FILE) as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT code FROM storage_slots WHERE code LIKE ? AND is_occupied = 0 ORDER BY code LIMIT 1",
-            (f"{prefix}%",),
-        )
-        result = cursor.fetchone()
-        return result[0] if result else None
+        codes = [z[0] for z in conn.execute(
+            "SELECT code FROM storage_slots WHERE code LIKE ? AND is_occupied = 0 "
+            "AND code NOT IN (SELECT storage_code FROM cards "
+            "                 WHERE COALESCE(storage_code, '') <> '')",
+            (f"{prefix}%",))]
+    return [c for c in codes if platz_gibt_es_im_ordner(c)]
 
 # 🔍 Funktion: Alle Karten anzeigen
 def list_all_cards():

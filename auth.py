@@ -86,14 +86,47 @@ def verify_user(username: str, password: str) -> bool:
     return verify_password(get_password_hash(username), password)
 
 
+def lokaler_pfad(ziel: str | None) -> str | None:
+    """Nur Pfade dieser Anwendung als Rücksprungziel — keine fremden Adressen.
+
+    Ein ``next=https://…`` hätte nach der Anmeldung auf eine beliebige Seite
+    weitergeleitet.
+    """
+    from urllib.parse import urlsplit
+
+    if not ziel:
+        return None
+    teile = urlsplit(ziel)
+    if teile.scheme or teile.netloc:
+        from flask import request
+        if teile.netloc != request.host:
+            return None
+    pfad = teile.path or "/"
+    if not pfad.startswith("/") or pfad.startswith("//"):
+        return None
+    return pfad + (f"?{teile.query}" if teile.query else "")
+
+
 # Flask helper
 def login_required(f):
-    from flask import session, redirect, url_for, request
+    from flask import session, redirect, url_for, request, flash
 
     @wraps(f)
     def wrapper(*args, **kwargs):
         if not session.get("user"):
-            return redirect(url_for("login", next=request.path))
+            if request.method == "GET":
+                ziel = request.full_path if request.query_string else request.path
+            else:
+                # Ein Formular nach abgelaufener Anmeldung: die Aktion wird
+                # nicht ausgeführt. Früher ging es nach der Anmeldung zur
+                # Adresse des Formulars — als einfacher Aufruf, also mit
+                # „Method Not Allowed", und ohne dass gesagt wurde, dass zum
+                # Beispiel eine Bestellung NICHT abgeschlossen ist.
+                ziel = lokaler_pfad(request.referrer) or url_for("index")
+                flash("Die Anmeldung war abgelaufen – die letzte Aktion wurde "
+                      "NICHT ausgeführt. Bitte nach dem Anmelden wiederholen.",
+                      "warning")
+            return redirect(url_for("login", next=ziel))
         return f(*args, **kwargs)
 
     return wrapper

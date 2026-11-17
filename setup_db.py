@@ -1,3 +1,4 @@
+import re
 import sqlite3
 
 from . import DB_FILE
@@ -565,6 +566,53 @@ def initialize_database() -> None:
         )
 
         _ergaenze_fehlende_plaetze(cursor)
+        _bereinige_plaetze(cursor)
+
+
+#: Lagerplatz im Ordner-Schema: O<Ordner>-S<Seite>-P<Platz>.
+_ORDNERPLATZ = re.compile(r"O(\d+)-S(\d+)-P(\d+)")
+
+
+def _bereinige_plaetze(cursor) -> tuple:
+    """Plätze, die es nicht gibt, entfernen; Belegung aus den Karten ableiten.
+
+    * **Plätze ab P10.** Eine kurzzeitig aktive Fassung legte 18 Plätze je
+      Seite an. Im Ordner gibt es nur 9 Fächer je Seite. Die übrigen Plätze
+      wurden nach dem Zurücknehmen weiter vergeben — als Text sortiert sogar
+      vor P2. Entfernt werden nur **freie** Plätze, auf die keine Karte
+      verweist; liegt dort eine Karte, bleibt der Platz, und „Bestand prüfen"
+      zeigt sie an.
+    * **Belegung.** Beim Umziehen einer Karte blieb der alte Platz „belegt"
+      und der neue „frei". Ein Platz ist belegt, wenn eine Karte auf ihn
+      verweist — sonst nicht.
+
+    Gibt ``(entfernt, angeglichen)`` zurück.
+    """
+    mit_karte = {z[0] for z in cursor.execute(
+        "SELECT DISTINCT storage_code FROM cards "
+        "WHERE COALESCE(storage_code, '') <> ''")}
+    weg = []
+    for (code,) in cursor.execute("SELECT code FROM storage_slots").fetchall():
+        treffer = _ORDNERPLATZ.fullmatch(code or "")
+        if treffer and int(treffer.group(3)) > 9 and code not in mit_karte:
+            weg.append((code,))
+    cursor.executemany("DELETE FROM storage_slots WHERE code = ?", weg)
+
+    vorher = cursor.connection.total_changes
+    cursor.execute(
+        "UPDATE storage_slots SET is_occupied = 1 WHERE is_occupied = 0 "
+        "AND code IN (SELECT storage_code FROM cards "
+        "             WHERE COALESCE(storage_code, '') <> '')")
+    cursor.execute(
+        "UPDATE storage_slots SET is_occupied = 0 WHERE is_occupied = 1 "
+        "AND code NOT IN (SELECT storage_code FROM cards "
+        "                 WHERE storage_code IS NOT NULL)")
+    angeglichen = cursor.connection.total_changes - vorher
+    if weg:
+        print(f"📁 {len(weg)} Lagerplätze ab P10 entfernt (gibt es im Ordner nicht).")
+    if angeglichen:
+        print(f"📁 Belegung von {angeglichen} Lagerplätzen an die Karten angeglichen.")
+    return len(weg), angeglichen
 
 
 def _ergaenze_fehlende_plaetze(cursor) -> int:

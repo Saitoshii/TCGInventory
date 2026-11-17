@@ -172,6 +172,31 @@ def kartendaten_stand() -> Optional[str]:
     return zeile[0] if zeile else None
 
 
+def karte_nach_scryfall_id(scryfall_id: str) -> Optional[Dict]:
+    """Set-Code, Sammlernummer und Name zu einer Scryfall-ID — nur lokal.
+
+    Für Berichtigungen: steht an einer Karte die Scryfall-ID, ist ihre
+    Ausgabe eindeutig bekannt. Ein verlorener Set-Code lässt sich daraus
+    wiederherstellen, ohne zu raten. Gibt ``None`` zurück, wenn die ID fehlt
+    oder die Kartendaten sie nicht kennen.
+    """
+    schluessel = (scryfall_id or "").strip()
+    if not schluessel:
+        return None
+    _load_card_database()
+    if not _DB_CONN:
+        return None
+    try:
+        zeile = _DB_CONN.execute(
+            "SELECT set_code, collector_number, name FROM cards WHERE id = ?",
+            (schluessel,)).fetchone()
+    except sqlite3.Error:
+        return None
+    if not zeile:
+        return None
+    return {"set_code": zeile[0], "collector_number": zeile[1], "name": zeile[2]}
+
+
 def karten_im_set(set_code: str) -> int:
     """Wie viele Karten dieses Sets die lokalen Kartendaten kennen.
 

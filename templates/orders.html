@@ -138,6 +138,16 @@
 
       <!-- Positions -->
       <div class="col-lg-8">
+        {# Eine Mail, aus der keine Positionen erkannt wurden, wurde früher
+           verworfen. Jetzt steht die Bestellung hier — mit diesem Hinweis. #}
+        {% if not order['items'] %}
+        <div class="alert alert-warning keine-positionen">
+          <strong>Aus der Bestellmail wurden keine Positionen erkannt.</strong>
+          Bitte die Bestellung {{ order.order_number or '' }} bei Cardmarket ansehen, die Ware heraussuchen
+          und die Karten danach von Hand ausbuchen (Kartenliste → „Verkauft"). Wenn das öfter passiert,
+          hat Cardmarket vermutlich das Mailformat geändert.
+        </div>
+        {% endif %}
         {% for item in order['items'] %}
         {# Herausgenommene Positionen bleiben sichtbar, aber abgesetzt: sie
            gehoeren nicht mehr auf den Beleg und werden nicht abgezogen. #}
@@ -294,6 +304,12 @@
              bisher erst in der Meldung danach — wenn die Bestellung schon aus
              der Liste verschwunden war. Jetzt steht es davor und braucht ein
              ausdrückliches Häkchen. #}
+          {% if not order['items'] %}
+          <label class="d-flex align-items-start gap-2 small mb-2">
+            <input type="checkbox" name="ohne_positionen" value="1" class="form-check-input mt-1" required>
+            <span>Ohne erkannte Positionen abschließen – es wird nichts vom Bestand abgezogen.</span>
+          </label>
+          {% endif %}
           {% if order.nicht_zugeordnet %}
           <div class="alert alert-warning py-2 small mb-2 nicht-zugeordnet-hinweis">
             <strong>{{ order.nicht_zugeordnet|length }} Position{{ 'en sind' if order.nicht_zugeordnet|length != 1 else ' ist' }} keiner Karte im Bestand zugeordnet</strong>
