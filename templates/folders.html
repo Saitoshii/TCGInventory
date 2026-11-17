@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_platz.html" import platz %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <h2 class="page-title mb-0">Ordner <small>· {{ folders|length }}</small></h2>
@@ -41,6 +42,8 @@
         <span class="folder-count-pill">{{ f[2] }} Seiten</span>
       </div>
       <span class="folder-panel__spacer"></span>
+      <a href="{{ url_for('ordner_ansicht', folder_id=f[0]) }}" class="btn btn-sm btn-primary">📖 Ansehen</a>
+      <a href="{{ url_for('ordner_ansicht', folder_id=f[0], inventur=1) }}" class="btn btn-sm btn-outline-primary">📋 Inventur</a>
       <a href="{{ url_for('export_cards', folder=f[0]) }}" class="btn btn-sm btn-outline-secondary">Export CSV</a>
       <a href="{{ url_for('edit_folder_view', folder_id=f[0]) }}" class="btn btn-sm btn-outline-primary">Bearbeiten</a>
       <button class="btn btn-sm btn-outline-secondary folder-toggle" data-target="folder-{{ f[0] }}">Ausblenden</button>
@@ -66,8 +69,7 @@
             <td>{{ c[2]|upper if c[2] else '—' }}</td>
             <td>{{ c[3] }}</td>
             <td>
-              {% if c[4] %}<span class="storage-badge">{{ c[4] }}</span>
-              {% else %}<span class="storage-badge storage-badge--empty">—</span>{% endif %}
+              {{ platz(c[4]) }}
             </td>
           </tr>
         {% endfor %}

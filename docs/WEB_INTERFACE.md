@@ -82,6 +82,30 @@ The folder ID can also be changed in the edit view if needed. Newly created fold
 
 The overview also offers a small form to filter the listed cards by name, number or storage code and to sort them by name, number or storage.
 
+### Ordner-Ansicht und Inventur
+
+**📖 Ansehen** (in der Ordnerliste) zeigt eine Ordnerseite so, wie sie in der
+Hand liegt: neun Fächer, Platz 1 oben links bis Platz 9 unten rechts, mit den
+Kartenbildern auf ihrem Platz. Rechts stehen alle Seiten als Mini-Karte (welche
+Fächer belegt sind) und eine Suche („wo steckt Spock?" → Seite und Platz).
+Blättern mit den Knöpfen oder den Pfeiltasten ← →.
+
+Jeder Lagerplatz (`O01-S03-P4`) in Bestellungen, Kartenliste und Ordnerliste
+ist ein Verweis: ein Klick öffnet die Seite, und das Fach leuchtet auf.
+
+**📋 Inventur-Modus**: je Karte
+
+- **✓** – ist da, Menge stimmt;
+- **+ / −** – Menge berichtigen (nie unter 1);
+- **fehlt** – nicht da; die Karte wird aus dem Bestand entfernt (mit Rückfrage);
+- leeres Fach mit Karte darin: **＋ Karte hier** öffnet das Formular mit Ordner,
+  Seite und Platz und führt danach zurück;
+- **Seite stimmt** – alles auf der Seite wie angezeigt, weiter zur nächsten.
+
+Gespeichert wird ohne Neuladen; jede Änderung steht im Audit-Log
+(`inventur`, `inventur-fehlt`, `inventur-seite`). Der Fortschritt zählt, was
+seit „Neue Inventur beginnen" geprüft wurde. Logik: `ordneransicht.py`.
+
 ## Database upload
 
 The **Upload DB** page allows you to upload a pre-built `default-cards.db` file to enable autocomplete functionality without having to build the database from the Scryfall JSON file. This is especially useful when running on a Raspberry Pi or other systems where building the database might be time-consuming.

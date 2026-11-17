@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_platz.html" import platz %}
 {% block content %}
 <h2 class="page-title mb-2">Bestand prüfen</h2>
 <p class="text-muted mb-4">
@@ -54,7 +55,7 @@
       <form method="post" action="{{ url_for('bestand_position_ausbuchen', item_id=p.id) }}" class="mt-2">
         <input type="hidden" name="card_id" value="{{ p.karte.id }}">
         <span class="small">Zugeordnet: {{ p.karte.name }} · {{ p.karte.set_code|upper }}
-          {% if p.karte.storage_code %}· <span class="storage-badge">{{ p.karte.storage_code }}</span>{% endif %}
+          {% if p.karte.storage_code %}· {{ platz(p.karte.storage_code) }}{% endif %}
           (Bestand {{ p.karte.quantity }})</span>
         <button class="btn btn-sm btn-outline-primary ms-2" type="submit">Rest ausbuchen</button>
       </form>
@@ -148,7 +149,7 @@
     <span class="text-muted small">· {{ gruppe[0].set_code|upper }} #{{ gruppe[0].collector_number }} · {{ (gruppe[0].language or '')|upper }}{% if gruppe[0].foil %} · ★ Foil{% endif %} · Ordner {{ gruppe[0].ordner or '—' }}</span>
     <ul class="small mb-0 mt-1">
       {% for k in gruppe %}
-      <li>Menge {{ k.quantity }}{% if k.storage_code %} auf <span class="storage-badge">{{ k.storage_code }}</span>{% endif %}
+      <li>Menge {{ k.quantity }}{% if k.storage_code %} auf {{ platz(k.storage_code) }}{% endif %}
         · Set-Code <code>{{ k.set_code }}</code> · angelegt {{ (k.date_added or '')[:10] }}
         · <a href="{{ url_for('edit_card_view', card_id=k.id) }}">Bearbeiten</a></li>
       {% endfor %}

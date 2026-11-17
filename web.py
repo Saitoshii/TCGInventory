@@ -71,6 +71,7 @@ from TCGInventory.quittung import render_quittung
 from TCGInventory import direktverkauf
 from TCGInventory import lager_manager
 from TCGInventory import bestandspruefung
+from TCGInventory import ordneransicht
 from TCGInventory import sales_export
 from TCGInventory import sortierung
 from TCGInventory import backup_status
@@ -1340,6 +1341,18 @@ def _vorgabe_fuer_neuen_artikel() -> dict:
     if typ in ITEM_TYPES:
         vorgabe["item_type"] = typ
 
+    # Aus der Ordner-Ansicht: „Karte hier hinzufügen" an einem leeren Fach.
+    ordner_arg = (request.args.get("ordner") or "").strip()
+    seite_arg = (request.args.get("seite") or "").strip()
+    platz_arg = (request.args.get("platz") or "").strip()
+    if ordner_arg.isdigit():
+        vorgabe["folder_id"] = int(ordner_arg)
+        if seite_arg.isdigit() and platz_arg.isdigit():
+            vorgabe["page"] = seite_arg
+            vorgabe["slot"] = platz_arg
+        if request.args.get("zurueck") == "ordner":
+            vorgabe["zurueck"] = "ordner"
+
     position = (request.args.get("position") or "").strip()
     if position.isdigit():
         with sqlite3.connect(DB_FILE) as conn:
@@ -1436,6 +1449,10 @@ def add_card_view():
             # Aus einer Bestellposition heraus angelegt: zurueck zu ihr. Dort
             # steht der neue Artikel in der Trefferliste und wird mit einem
             # Klick zugeordnet -- von selbst zugeordnet wird nichts.
+            # Aus der Ordner-Ansicht angelegt: zurück zu genau dieser Seite.
+            if request.form.get("zurueck") == "ordner" and folder_id:
+                flash("Artikel gespeichert.")
+                return _zurueck_zur_ordnerseite(folder_id, page, storage_code)
             aus_position = (request.form.get("aus_position") or "").strip()
             if aus_position.isdigit():
                 flash("Artikel gespeichert. Jetzt der Bestellposition zuordnen.")
@@ -1445,9 +1462,11 @@ def add_card_view():
             flash("Artikel gespeichert.")
             return redirect(url_for("list_cards"))
         flash("Kein freier Lagerplatz.", "error")
+    vorgabe = _vorgabe_fuer_neuen_artikel()
     return render_template(
-        "card_form.html", card=None, folders=folders, folder_part="", page="",
-        slot="", vorgabe=_vorgabe_fuer_neuen_artikel(),
+        "card_form.html", card=None, folders=folders, folder_part="",
+        page=vorgabe.get("page", ""), slot=vorgabe.get("slot", ""),
+        vorgabe=vorgabe,
     )
 
 
@@ -1772,6 +1791,119 @@ def delete_folder_view(folder_id: int):
     flash(f"Ordner „{zeile[0]}“ gelöscht – {zeilen} Einträge mit {stueck} "
           f"Karten aus dem Bestand entfernt.", "warning" if zeilen else None)
     return redirect(url_for("list_folders_view"))
+
+
+# ---------------------------------------------------------------------------
+# Ordner-Ansicht und Inventur (siehe ordneransicht.py)
+# ---------------------------------------------------------------------------
+@app.template_filter("platz_url")
+def platz_url_filter(code) -> str:
+    """Adresse der Ordner-Ansicht, die genau dieses Fach zeigt — oder ``""``."""
+    teile = ordneransicht.platz_teile(code)
+    if not teile:
+        return ""
+    return (url_for("ordner_ansicht", folder_id=teile[0], seite=teile[1])
+            + "#" + (code or "").strip())
+
+
+@app.route("/ordner/<int:folder_id>")
+@login_required
+def ordner_ansicht(folder_id: int):
+    """Eine Ordnerseite als Raster mit den Karten auf ihren Plätzen."""
+    inventur = request.args.get("inventur") == "1"
+    suche = (request.args.get("q") or "").strip()
+    with sqlite3.connect(DB_FILE) as conn:
+        info = ordneransicht.ordner(conn, folder_id)
+        if info is None:
+            flash("Diesen Ordner gibt es nicht.", "error")
+            return redirect(url_for("list_folders_view"))
+        anzahl = ordneransicht.seitenzahl(conn, folder_id)
+        try:
+            nummer = int(request.args.get("seite", 1))
+        except (TypeError, ValueError):
+            nummer = 1
+        nummer = min(max(1, nummer), anzahl)
+        daten = ordneransicht.seite(conn, folder_id, nummer)
+        seiten = ordneransicht.uebersicht(conn, folder_id)
+        stand = ordneransicht.fortschritt(conn, folder_id)
+        treffer = ordneransicht.suche(conn, folder_id, suche) if suche else []
+    return render_template(
+        "ordner_ansicht.html", ordner=info, nummer=nummer, anzahl=anzahl,
+        inventur=inventur, seiten=seiten, stand=stand, suche=suche,
+        treffer=treffer, **daten)
+
+
+def _zurueck_zur_ordnerseite(folder_id: int, nummer, code: str = ""):
+    try:
+        nummer = max(1, int(nummer))
+    except (TypeError, ValueError):
+        nummer = 1
+    ziel = url_for("ordner_ansicht", folder_id=folder_id, seite=nummer, inventur=1)
+    anker = (code or "").strip()
+    return redirect(ziel + (f"#{anker}" if ordneransicht.platz_teile(anker) else ""))
+
+
+@app.route("/ordner/<int:folder_id>/karte/<int:card_id>/<aktion>", methods=["POST"])
+@login_required
+def ordner_karte_aktion(folder_id: int, card_id: int, aktion: str):
+    """Inventur an einer Karte: ``plus``, ``minus``, ``stimmt`` oder ``fehlt``."""
+    benutzer = session.get("user", "system")
+    if aktion not in ("plus", "minus", "stimmt", "fehlt"):
+        flash("Unbekannte Aktion.", "error")
+        return _zurueck_zur_ordnerseite(folder_id, request.form.get("seite"))
+    with sqlite3.connect(DB_FILE) as conn:
+        try:
+            if aktion == "plus":
+                ordneransicht.menge_aendern(conn, folder_id, card_id, +1, benutzer)
+            elif aktion == "minus":
+                ordneransicht.menge_aendern(conn, folder_id, card_id, -1, benutzer)
+            elif aktion == "stimmt":
+                ordneransicht.bestaetigen(conn, folder_id, card_id, benutzer)
+            else:
+                karte = ordneransicht.fehlt(conn, folder_id, card_id, benutzer)
+                flash(f"„{karte['name']}“ ({karte['quantity'] or 0} Stück) fehlt "
+                      f"und wurde aus dem Bestand entfernt.", "warning")
+        except ordneransicht.OrdnerFehler as exc:
+            flash(str(exc), "error")
+    return _zurueck_zur_ordnerseite(folder_id, request.form.get("seite"),
+                                    request.form.get("platz"))
+
+
+@app.route("/ordner/<int:folder_id>/seite/<int:nummer>/geprueft", methods=["POST"])
+@login_required
+def ordner_seite_geprueft(folder_id: int, nummer: int):
+    """Alles auf der Seite stimmt — vermerken und zur nächsten Seite."""
+    with sqlite3.connect(DB_FILE) as conn:
+        try:
+            karten = ordneransicht.seite_geprueft(
+                conn, folder_id, nummer, session.get("user", "system"))
+        except ordneransicht.OrdnerFehler as exc:
+            flash(str(exc), "error")
+            return _zurueck_zur_ordnerseite(folder_id, nummer)
+        anzahl = ordneransicht.seitenzahl(conn, folder_id)
+    if nummer < anzahl:
+        flash(f"Seite {nummer} geprüft ({karten} Karten). Weiter mit Seite {nummer + 1}.",
+              "success")
+        return _zurueck_zur_ordnerseite(folder_id, nummer + 1)
+    flash(f"Seite {nummer} geprüft ({karten} Karten) – das war die letzte Seite.",
+          "success")
+    return _zurueck_zur_ordnerseite(folder_id, nummer)
+
+
+@app.route("/ordner/<int:folder_id>/inventur/neu", methods=["POST"])
+@login_required
+def ordner_inventur_neu(folder_id: int):
+    """Eine neue Inventur beginnen: der Fortschritt beginnt bei null."""
+    with sqlite3.connect(DB_FILE) as conn:
+        try:
+            ordneransicht.inventur_beginnen(conn, folder_id,
+                                            session.get("user", "system"))
+        except ordneransicht.OrdnerFehler as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("list_folders_view"))
+    flash("Neue Inventur begonnen. Die Mengen bleiben, wie sie sind – nur der "
+          "Fortschritt beginnt bei null.", "success")
+    return _zurueck_zur_ordnerseite(folder_id, 1)
 
 
 # Spaltenreihenfolge der Abfrage in list_folders_view; die Vorlage greift

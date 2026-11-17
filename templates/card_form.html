@@ -21,6 +21,7 @@
 {% endif %}
 <form method="post">
   {% if vorgabe.position %}<input type="hidden" name="aus_position" value="{{ vorgabe.position }}">{% endif %}
+  {% if vorgabe.zurueck %}<input type="hidden" name="zurueck" value="{{ vorgabe.zurueck }}">{% endif %}
   {# Einmalige Kennung beim Anlegen: ein Doppelklick auf „Speichern" legte
      den Artikel sonst zweimal an. #}
   {% if request.endpoint == 'add_card_view' %}<input type="hidden" name="formular_id" value="{{ formular_id() }}">{% endif %}
@@ -220,7 +221,7 @@
         {% for f in folders %}
         {# Als Text verglichen: aus der Warteschlange kommt die Ordner-ID als
            Zeichenkette, aus dem Bestand als Zahl. #}
-        <option value="{{ f[0] }}" {% if card and card[9] is not none and card[9]|string == f[0]|string %}selected{% endif %}>{{ f[1] }} ({{ '%02d'|format(f[0]) }})</option>
+        <option value="{{ f[0] }}" {% if (card and card[9] is not none and card[9]|string == f[0]|string) or (not card and vorgabe.folder_id and vorgabe.folder_id|string == f[0]|string) %}selected{% endif %}>{{ f[1] }} ({{ '%02d'|format(f[0]) }})</option>
         {% endfor %}
       </select>
     </div>

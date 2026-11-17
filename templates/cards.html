@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_platz.html" import platz %}
 {% block content %}
 {% set filters_active = search or status or language or condition or item_type or min_price or max_price or min_qty or max_qty %}
 <h2 class="page-title">Karten <small>· {{ total_cards }} Einträge</small></h2>
@@ -170,8 +171,7 @@
       </div>
       <div class="tcg-card__row">
         {% set loc = c[7] if c[7] else c[14] %}
-        {% if loc %}<span class="storage-badge">{{ loc }}</span>
-        {% else %}<span class="storage-badge storage-badge--empty">Kein Lagerort</span>{% endif %}
+        {{ platz(loc, 'Kein Lagerort') }}
         {% if c[8] %}<span class="chip">📁 {{ c[8] }}</span>{% endif %}
       </div>
       <div class="tcg-card__stats">

@@ -1,0 +1,279 @@
+{% extends "base.html" %}
+{% block content %}
+{#
+  Ordner-Ansicht: eine Seite wie im echten Ordner — Platz 1 oben links bis
+  Platz 9 unten rechts. Im Inventur-Modus wird Karte für Karte bestätigt oder
+  berichtigt. Die Logik steht in ordneransicht.py.
+#}
+{% set basis = url_for('ordner_ansicht', folder_id=ordner.id) %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <h2 class="page-title mb-0">📁 {{ ordner.name }} <small>· Nr. {{ '%02d'|format(ordner.id) }} · {{ anzahl }} Seiten</small></h2>
+  <div class="d-flex gap-2 flex-wrap">
+    {% if inventur %}
+    <a class="btn btn-outline-secondary" href="{{ url_for('ordner_ansicht', folder_id=ordner.id, seite=nummer) }}">Inventur-Modus beenden</a>
+    {% else %}
+    <a class="btn btn-primary" href="{{ url_for('ordner_ansicht', folder_id=ordner.id, seite=nummer, inventur=1) }}">📋 Inventur-Modus</a>
+    {% endif %}
+    <a class="btn btn-outline-secondary" href="{{ url_for('list_folders_view') }}">Alle Ordner</a>
+  </div>
+</div>
+
+<div id="ordner-meldungen"></div>
+
+<div class="binder">
+  <div class="binder-haupt">
+    {# Blättern #}
+    <div class="binder-nav">
+      {% if nummer > 1 %}
+      <a class="btn btn-outline-secondary" id="seite-zurueck" href="{{ url_for('ordner_ansicht', folder_id=ordner.id, seite=nummer - 1, inventur=1 if inventur else None) }}">← Seite {{ nummer - 1 }}</a>
+      {% else %}<span></span>{% endif %}
+      <span class="binder-nav__titel">Seite {{ nummer }} von {{ anzahl }}</span>
+      {% if nummer < anzahl %}
+      <a class="btn btn-outline-secondary" id="seite-weiter" href="{{ url_for('ordner_ansicht', folder_id=ordner.id, seite=nummer + 1, inventur=1 if inventur else None) }}">Seite {{ nummer + 1 }} →</a>
+      {% else %}<span></span>{% endif %}
+    </div>
+
+    {# Die Seite: neun Fächer #}
+    <div class="binder-seite{% if inventur %} binder-seite--inventur{% endif %}" id="seite-raster">
+      {% for fach in faecher %}
+      <div class="binder-fach{% if not fach.karten %} binder-fach--leer{% endif %}" id="{{ fach.code }}">
+        <span class="binder-fach__platz" title="Platz {{ fach.platz }} – {{ fach.code }}">P{{ fach.platz }}</span>
+        {% for k in fach.karten %}
+        <div class="binder-karte{% if k.foil %} binder-karte--foil{% endif %}{% if inventur and k.gezaehlt %} binder-karte--gezaehlt{% endif %}">
+          <div class="binder-karte__rahmen">
+            {% if k.image_url %}
+            <img src="{{ k.image_url }}" class="binder-karte__bild clickable-image" data-img="{{ k.image_url }}"
+                 alt="{{ k.name }}" loading="lazy">
+            {% else %}
+            <div class="binder-karte__ersatz">{{ k.name }}</div>
+            {% endif %}
+            <span class="binder-karte__menge" title="Menge">×{{ k.quantity }}</span>
+            {% if inventur and k.gezaehlt %}<span class="binder-karte__haken" title="In dieser Inventur gezählt">✓</span>{% endif %}
+            {% if k.foil %}<span class="binder-karte__foil" title="Foil">★</span>{% endif %}
+          </div>
+          <a class="binder-karte__name" href="{{ url_for('edit_card_view', card_id=k.id) }}" title="{{ k.name }} – bearbeiten">{{ k.name }}</a>
+          <div class="binder-karte__meta">{{ (k.set_code or '—')|upper }}{% if k.collector_number %} #{{ k.collector_number }}{% endif %}{% if k.language %} · {{ k.language|upper }}{% endif %}{% if k.condition %} · {{ k.condition }}{% endif %}</div>
+          {% if inventur %}
+          <div class="inventur-knoepfe">
+            <form method="post" class="inventur-aktion" action="{{ url_for('ordner_karte_aktion', folder_id=ordner.id, card_id=k.id, aktion='minus') }}">
+              <input type="hidden" name="seite" value="{{ nummer }}"><input type="hidden" name="platz" value="{{ fach.code }}">
+              <button class="btn btn-outline-secondary" type="submit" title="Eine weniger"{% if (k.quantity or 0) <= 1 %} disabled{% endif %}>−</button>
+            </form>
+            <form method="post" class="inventur-aktion" action="{{ url_for('ordner_karte_aktion', folder_id=ordner.id, card_id=k.id, aktion='plus') }}">
+              <input type="hidden" name="seite" value="{{ nummer }}"><input type="hidden" name="platz" value="{{ fach.code }}">
+              <button class="btn btn-outline-secondary" type="submit" title="Eine mehr">+</button>
+            </form>
+            <form method="post" class="inventur-aktion" action="{{ url_for('ordner_karte_aktion', folder_id=ordner.id, card_id=k.id, aktion='stimmt') }}">
+              <input type="hidden" name="seite" value="{{ nummer }}"><input type="hidden" name="platz" value="{{ fach.code }}">
+              <button class="btn btn-outline-success" type="submit" title="Ist da, Menge stimmt">✓</button>
+            </form>
+            <form method="post" class="inventur-aktion" action="{{ url_for('ordner_karte_aktion', folder_id=ordner.id, card_id=k.id, aktion='fehlt') }}"
+                  data-frage="„{{ k.name }}“ ({{ k.quantity }} Stück) ist nicht da?
+
+Die Karte wird aus dem Bestand entfernt (im Änderungsprotokoll vermerkt). Taucht sie wieder auf, einfach neu anlegen.">
+              <input type="hidden" name="seite" value="{{ nummer }}"><input type="hidden" name="platz" value="{{ fach.code }}">
+              <button class="btn btn-outline-danger" type="submit" title="Karte ist nicht da">fehlt</button>
+            </form>
+          </div>
+          {% endif %}
+        </div>
+        {% endfor %}
+        {% if not fach.karten %}
+        <span class="binder-fach__frei">frei</span>
+        {% if inventur %}
+        <a class="btn btn-sm btn-outline-primary binder-fach__neu"
+           href="{{ url_for('add_card_view', ordner=ordner.id, seite=nummer, platz=fach.platz, zurueck='ordner') }}"
+           title="Hier liegt eine Karte, die nicht im System ist">＋ Karte hier</a>
+        {% endif %}
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="binder-nav binder-nav--unten mt-3">
+      {% if nummer > 1 %}
+      <a class="btn btn-outline-secondary" href="{{ url_for('ordner_ansicht', folder_id=ordner.id, seite=nummer - 1, inventur=1 if inventur else None) }}">← Seite {{ nummer - 1 }}</a>
+      {% else %}<span></span>{% endif %}
+      {% if inventur %}
+      <form method="post" action="{{ url_for('ordner_seite_geprueft', folder_id=ordner.id, nummer=nummer) }}">
+        <button class="btn btn-success" type="submit">✓ Seite {{ nummer }} stimmt{% if nummer < anzahl %} – weiter{% endif %}</button>
+      </form>
+      {% endif %}
+      {% if nummer < anzahl %}
+      <a class="btn btn-outline-secondary" href="{{ url_for('ordner_ansicht', folder_id=ordner.id, seite=nummer + 1, inventur=1 if inventur else None) }}">Seite {{ nummer + 1 }} →</a>
+      {% else %}<span></span>{% endif %}
+    </div>
+  </div>
+
+  {# Seitenleiste: Fortschritt, Suche und alle Seiten als Mini-Karte #}
+  <aside class="binder-seitenleiste">
+    {# Fortschritt der laufenden Inventur #}
+  <div id="inventur-kopf">
+  {% if inventur %}
+    <div class="inventur-kopf">
+      <div class="inventur-kopf__zahlen">
+        <div><strong>{{ stand.seiten_geprueft }}</strong> von {{ stand.seiten }} Seiten geprüft</div>
+        <div><strong>{{ stand.karten_gezaehlt }}</strong> von {{ stand.karten }} Karten gezählt</div>
+        <div class="text-muted small">
+          {% if stand.seit %}Inventur seit {{ stand.seit[8:10] }}.{{ stand.seit[5:7] }}.{{ stand.seit[:4] }}, {{ stand.seit[11:16] }} Uhr
+          {% else %}Noch keine Inventur begonnen – gezählt wird ab jetzt{% endif %}
+        </div>
+      </div>
+      <div class="progress inventur-kopf__balken" role="progressbar" aria-label="Seiten geprüft"
+           aria-valuenow="{{ stand.seiten_geprueft }}" aria-valuemin="0" aria-valuemax="{{ stand.seiten }}">
+        <div class="progress-bar bg-success" style="width: {{ (100 * stand.seiten_geprueft / stand.seiten)|round|int if stand.seiten else 0 }}%"></div>
+      </div>
+      <form method="post" action="{{ url_for('ordner_inventur_neu', folder_id=ordner.id) }}"
+            data-frage="Eine neue Inventur für „{{ ordner.name }}“ beginnen?
+
+Die Mengen bleiben, wie sie sind. Nur der Fortschritt (geprüfte Seiten, gezählte Karten) beginnt wieder bei null."
+            onsubmit="return confirm(this.dataset.frage)">
+        <button class="btn btn-sm btn-outline-secondary" type="submit">Neue Inventur beginnen</button>
+      </form>
+    </div>
+    <details class="inventur-hilfe small text-muted mb-3">
+      <summary>So geht's</summary>
+      Je Karte: <strong>✓</strong> = ist da, Menge stimmt · <strong>+ / −</strong> = Menge berichtigen ·
+      <strong>fehlt</strong> = nicht da, wird aus dem Bestand entfernt. Stimmt die ganze Seite, genügt
+      „Seite stimmt“ unter dem Raster. Pfeiltasten ← → blättern.
+    </details>
+  {% endif %}
+  </div>
+
+    <form method="get" class="mb-3">
+      {% if inventur %}<input type="hidden" name="inventur" value="1">{% endif %}
+      <input type="hidden" name="seite" value="{{ nummer }}">
+      <div class="input-group input-group-sm">
+        <input class="form-control" type="search" name="q" value="{{ suche }}" placeholder="Karte im Ordner suchen">
+        <button class="btn btn-outline-secondary" type="submit">Suchen</button>
+      </div>
+    </form>
+    {% if suche %}
+    <div class="ordner-treffer mb-3">
+      {% for t in treffer %}
+      {% if t.platz_teile %}
+      <a href="{{ url_for('ordner_ansicht', folder_id=ordner.id, seite=t.platz_teile[1], inventur=1 if inventur else None, q=suche) }}#{{ t.storage_code }}">
+        {{ t.name }}{% if t.foil %} ★{% endif %} <span class="text-muted">· Seite {{ t.platz_teile[1] }}, Platz {{ t.platz_teile[2] }}</span></a>
+      {% else %}
+      <span>{{ t.name }} <span class="text-muted">· ohne Platz</span></span>
+      {% endif %}
+      {% else %}
+      <span class="text-muted small">Nichts gefunden.</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="seiten-leiste" id="seiten-leiste">
+      {% for s in seiten %}
+      <a href="{{ url_for('ordner_ansicht', folder_id=ordner.id, seite=s.seite, inventur=1 if inventur else None) }}"
+         class="{% if s.seite == nummer %}aktiv{% endif %}{% if inventur and s.geprueft %} geprueft{% endif %}"
+         title="Seite {{ s.seite }}: {{ s.belegt }} von 9 Fächern belegt, {{ s.stueck }} Stück{% if s.geprueft_am %} · geprüft {{ s.geprueft_am[8:10] }}.{{ s.geprueft_am[5:7] }}.{% endif %}">
+        <span class="seiten-leiste__nr">{{ s.seite }}{% if inventur and s.geprueft %} ✓{% endif %}</span>
+        <span class="seiten-leiste__punkte" aria-hidden="true">
+          {% for p in range(1, 10) %}<i class="{% if p in s.belegte_plaetze %}voll{% endif %}"></i>{% endfor %}
+        </span>
+      </a>
+      {% endfor %}
+    </div>
+  </aside>
+</div>
+
+<div id="ohne-platz">
+{% if ohne_platz %}
+<section class="mt-4">
+  <h3 class="h6">Ohne Platz in diesem Ordner <span class="badge bg-secondary">{{ ohne_platz|length }}</span></h3>
+  <p class="text-muted small">Diese Karten gehören zum Ordner, haben aber keinen Platz. Beim Bearbeiten Seite und Platz eintragen.</p>
+  <ul class="small">
+    {% for k in ohne_platz %}
+    <li>{{ k.name }}{% if k.foil %} ★{% endif %} · {{ (k.set_code or '—')|upper }}{% if k.collector_number %} #{{ k.collector_number }}{% endif %} · Menge {{ k.quantity }}
+      · <a href="{{ url_for('edit_card_view', card_id=k.id) }}">Bearbeiten</a></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% if ungueltig %}
+<section class="mt-4">
+  <h3 class="h6">Auf Plätzen, die es nicht gibt <span class="badge bg-warning text-dark">{{ ungueltig|length }}</span></h3>
+  <p class="text-muted small">Jede Seite hat die Plätze 1 bis 9. Bitte die Karte suchen und ihren echten Platz eintragen.</p>
+  <ul class="small">
+    {% for k in ungueltig %}
+    <li>{{ k.name }} auf <span class="storage-badge">{{ k.storage_code }}</span> · Menge {{ k.quantity }}
+      · <a href="{{ url_for('edit_card_view', card_id=k.id) }}">Bearbeiten</a></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+</div>
+
+<!-- Bild groß -->
+<div class="modal fade" id="imgModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content bg-dark">
+      <div class="modal-body p-0"><img id="modal-img" src="" class="img-fluid" alt="Kartenbild"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const modalImg = document.getElementById('modal-img');
+  const modalEl = document.getElementById('imgModal');
+  const modal = (typeof bootstrap !== 'undefined' && modalEl) ? new bootstrap.Modal(modalEl) : null;
+  document.addEventListener('click', function (e) {
+    if (e.target.classList.contains('clickable-image')) {
+      const src = e.target.getAttribute('data-img');
+      if (src && modalImg) { modalImg.src = src; if (modal) modal.show(); }
+    }
+  });
+
+  // Blättern mit den Pfeiltasten.
+  document.addEventListener('keydown', function (e) {
+    if (e.target.closest('input, textarea, select') || e.altKey || e.ctrlKey || e.metaKey) return;
+    const ziel = e.key === 'ArrowLeft' ? document.getElementById('seite-zurueck')
+               : e.key === 'ArrowRight' ? document.getElementById('seite-weiter') : null;
+    if (ziel) location.href = ziel.href;
+  });
+
+  /*
+   * Inventur ohne Neuladen. Der Server antwortet wie sonst mit der ganzen
+   * Seite; übernommen werden nur Raster, Fortschritt, Seitenleiste und
+   * Meldungen. Geht etwas schief, wird das Formular normal abgeschickt.
+   */
+  const BEREICHE = ['seite-raster', 'inventur-kopf', 'seiten-leiste', 'ohne-platz'];
+  document.addEventListener('submit', async function (e) {
+    const form = e.target;
+    if (!form.classList.contains('inventur-aktion') || e.defaultPrevented) return;
+    if (form.dataset.frage && !confirm(form.dataset.frage)) { e.preventDefault(); return; }
+    e.preventDefault();
+    e.wirdGesendet = true;               // für die Doppelklick-Sperre in base.html
+    const raster = document.getElementById('seite-raster');
+    raster.classList.add('wird-gespeichert');
+    const meldungen = document.getElementById('ordner-meldungen');
+    try {
+      const antwort = await fetch(form.action, {
+        method: 'POST', body: new FormData(form), credentials: 'same-origin',
+        headers: { 'X-Requested-With': 'fetch' },
+      });
+      const ziel = new URL(antwort.url, location.href);
+      if (antwort.ok && ziel.pathname === '{{ url_for("login") }}') {
+        raster.classList.remove('wird-gespeichert');
+        meldungen.innerHTML = '<div class="alert alert-danger">Nicht gespeichert: die Anmeldung ist ' +
+          'abgelaufen. Bitte die Seite neu laden, anmelden und wiederholen.</div>';
+        return;
+      }
+      if (!antwort.ok || ziel.pathname !== location.pathname) throw new Error('unerwartet');
+      const doc = new DOMParser().parseFromString(await antwort.text(), 'text/html');
+      BEREICHE.forEach(function (id) {
+        const alt = document.getElementById(id), neu = doc.getElementById(id);
+        if (alt && neu) alt.replaceWith(neu);
+      });
+      meldungen.innerHTML = '';
+      doc.querySelectorAll('.flash-meldung').forEach(function (m) { meldungen.appendChild(m); });
+    } catch (fehler) {
+      raster.classList.remove('wird-gespeichert');
+      form.submit();                     // Rückfall: normal abschicken
+    }
+  });
+});
+</script>
+{% endblock %}

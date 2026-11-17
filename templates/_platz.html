@@ -1,0 +1,15 @@
+{#
+  Lagerplatz als Abzeichen. Ein Platz im Ordner-Schema (O07-S03-P4) wird zum
+  Verweis auf die Ordner-Ansicht: ein Klick zeigt die Seite, und das Fach
+  leuchtet auf. Andere Angaben (Regal, Box) bleiben einfacher Text.
+#}
+{% macro platz(code, leer='—') -%}
+{%- set ziel = code|platz_url if code else '' -%}
+{%- if ziel -%}
+<a class="storage-badge" href="{{ ziel }}" title="Im Ordner zeigen">{{ code }}</a>
+{%- elif code -%}
+<span class="storage-badge">{{ code }}</span>
+{%- else -%}
+<span class="storage-badge storage-badge--empty">{{ leer }}</span>
+{%- endif -%}
+{%- endmacro %}

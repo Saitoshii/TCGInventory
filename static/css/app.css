@@ -398,3 +398,232 @@ code { color: #ffb3c7; }
   pointer-events: none;
   transition: opacity .15s;
 }
+
+/* ============================================================
+ * 10. Ordner-Ansicht (ordner_ansicht.html)
+ *     Eine Seite wie im echten Ordner: 3 × 3 Fächer, Platz 1 oben
+ *     links bis Platz 9 unten rechts.
+ * ============================================================ */
+.binder {
+  display: grid;
+  grid-template-columns: auto minmax(250px, 320px);
+  justify-content: start;
+  gap: var(--space-5);
+  align-items: start;
+}
+.binder-haupt { min-width: 0; }
+/* Fortschritt, Suche und Seitenübersicht bleiben beim Scrollen sichtbar. */
+.binder-seitenleiste { position: sticky; top: var(--space-4); }
+.binder-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.binder-nav__titel { font-weight: var(--font-weight-bold); color: var(--color-text-muted); }
+
+.binder-seite {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  /* Groß genug, dass die Karten gut zu erkennen sind; auf hohen Bildschirmen
+     passt die ganze Seite ins Fenster. */
+  width: clamp(560px, calc((100vh - 250px) / 1.25), 760px);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border-strong);
+  /* Ein Hauch Ordnerblatt: dunkle Hülle, leicht glänzende Folie. */
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0) 40%),
+    linear-gradient(180deg, #1a2131, #121722);
+  box-shadow: var(--shadow-md), inset 0 0 0 5px rgba(255, 255, 255, 0.025);
+  transition: opacity 0.15s;
+}
+.binder-seite.wird-gespeichert { opacity: 0.6; pointer-events: none; }
+
+.binder-fach {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  min-width: 0;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.binder-fach--leer {
+  aspect-ratio: 63 / 98;
+  align-items: center;
+  justify-content: center;
+  border-style: dashed;
+  color: var(--color-text-dim);
+}
+.binder-fach__platz {
+  /* Über der Karte, nicht auf ihr — dort stünde sonst der Kartenname. */
+  align-self: flex-start;
+  padding: 0.05rem 0.45rem;
+  font-size: 0.7rem;
+  font-weight: var(--font-weight-bold);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-muted);
+  background: rgba(13, 17, 23, 0.8);
+  border: 1px solid var(--color-border);
+}
+.binder-fach--leer .binder-fach__platz { position: absolute; top: 6px; left: 6px; }
+.binder-fach__frei { font-size: var(--font-size-sm); }
+.binder-fach__neu { font-size: 0.72rem; padding: 0.1rem 0.5rem; }
+/* Von einem Lagerplatz-Link aus aufgerufen: dieses Fach aufleuchten lassen. */
+.binder-fach:target {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-soft), 0 0 18px rgba(76, 141, 255, 0.45);
+  animation: fach-puls 1.1s ease-in-out 3;
+}
+@keyframes fach-puls {
+  50% { box-shadow: 0 0 0 6px var(--color-primary-soft), 0 0 28px rgba(76, 141, 255, 0.65); }
+}
+
+.binder-karte { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.binder-karte + .binder-karte { padding-top: var(--space-2); border-top: 1px dashed var(--color-border); }
+.binder-karte__rahmen { position: relative; }
+.binder-karte__bild,
+.binder-karte__ersatz {
+  display: block;
+  width: 100%;
+  aspect-ratio: 63 / 88;
+  border-radius: 4.75% / 3.4%;
+  background: var(--color-surface-2);
+  box-shadow: var(--shadow-sm);
+}
+.binder-karte__bild { object-fit: cover; cursor: zoom-in; }
+.binder-karte__ersatz {
+  display: grid;
+  place-items: center;
+  padding: var(--space-2);
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+.binder-karte--foil .binder-karte__bild,
+.binder-karte--foil .binder-karte__ersatz { box-shadow: var(--shadow-foil); }
+.binder-karte--gezaehlt .binder-karte__bild,
+.binder-karte--gezaehlt .binder-karte__ersatz { outline: 2px solid rgba(63, 185, 80, 0.75); outline-offset: 2px; }
+.binder-karte__menge {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  padding: 0.05rem 0.5rem;
+  font-size: 0.8rem;
+  font-weight: var(--font-weight-bold);
+  border-radius: var(--radius-pill);
+  color: #fff;
+  background: rgba(13, 17, 23, 0.85);
+  border: 1px solid var(--color-border-strong);
+}
+.binder-karte__haken {
+  position: absolute;
+  left: 5px;
+  bottom: 5px;
+  display: grid;
+  place-items: center;
+  width: 1.55rem;
+  height: 1.55rem;
+  font-weight: 800;
+  border-radius: var(--radius-pill);
+  color: #06210f;
+  background: var(--color-success);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35);
+}
+.binder-karte__foil {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  color: var(--color-foil-star);
+  filter: drop-shadow(0 0 3px rgba(255, 207, 51, 0.7));
+}
+.binder-karte__name {
+  overflow: hidden;
+  font-size: 0.78rem;
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-text);
+  text-decoration: none;
+}
+.binder-karte__name:hover { text-decoration: underline; }
+.binder-karte__meta {
+  overflow: hidden;
+  font-size: 0.7rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-text-muted);
+}
+
+.inventur-knoepfe { display: flex; flex-wrap: nowrap; gap: 4px; margin-top: 2px; }
+.inventur-knoepfe form { margin: 0; }
+.inventur-knoepfe .btn { padding: 0.1rem 0.45rem; font-size: 0.75rem; line-height: 1.3; }
+
+.inventur-kopf {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  margin-bottom: var(--space-2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+.inventur-kopf__zahlen { display: flex; flex-direction: column; gap: 2px; }
+.inventur-kopf__balken { height: 10px; }
+.inventur-kopf .btn { justify-self: start; }
+.inventur-hilfe summary { cursor: pointer; }
+
+/* Seitenleiste: jede Seite als Mini-Karte ihrer neun Fächer. */
+.seiten-leiste {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(46px, 1fr));
+  gap: 6px;
+}
+.seiten-leiste a {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 5px 2px;
+  font-size: 0.75rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+.seiten-leiste a:hover { border-color: var(--color-border-strong); color: var(--color-text); }
+.seiten-leiste a.aktiv { border-color: var(--color-primary); background: var(--color-primary-soft); color: var(--color-text); }
+.seiten-leiste a.geprueft { border-color: rgba(63, 185, 80, 0.65); }
+.seiten-leiste__nr { font-weight: var(--font-weight-bold); }
+.seiten-leiste__punkte { display: grid; grid-template-columns: repeat(3, 7px); gap: 2px; }
+.seiten-leiste__punkte i { width: 7px; height: 7px; border-radius: 2px; background: rgba(255, 255, 255, 0.12); }
+.seiten-leiste__punkte i.voll { background: var(--color-primary); }
+.seiten-leiste a.geprueft .seiten-leiste__punkte i.voll { background: var(--color-success); }
+
+.ordner-treffer { display: flex; flex-direction: column; gap: 4px; font-size: var(--font-size-sm); }
+
+/* Lagerplatz als Verweis auf die Ordner-Ansicht */
+a.storage-badge { text-decoration: none; }
+a.storage-badge:hover { filter: brightness(1.2); text-decoration: underline; }
+
+@media (max-width: 991.98px) {
+  .binder { grid-template-columns: 1fr; }
+  .binder-seite { width: 100%; max-width: 640px; }
+  .binder-seitenleiste { position: static; }
+}
+@media (max-width: 575.98px) {
+  .binder-seite { gap: var(--space-2); padding: var(--space-2); }
+  .binder-fach { padding: 4px; gap: 4px; }
+  .inventur-knoepfe { flex-wrap: wrap; }
+  .inventur-knoepfe .btn { padding: 0.1rem 0.35rem; }
+}

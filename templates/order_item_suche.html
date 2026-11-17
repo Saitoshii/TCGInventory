@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_platz.html" import platz %}
 {% block content %}
 {#
   Freie Suche im Bestand für eine Bestellposition.
@@ -88,7 +89,7 @@
       </td>
       <td class="small">{{ k.item_type }}</td>
       <td>
-        {% if k.storage_code %}<span class="storage-badge">{{ k.storage_code }}</span>
+        {% if k.storage_code %}{{ platz(k.storage_code) }}
         {% elif k.location_hint %}<span class="small">{{ k.location_hint }}</span>
         {% else %}<span class="text-muted small">—</span>{% endif %}
       </td>

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_platz.html" import platz %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <h2 class="page-title mb-0" id="bestellungen-titel">Offene Bestellungen <small>· {{ orders|length }}</small></h2>
@@ -189,8 +190,7 @@
                     {% elif item.match_status == 'matched' %}
                     <span class="status-badge status-badge--verfuegbar">Zugeordnet</span>
                     <div class="mt-1">
-                      {% if item.storage_code %}<span class="storage-badge">{{ item.storage_code }}</span>
-                      {% else %}<span class="storage-badge storage-badge--empty">kein Lagerort</span>{% endif %}
+                      {{ platz(item.storage_code, 'kein Lagerort') }}
                     </div>
                     {% if not item.entfernt and item.bestand is not none %}
                       {% if item.bestand < item.quantity %}

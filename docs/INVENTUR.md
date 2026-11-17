@@ -49,6 +49,14 @@ und Foil ließ sich in der Warteschlange nicht abwählen.
 Geändert wird dabei nur, was angeklickt wird; jede Änderung steht im
 Audit-Log.
 
+## Die nächste Inventur: im Ordner
+
+**Ordner → 📋 Inventur** zeigt Seite für Seite die neun Fächer mit Bild. Je
+Karte „✓" (stimmt), „+ / −" (Menge) oder „fehlt"; stimmt die ganze Seite,
+genügt „Seite stimmt". „Neue Inventur beginnen" setzt den Fortschritt auf null,
+die Mengen bleiben. Siehe [WEB_INTERFACE.md](WEB_INTERFACE.md),
+„Ordner-Ansicht und Inventur".
+
 ## Danach: Inventur berichtigen
 
 - **Menge berichtigen**: Karte → „Bearbeiten" → Menge. Der Set-Code bleibt
@@ -70,3 +78,6 @@ Audit-Log.
 - Beim Start (`setup_db._bereinige_plaetze`): freie Plätze ab P10 ohne Karte
   werden entfernt, die Belegung wird aus den Karten abgeleitet.
 - Logik der Prüfseite: `bestandspruefung.py`.
+- Ordner-Ansicht und Inventur: `ordneransicht.py`; `cards.gezaehlt_am`
+  (zuletzt gezählt), `folders.inventur_seit` (Beginn der laufenden Inventur),
+  Tabelle `inventur_seiten` (geprüfte Seiten).

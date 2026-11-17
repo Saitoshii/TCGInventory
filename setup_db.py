@@ -53,6 +53,22 @@ def initialize_database() -> None:
         folder_columns = [row[1] for row in cursor.fetchall()]
         if "pages" not in folder_columns:
             cursor.execute("ALTER TABLE folders ADD COLUMN pages INTEGER DEFAULT 0")
+        # Beginn der laufenden Inventur dieses Ordners. Was davor gezählt
+        # wurde, gilt für den Fortschritt als noch nicht gezählt.
+        if "inventur_seit" not in folder_columns:
+            cursor.execute("ALTER TABLE folders ADD COLUMN inventur_seit TEXT")
+        # Welche Seite zuletzt wann geprüft wurde (Ordner-Ansicht, Inventur).
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS inventur_seiten (
+                ordner_id INTEGER NOT NULL,
+                seite INTEGER NOT NULL,
+                geprueft_am TEXT NOT NULL,
+                benutzer TEXT,
+                PRIMARY KEY (ordner_id, seite)
+            )
+            """
+        )
 
         cursor.execute("PRAGMA table_info(cards)")
         columns = [row[1] for row in cursor.fetchall()]
@@ -105,6 +121,9 @@ def initialize_database() -> None:
             cursor.execute("ALTER TABLE cards ADD COLUMN date_bought TEXT")
         if "market_price" not in columns:
             cursor.execute("ALTER TABLE cards ADD COLUMN market_price REAL")
+        # Inventur: wann diese Karte zuletzt im Ordner gezählt wurde.
+        if "gezaehlt_am" not in columns:
+            cursor.execute("ALTER TABLE cards ADD COLUMN gezaehlt_am TEXT")
 
         # Indexes for the identity path and common lookups. CREATE INDEX
         # IF NOT EXISTS keeps this idempotent and non-destructive. All columns
