@@ -17,6 +17,7 @@ __all__ = [
     "update_card",
     "delete_card",
     "sell_card",
+    "buche_aus",
     "cleanup_archived",
     "count_archived",
     "reconcile_slot_occupancy",
@@ -510,36 +511,66 @@ def sell_card(card_id: int, user="system") -> bool:
     data — deleting the inventory row does not lose it.
     """
     with sqlite3.connect(DB_FILE) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT quantity, storage_code, name FROM cards WHERE id = ?", (card_id,))
-        row = cursor.fetchone()
-        if not row:
-            print(f"⚠️ Keine Karte mit ID {card_id} gefunden.")
-            return False
-        qty = row[0] or 0
-        storage_code = row[1]
-        name = row[2]
-        new_qty = qty - 1
+        verkauft = _verkaufe_ein_exemplar(conn.cursor(), card_id, user)
+        conn.commit()
+    return verkauft
 
-        if new_qty > 0:
-            cursor.execute(
-                "UPDATE cards SET quantity = ? WHERE id = ?",
-                (new_qty, card_id),
-            )
-            log_audit(card_id, user, 'sell', 'quantity', str(qty), str(new_qty), cursor)
-            conn.commit()
-            print(f"🛒 Karte verkauft. {new_qty} verbleibend.")
-            return True
-        else:
-            # Last copy sold: log first (card_id still valid), free the slot,
-            # then remove the row. No 'archiviert' status remains.
-            log_audit(card_id, user, 'sell', 'quantity', str(qty), '0', cursor)
-            log_audit(card_id, user, 'sell-remove', 'name', name, 'verkauft', cursor)
-            _free_slot_if_unused(cursor, storage_code, card_id)
-            cursor.execute("DELETE FROM cards WHERE id = ?", (card_id,))
-            conn.commit()
-            print("🛒 Karte verkauft, Zeile entfernt und Lagerplatz freigegeben.")
-            return True
+
+def _verkaufe_ein_exemplar(cursor: sqlite3.Cursor, card_id: int, user="system") -> bool:
+    """Ein Exemplar ausbuchen — innerhalb der Transaktion des Aufrufers.
+
+    Der Kern von :func:`sell_card`. Ohne eigenes ``commit``: wer mehrere
+    Exemplare zusammen mit etwas anderem ausbucht (eine Bestellung abschließen),
+    braucht alles in **einer** Transaktion. Sonst steht nach einem Abbruch die
+    Hälfte im Bestand, oder zwei gleichzeitige Klicks ziehen doppelt ab.
+    """
+    cursor.execute("SELECT quantity, storage_code, name FROM cards WHERE id = ?", (card_id,))
+    row = cursor.fetchone()
+    if not row:
+        print(f"⚠️ Keine Karte mit ID {card_id} gefunden.")
+        return False
+    qty = row[0] or 0
+    storage_code = row[1]
+    name = row[2]
+    new_qty = qty - 1
+
+    if new_qty > 0:
+        cursor.execute(
+            "UPDATE cards SET quantity = ? WHERE id = ?",
+            (new_qty, card_id),
+        )
+        log_audit(card_id, user, 'sell', 'quantity', str(qty), str(new_qty), cursor)
+        print(f"🛒 Karte verkauft. {new_qty} verbleibend.")
+        return True
+
+    # Last copy sold: log first (card_id still valid), free the slot,
+    # then remove the row. No 'archiviert' status remains.
+    log_audit(card_id, user, 'sell', 'quantity', str(qty), '0', cursor)
+    log_audit(card_id, user, 'sell-remove', 'name', name, 'verkauft', cursor)
+    _free_slot_if_unused(cursor, storage_code, card_id)
+    cursor.execute("DELETE FROM cards WHERE id = ?", (card_id,))
+    print("🛒 Karte verkauft, Zeile entfernt und Lagerplatz freigegeben.")
+    return True
+
+
+def buche_aus(cursor: sqlite3.Cursor, card_id: int, menge: int, user="system") -> int:
+    """Bis zu ``menge`` Exemplare ausbuchen; gibt zurück, wie viele es waren.
+
+    Mehr als im Bestand steht, wird nicht abgezogen: eine Zeile mit Menge 2
+    gibt bei einer Bestellung über 3 genau 2 her. Der Aufrufer erfährt die
+    Zahl und kann den Fehlbestand melden, statt ihn zu verschweigen. Eine
+    Zeile mit Menge 0 gibt nichts her und bleibt unangetastet.
+
+    Arbeitet in der Transaktion des Aufrufers (kein ``commit``).
+    """
+    cursor.execute("SELECT quantity FROM cards WHERE id = ?", (card_id,))
+    zeile = cursor.fetchone()
+    vorhanden = max(0, (zeile[0] or 0)) if zeile else 0
+    abgezogen = 0
+    for _ in range(min(max(0, int(menge or 0)), vorhanden)):
+        if _verkaufe_ein_exemplar(cursor, card_id, user):
+            abgezogen += 1
+    return abgezogen
 
 
 def reconcile_slot_occupancy() -> int:

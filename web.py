@@ -24,6 +24,7 @@ from TCGInventory.lager_manager import (
     update_card,
     delete_card,
     sell_card,
+    buche_aus,
     cleanup_archived,
     count_archived,
     add_storage_slot,
@@ -32,6 +33,7 @@ from TCGInventory.lager_manager import (
     delete_folder,
     create_binder,
     list_folders,
+    log_audit,
     ITEM_TYPES,
 )
 from TCGInventory.card_scanner import (
@@ -2497,15 +2499,27 @@ def upload_database():
 @app.route("/orders")
 @login_required
 def list_orders():
-    """Display open orders from Cardmarket emails."""
+    """Display open orders from Cardmarket emails.
+
+    Ohne Angabe stehen hier die offenen Bestellungen der letzten
+    ``ORDER_CUTOFF_DAYS`` Tage. Ältere offene verschwanden früher spurlos aus
+    der Liste — samt dem Knopf „Versendet / Verkauft". Wurde so eine
+    Bestellung verschickt, blieben ihre Karten für immer im Bestand. Jetzt
+    sagt die Seite, wie viele es sind, und ``?alle=1`` zeigt sie.
+    """
     # Calculate cutoff date using configured setting
     # Note: Using datetime.now() for consistency with existing date_received values in the database
     # which were stored using local time. Consider migrating to UTC in the future.
     cutoff_date = (datetime.now() - timedelta(days=ORDER_CUTOFF_DAYS)).isoformat()
-    
+    alle = request.args.get("alle") == "1"
+
     with sqlite3.connect(DB_FILE) as conn:
         conn.row_factory = sqlite3.Row
         c = conn.cursor()
+        aeltere = c.execute(
+            "SELECT COUNT(*) FROM orders o WHERE o.status = 'open' "
+            "AND COALESCE(o.email_date, o.date_received) < ?",
+            (cutoff_date,)).fetchone()[0]
         c.execute(
             """
             SELECT o.id, o.buyer_name, COALESCE(o.email_date, o.date_received) AS display_date,
@@ -2514,12 +2528,21 @@ def list_orders():
                    o.amount_versand, o.amount_gesamt, o.quelle, o.verkaufskanal
             FROM orders o
             WHERE o.status = 'open'
-              AND COALESCE(o.email_date, o.date_received) >= ?
+              AND (? OR COALESCE(o.email_date, o.date_received) >= ?)
             ORDER BY COALESCE(o.email_date, o.date_received) DESC
             """,
-            (cutoff_date,)
+            (1 if alle else 0, cutoff_date)
         )
         orders = c.fetchall()
+
+        # Wie oft jede Karte in offenen Bestellungen insgesamt verlangt wird.
+        # Zwei Bestellungen über dasselbe letzte Exemplar sehen einzeln
+        # beide gut aus; erst die Summe zeigt, dass eine leer ausgeht.
+        bedarf = {z[0]: z[1] for z in c.execute(
+            "SELECT i.card_id, SUM(i.quantity) FROM order_items i "
+            "JOIN orders o ON o.id = i.order_id "
+            "WHERE o.status = 'open' AND i.card_id IS NOT NULL "
+            "AND COALESCE(i.entfernt, 0) = 0 GROUP BY i.card_id")}
 
         order_details = []
         for order in orders:
@@ -2543,20 +2566,32 @@ def list_orders():
                 # For unresolved / ambiguous positions, offer inventory candidates
                 # for manual selection (never auto-decided).
                 item["candidates"] = []
-                if not item["card_id"]:
-                    item["candidates"] = _order_item_candidates(c, item["card_name"])
                 # Von Hand zugeordnetes Produkt, das der Bestelleingang nicht
                 # von selbst gefunden haette: der Hinweis fuehrt zum Artikel,
                 # wo Cardmarket-Name und Sprache nachgetragen werden.
                 item["produkt_unerkannt"] = False
+                # Was der Bestand zu dieser Position hergibt. ``karte_fehlt``:
+                # zugeordnet, aber die Zeile gibt es nicht mehr (inzwischen
+                # verkauft oder gelöscht) — dann würde beim Abschließen nichts
+                # abgezogen, und die Position braucht eine neue Zuordnung.
+                item["karte_fehlt"] = False
+                item["bestand"] = None
+                item["bedarf"] = None
                 if item["card_id"] and not item["entfernt"]:
                     artikel = c.execute(
-                        "SELECT item_type, cardmarket_name, language "
+                        "SELECT item_type, cardmarket_name, language, quantity "
                         "FROM cards WHERE id = ?", (item["card_id"],)).fetchone()
-                    if artikel and artikel["item_type"] != "card":
-                        item["produkt_unerkannt"] = not produkt_passt(
-                            artikel["cardmarket_name"], artikel["language"],
-                            item["card_name"], item["language"])
+                    if artikel is None:
+                        item["karte_fehlt"] = True
+                    else:
+                        item["bestand"] = artikel["quantity"] or 0
+                        item["bedarf"] = bedarf.get(item["card_id"], 0)
+                        if artikel["item_type"] != "card":
+                            item["produkt_unerkannt"] = not produkt_passt(
+                                artikel["cardmarket_name"], artikel["language"],
+                                item["card_name"], item["language"])
+                if not item["card_id"] or item["karte_fehlt"]:
+                    item["candidates"] = _order_item_candidates(c, item["card_name"])
                 items.append(item)
 
             recipient_lines = [ln.strip() for ln in (order["address"] or "").splitlines() if ln.strip()]
@@ -2585,6 +2620,11 @@ def list_orders():
                     "gesamt": order["amount_gesamt"],
                 },
                 "items": items,
+                # Positionen, die beim Abschließen nicht abgezogen würden.
+                "nicht_zugeordnet": [
+                    f"{i['quantity']}× {i['card_name']}" for i in items
+                    if not i["entfernt"] and (not i["card_id"] or i["karte_fehlt"])],
+                "alt": (order["display_date"] or "") < cutoff_date,
             })
 
     service = get_order_service()
@@ -2593,7 +2633,10 @@ def list_orders():
     return render_template(
         "orders.html",
         orders=order_details,
-        polling_enabled=polling_enabled
+        polling_enabled=polling_enabled,
+        aeltere=aeltere,
+        alle=alle,
+        frist_tage=ORDER_CUTOFF_DAYS,
     )
 
 
@@ -3246,56 +3289,73 @@ def mark_order_sold(order_id: int):
     Idempotent — only an ``open`` order is processed, so a second click does not
     decrement inventory again. Positions without a linked card_id are reported,
     not guessed.
+
+    Alles in **einer** Transaktion: der Status wechselt zuerst, und zwar nur,
+    wenn die Bestellung noch offen ist. Damit hält die erste Anfrage die
+    Schreibsperre, bis auch der letzte Abzug steht; eine zweite, gleichzeitige
+    (Doppelklick) wartet und findet die Bestellung dann schon verkauft vor.
+    Zuvor wurde erst abgezogen und danach der Status gesetzt — zwei Klicks
+    zogen doppelt ab. Bricht etwas ab, ist nichts geschrieben.
+
+    Je Position wird festgehalten, wie viele Exemplare wirklich abgezogen
+    wurden (``order_items.abgezogen``). Was nicht abgezogen werden konnte,
+    steht in der Meldung und bleibt unter „Bestand prüfen" stehen.
     """
     user = session.get('user', 'system')
+    cards_sold = 0
+    not_linked = []
+    fehlbestand = []
 
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
-        c.execute("SELECT status FROM orders WHERE id = ?", (order_id,))
-        row = c.fetchone()
-        if not row:
-            flash("Bestellung nicht gefunden", "error")
-            return redirect(url_for("list_orders"))
-        if row[0] == 'sold':
-            flash("Bestellung ist bereits als verkauft markiert – kein erneuter Abzug.", "warning")
+        c.execute(
+            "UPDATE orders SET status = 'sold', date_completed = ? "
+            "WHERE id = ? AND status = 'open'",
+            (datetime.now().isoformat(), order_id),
+        )
+        if c.rowcount != 1:
+            conn.rollback()
+            c.execute("SELECT status FROM orders WHERE id = ?", (order_id,))
+            if not c.fetchone():
+                flash("Bestellung nicht gefunden", "error")
+            else:
+                flash("Bestellung ist bereits als verkauft markiert – kein erneuter Abzug.", "warning")
             return redirect(url_for("list_orders"))
 
         # Herausgenommene Positionen werden nicht abgezogen -- verkauft wurden
         # sie nicht, und der Bestand wurde beim Herausnehmen entschieden.
-        items = [(z["card_id"], z["quantity"], z["card_name"])
-                 for z in positionen_modul.positionen(conn, order_id,
-                                                      nur_gelieferte=True)]
-
-    cards_sold = 0
-    not_linked = []
-    for card_id, quantity, card_name in items:
-        if not card_id:
-            not_linked.append(f"{card_name} ({quantity}x)")
-            continue
-        for _ in range(quantity or 0):
-            if sell_card(card_id, user):
-                cards_sold += 1
-
-    with sqlite3.connect(DB_FILE) as conn:
-        c = conn.cursor()
-        # Guard again so concurrent double-submit cannot double-decrement.
-        c.execute(
-            "UPDATE orders SET status = 'sold', date_completed = ? WHERE id = ? AND status = 'open'",
-            (datetime.now().isoformat(), order_id),
-        )
+        for z in positionen_modul.positionen(conn, order_id, nur_gelieferte=True):
+            menge = z["quantity"] or 0
+            abgezogen = 0
+            if not z["card_id"]:
+                not_linked.append(f"{z['card_name']} ({menge}x)")
+            else:
+                abgezogen = buche_aus(c, z["card_id"], menge, user)
+                cards_sold += abgezogen
+                if abgezogen < menge:
+                    fehlbestand.append(
+                        f"{z['card_name']} ({abgezogen} von {menge})")
+            c.execute("UPDATE order_items SET abgezogen = ? WHERE id = ?",
+                      (abgezogen, z["id"]))
         conn.commit()
 
     # Der Beileger bleibt danach druckbar — das steht dabei, weil die
     # Bestellung aus dieser Liste verschwindet und der Weg dorthin sonst
     # nicht zu erraten ist.
     nachdruck = " Noch nicht gedruckt? Unter Bestellungen → Verkaufte Bestellungen."
-    if not_linked:
-        flash(
-            f"Als verkauft markiert. {cards_sold} Karte(n) abgezogen. "
-            f"Nicht zugeordnet (bitte prüfen): {', '.join(not_linked)}."
-            f"{nachdruck}",
-            "warning",
-        )
+    if not_linked or fehlbestand:
+        teile = [f"Als verkauft markiert. {cards_sold} Karte(n) abgezogen."]
+        if not_linked:
+            teile.append(
+                f"Nicht zugeordnet und deshalb NICHT abgezogen: "
+                f"{', '.join(not_linked)} – das lässt sich unter System → "
+                f"Bestand prüfen nachholen.")
+        if fehlbestand:
+            teile.append(
+                f"Im Bestand stand weniger als bestellt: "
+                f"{', '.join(fehlbestand)} – bitte prüfen, ob die Ware "
+                f"wirklich vollständig verschickt wurde.")
+        flash(" ".join(teile) + nachdruck, "warning")
     else:
         flash(f"Als verkauft markiert und {cards_sold} Karte(n) abgezogen."
               f"{nachdruck}", "success")
@@ -3306,16 +3366,43 @@ def mark_order_sold(order_id: int):
 @app.route("/orders/<int:order_id>/delete", methods=["POST"])
 @login_required
 def delete_order(order_id: int):
-    """Delete an order and its items from the database."""
+    """Delete an order and its items from the database.
+
+    Löschen ist für stornierte, doppelte oder versehentlich eingelesene
+    Bestellungen gedacht: **der Bestand bleibt unverändert**. Wer eine
+    verschickte Bestellung löscht statt sie abzuschließen, behält ihre Karten
+    für immer im Bestand — deshalb sagt die Meldung das ausdrücklich, und das
+    Löschen hinterlässt eine Zeile im Änderungsprotokoll.
+
+    Nur offene Bestellungen: eine verkaufte hat den Bestand schon verändert
+    und wird von der Buchhaltung gelesen. Sie verschwände dort spurlos.
+    """
     with sqlite3.connect(DB_FILE) as conn:
         # Enable foreign key constraints to ensure CASCADE works
         conn.execute("PRAGMA foreign_keys = ON")
         c = conn.cursor()
+        zeile = c.execute(
+            "SELECT status, order_number, buyer_name FROM orders WHERE id = ?",
+            (order_id,)).fetchone()
+        if not zeile:
+            flash("Bestellung nicht gefunden", "error")
+            return redirect(url_for("list_orders"))
+        if zeile[0] != "open":
+            flash("Eine verkaufte Bestellung lässt sich nicht löschen – sie hat "
+                  "den Bestand verändert und gehört zur Buchhaltung.", "error")
+            return redirect(url_for("list_orders"))
+        positionen, stueck = c.execute(
+            "SELECT COUNT(*), COALESCE(SUM(quantity), 0) FROM order_items "
+            "WHERE order_id = ?", (order_id,)).fetchone()
+        log_audit(None, session.get("user", "system"), "bestellung-geloescht",
+                  "order", f"{zeile[1] or order_id} ({zeile[2]})",
+                  f"{positionen} Position(en), {stueck} Stück – Bestand unverändert",
+                  c)
         # Delete the order (CASCADE will handle order_items)
         c.execute("DELETE FROM orders WHERE id = ?", (order_id,))
         conn.commit()
-    
-    flash("Order deleted")
+
+    flash("Bestellung gelöscht. Der Bestand wurde dabei nicht verändert.")
     return redirect(url_for("list_orders"))
 
 

@@ -250,6 +250,17 @@ def initialize_database() -> None:
             "entfernt_grund": "TEXT",
             "entfernt_von": "TEXT",
             "entfernt_am": "TEXT",
+            # Wie viele Exemplare beim Abschließen wirklich vom Bestand
+            # abgezogen wurden. NULL = nicht festgehalten (Bestellung noch
+            # offen oder vor Einführung der Spalte abgeschlossen). Weicht die
+            # Zahl von der Menge ab, wurde etwas verkauft, das der Bestand
+            # nicht hergab — das soll nachvollziehbar bleiben.
+            "abgezogen": "INTEGER",
+            # 1 = für diese Position ist geklärt, dass am Bestand nichts mehr
+            # zu tun ist: nachträglich ausgebucht, oder die Ware wurde nie im
+            # Bestand geführt. Solange 0, steht eine verkaufte, aber nicht
+            # abgezogene Position unter „Bestand prüfen".
+            "bestand_geklaert": "INTEGER DEFAULT 0",
         }
         for col, coltype in item_new_cols.items():
             if col not in item_columns:

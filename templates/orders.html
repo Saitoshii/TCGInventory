@@ -28,6 +28,25 @@
   </div>
 </div>
 
+{# Offene Bestellungen, die älter sind als die Frist, standen früher gar
+   nirgends mehr. Wurden sie verschickt, sind ihre Karten nie abgezogen. #}
+{% if aeltere and not alle %}
+<div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap gap-2" id="aeltere-hinweis">
+  <div>
+    <strong>{{ aeltere }} offene Bestellung{{ 'en' if aeltere != 1 }} {{ 'sind' if aeltere != 1 else 'ist' }} älter als {{ frist_tage }} Tage</strong>
+    und {{ 'stehen' if aeltere != 1 else 'steht' }} deshalb nicht in dieser Liste.
+    Falls sie verschickt {{ 'wurden' if aeltere != 1 else 'wurde' }}, sind die Karten noch <strong>nicht vom Bestand abgezogen</strong>.
+  </div>
+  <a class="btn btn-warning btn-sm" href="{{ url_for('list_orders', alle=1) }}">Ältere anzeigen</a>
+</div>
+{% elif alle %}
+<div class="alert alert-info d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <div>Angezeigt werden <strong>alle</strong> offenen Bestellungen, auch die älteren.
+    Verschickte bitte mit „Versendet / Verkauft" abschließen; stornierte oder doppelte löschen.</div>
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('list_orders') }}">Nur die letzten {{ frist_tage }} Tage</a>
+</div>
+{% endif %}
+
 {% if not orders %}
 <div class="empty-state"><span class="ico">📭</span>Keine offenen Bestellungen. „Jetzt synchronisieren", um neue abzurufen.</div>
 {% endif %}
@@ -50,6 +69,7 @@
       </form>
       {% endif %}
       <span class="text-muted small ms-2">{{ order.display_date[:19] if order.display_date }}</span>
+      {% if order.alt %}<span class="badge bg-warning text-dark ms-1">älter als {{ frist_tage }} Tage</span>{% endif %}
     </div>
     <form method="post" action="{{ url_for('delete_order', order_id=order.id) }}" class="delete-order-form">
       <button type="submit" class="btn btn-sm btn-outline-danger" title="Bestellung löschen">
@@ -152,12 +172,24 @@
                     </form>
                   </div>
                   <div class="text-end">
-                    {% if item.match_status == 'matched' %}
+                    {% if item.karte_fehlt %}
+                    {# Zugeordnet, aber die Zeile im Bestand gibt es nicht mehr. #}
+                    <span class="status-badge status-badge--archiviert">Nicht mehr im Bestand</span>
+                    <div class="small text-danger mt-1">Die zugeordnete Karte wurde inzwischen<br>verkauft oder gelöscht.</div>
+                    {% elif item.match_status == 'matched' %}
                     <span class="status-badge status-badge--verfuegbar">Zugeordnet</span>
                     <div class="mt-1">
                       {% if item.storage_code %}<span class="storage-badge">{{ item.storage_code }}</span>
                       {% else %}<span class="storage-badge storage-badge--empty">kein Lagerort</span>{% endif %}
                     </div>
+                    {% if not item.entfernt and item.bestand is not none %}
+                      {% if item.bestand < item.quantity %}
+                      <div class="small text-danger mt-1">Im Bestand nur {{ item.bestand }} von {{ item.quantity }}</div>
+                      {% elif item.bedarf and item.bedarf > item.bestand %}
+                      <div class="small text-danger mt-1" title="Mehrere offene Bestellungen wollen dieselbe Karte">
+                        Bestand {{ item.bestand }}, in offenen<br>Bestellungen verlangt: {{ item.bedarf }}</div>
+                      {% endif %}
+                    {% endif %}
                     {# Von Hand zugeordnetes Produkt: beim nächsten Mal stünde
                        die Position wieder ohne Treffer da. Der Weg führt zum
                        Artikel — dort wird der Name aus der Mail eingetragen. #}
@@ -216,7 +248,7 @@
                 </details>
                 {% endif %}
 
-                {% if not item.card_id and not item.entfernt %}
+                {% if (not item.card_id or item.karte_fehlt) and not item.entfernt %}
                   {% if item.candidates %}
                   <form method="post" action="{{ url_for('assign_order_item', item_id=item.id) }}" class="mt-2">
                     <div class="tcg-card__meta mb-1">Kandidaten – bitte die richtige Karte wählen:</div>
@@ -258,6 +290,23 @@
 
         <form method="post" action="{{ url_for('mark_order_sold', order_id=order.id) }}" class="mt-2"
               onsubmit="return confirm('Beileger schon gedruckt?\n\nBestellung als versendet/verkauft markieren? Die zugeordneten Karten werden abgezogen.\n\nNachdrucken geht weiterhin unter „Verkaufte Bestellungen“.')">
+          {# Was keiner Karte zugeordnet ist, wird nicht abgezogen. Das stand
+             bisher erst in der Meldung danach — wenn die Bestellung schon aus
+             der Liste verschwunden war. Jetzt steht es davor und braucht ein
+             ausdrückliches Häkchen. #}
+          {% if order.nicht_zugeordnet %}
+          <div class="alert alert-warning py-2 small mb-2 nicht-zugeordnet-hinweis">
+            <strong>{{ order.nicht_zugeordnet|length }} Position{{ 'en sind' if order.nicht_zugeordnet|length != 1 else ' ist' }} keiner Karte im Bestand zugeordnet</strong>
+            und {{ 'werden' if order.nicht_zugeordnet|length != 1 else 'wird' }} beim Abschließen <strong>nicht abgezogen</strong>:
+            {{ order.nicht_zugeordnet|join(', ') }}.
+            Bitte oben zuordnen, damit der Bestand stimmt.
+            <label class="d-flex align-items-start gap-2 mt-2 mb-0">
+              <input type="checkbox" name="ohne_zuordnung" value="1" class="form-check-input mt-1" required>
+              <span>Trotzdem abschließen – diese Ware wird nicht vom Bestand abgezogen
+                (z.&nbsp;B. weil sie nie im Bestand erfasst war).</span>
+            </label>
+          </div>
+          {% endif %}
           <button type="submit" class="btn btn-success">Versendet / Verkauft</button>
         </form>
       </div>
@@ -302,20 +351,32 @@ document.addEventListener('DOMContentLoaded', function() {
    */
   const titel = document.getElementById('bestellungen-titel');
 
+  // Die Meldungen des Servers samt ihrer Art (Fehler, Warnung, Erfolg, Hinweis).
   function meldungenAus(doc) {
-    return Array.from(doc.querySelectorAll('.container-fluid > .alert'))
-      .map(a => a.innerText.trim()).filter(Boolean);
+    const kaesten = Array.from(doc.querySelectorAll('.flash-meldung'));
+    const texte = kaesten.map(a => a.innerText.trim()).filter(Boolean);
+    let art = 'alert-info';
+    for (const klasse of ['alert-danger', 'alert-warning', 'alert-success']) {
+      if (kaesten.some(a => a.classList.contains(klasse))) { art = klasse; break; }
+    }
+    return { texte, art };
   }
 
-  function zeigeMeldungen(karte, texte, fehler) {
+  function zeigeMeldungen(karte, meldungen) {
     karte.querySelectorAll('.ajax-meldung').forEach(m => m.remove());
-    if (!texte.length) return;
+    if (!meldungen.texte.length) return;
     const box = document.createElement('div');
-    box.className = 'alert py-1 px-2 small mb-0 mt-2 ajax-meldung ' + (fehler ? 'alert-danger' : 'alert-info');
+    box.className = 'alert py-1 px-2 small mb-0 mt-2 ajax-meldung ' + meldungen.art;
     box.setAttribute('role', 'status');
-    box.innerText = texte.join(' ');
+    box.innerText = meldungen.texte.join(' ');
     const ziel = karte.querySelector('.card-header');
     ziel.after(box);
+  }
+
+  async function lade(adresse) {
+    const antwort = await fetch(adresse, { credentials: 'same-origin' });
+    if (!antwort.ok) throw new Error('unerwartet');
+    return new DOMParser().parseFromString(await antwort.text(), 'text/html');
   }
 
   document.addEventListener('submit', async function (e) {
@@ -325,7 +386,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // Formulare (onsubmit mit confirm) haben hier schon entschieden.
     if (!karte || e.defaultPrevented || (form.target && form.target !== '_self')) return;
     if (form.classList.contains('delete-order-form') &&
-        !confirm('Diese Bestellung wirklich löschen? Dies kann nicht rückgängig gemacht werden.')) {
+        !confirm('Diese Bestellung wirklich löschen?\n\n' +
+                 'Löschen ist für stornierte, doppelte oder versehentlich eingelesene ' +
+                 'Bestellungen gedacht: der Bestand wird dabei NICHT verändert.\n\n' +
+                 'Wurde die Bestellung verschickt, bitte abbrechen und stattdessen ' +
+                 '„Versendet / Verkauft“ drücken.')) {
       e.preventDefault();
       return;
     }
@@ -340,10 +405,28 @@ document.addEventListener('DOMContentLoaded', function() {
         headers: { 'X-Requested-With': 'fetch' },
       });
       const ziel = new URL(antwort.url, location.href);
+      // Sitzung abgelaufen: der Server hat zur Anmeldung geschickt und nichts
+      // gespeichert. Das Formular noch einmal abzuschicken hülfe nicht — nach
+      // der Anmeldung wäre die Eingabe trotzdem weg. Also sagen, was los ist.
+      if (antwort.ok && ziel.pathname === '{{ url_for("login") }}') {
+        karte.classList.remove('bestellung--speichert');
+        zeigeMeldungen(karte, {
+          texte: ['Nicht gespeichert: die Anmeldung ist abgelaufen. Bitte die Seite ' +
+                  'neu laden, anmelden und die Aktion danach wiederholen.'],
+          art: 'alert-danger' });
+        return;
+      }
       if (!antwort.ok || ziel.pathname !== location.pathname) throw new Error('unerwartet');
-      const doc = new DOMParser().parseFromString(await antwort.text(), 'text/html');
-      const texte = meldungenAus(doc);
-      const neu = doc.getElementById(karte.id);
+      let doc = new DOMParser().parseFromString(await antwort.text(), 'text/html');
+      const meldungen = meldungenAus(doc);
+      let neu = doc.getElementById(karte.id);
+      // In der Ansicht „alle" (auch ältere) führt die Antwort zur
+      // Standardliste; dort fehlt eine ältere Bestellung, obwohl sie noch
+      // offen ist. Dann die eigene Ansicht noch einmal holen.
+      if (!neu && location.search) {
+        doc = await lade(location.href);
+        neu = doc.getElementById(karte.id);
+      }
       const neuerTitel = doc.getElementById('bestellungen-titel');
       if (titel && neuerTitel) titel.innerHTML = neuerTitel.innerHTML;
       if (neu) {
@@ -353,14 +436,24 @@ document.addEventListener('DOMContentLoaded', function() {
         karte.replaceWith(neu);
         const details = neu.querySelectorAll('details');
         offen.forEach(i => { if (details[i]) details[i].open = true; });
-        zeigeMeldungen(neu, texte, doc.querySelector('.container-fluid > .alert-danger'));
+        zeigeMeldungen(neu, meldungen);
       } else {
-        // Verkauft oder gelöscht: die Bestellung ist nicht mehr offen.
+        // Verkauft oder gelöscht: die Bestellung ist nicht mehr offen. Die
+        // Meldung behält ihre Farbe — eine Warnung („nicht abgezogen") darf
+        // nicht grün wie ein Erfolg aussehen.
         const hinweis = document.createElement('div');
-        hinweis.className = 'alert alert-success';
-        hinweis.innerText = texte.join(' ') || 'Erledigt.';
+        hinweis.className = 'alert ' + (meldungen.texte.length ? meldungen.art : 'alert-success');
+        hinweis.innerText = meldungen.texte.join(' ') || 'Erledigt.';
         karte.replaceWith(hinweis);
-        if (!document.querySelector('.bestellung')) location.reload();
+        // Kein Neuladen: die Meldung (womöglich eine Warnung) soll stehen
+        // bleiben, bis sie gelesen ist.
+        if (!document.querySelector('.bestellung')) {
+          const leer = document.createElement('div');
+          leer.className = 'empty-state';
+          leer.innerHTML = '<span class="ico">📭</span>Keine offenen Bestellungen. ' +
+                           '„Jetzt synchronisieren", um neue abzurufen.';
+          hinweis.after(leer);
+        }
       }
     } catch (fehler) {
       karte.classList.remove('bestellung--speichert');

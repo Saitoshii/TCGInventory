@@ -88,14 +88,13 @@
     </div>
     {% endif %}
 
-    {% with messages = get_flashed_messages() %}
-      {% if messages %}
-        <div class="alert alert-info">
-          {% for m in messages %}
-            <div>{{ m }}</div>
-          {% endfor %}
-        </div>
-      {% endif %}
+    {# Jede Meldung in der Farbe ihrer Art. Zuvor standen Fehler und Warnungen
+       im selben blauen Kasten wie „gespeichert" — und wurden überlesen. #}
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for art, m in messages %}
+        <div class="alert alert-{{ {'error': 'danger', 'warning': 'warning', 'success': 'success'}.get(art, 'info') }} flash-meldung"
+             role="{{ 'alert' if art in ('error', 'warning') else 'status' }}">{{ m }}</div>
+      {% endfor %}
     {% endwith %}
     {% block content %}{% endblock %}
   </div>
