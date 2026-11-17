@@ -100,5 +100,31 @@
     {% block content %}{% endblock %}
   </div>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+  /*
+   * Kein doppeltes Absenden. Nach dem Klick auf einen Knopf wird er kurz
+   * gesperrt — ein Doppelklick schickte sonst dasselbe Formular zweimal
+   * (Artikel doppelt angelegt, Verkauf doppelt ausgebucht). Gesperrt wird erst
+   * nach dem Absenden, damit der Knopf selbst noch mitgeschickt wird, und nur
+   * wenn das Absenden nicht abgebrochen wurde (etwa per Rückfrage).
+   */
+  document.addEventListener('submit', function (e) {
+    const form = e.target;
+    setTimeout(function () {
+      // Abgebrochen — außer ein Skript schickt das Formular selbst (Bestellungen).
+      if (e.defaultPrevented && !e.wirdGesendet) return;
+      const knoepfe = form.querySelectorAll('button[type=submit], button:not([type]), input[type=submit]');
+      knoepfe.forEach(function (k) { k.disabled = true; });
+      // Falls die Seite stehen bleibt (Datei-Download, Fehler): wieder freigeben.
+      setTimeout(function () { knoepfe.forEach(function (k) { k.disabled = false; }); }, 8000);
+    }, 0);
+  });
+  // Mit „Zurück" aus dem Zwischenspeicher geholt: Knöpfe wieder freigeben.
+  window.addEventListener('pageshow', function (e) {
+    if (e.persisted) document.querySelectorAll('button[disabled]').forEach(function (k) {
+      if (!k.hasAttribute('data-bleibt-gesperrt')) k.disabled = false;
+    });
+  });
+  </script>
 </body>
 </html>

@@ -21,6 +21,9 @@
 {% endif %}
 <form method="post">
   {% if vorgabe.position %}<input type="hidden" name="aus_position" value="{{ vorgabe.position }}">{% endif %}
+  {# Einmalige Kennung beim Anlegen: ein Doppelklick auf „Speichern" legte
+     den Artikel sonst zweimal an. #}
+  {% if request.endpoint == 'add_card_view' %}<input type="hidden" name="formular_id" value="{{ formular_id() }}">{% endif %}
   {# Beim Bearbeiten in der Warteschlange: welcher Eintrag gemeint ist. #}
   {% if queue_uid %}<input type="hidden" name="uid" value="{{ queue_uid }}">{% endif %}
   <div class="mb-3">

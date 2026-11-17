@@ -27,8 +27,8 @@ sys.modules.setdefault("pyzbar.pyzbar", _pyz.pyzbar)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 import TCGInventory                                               # noqa: E402
-from TCGInventory import (auth, lager_manager, order_service,     # noqa: E402
-                          setup_db, web)
+from TCGInventory import (auth, direktverkauf, lager_manager,     # noqa: E402
+                          order_service, setup_db, web)
 
 MAIL = """Bestellnummer: 1250416803
 Käufer: KohlkopfKlaus
@@ -48,7 +48,8 @@ Sendungsverfolgung:
 @pytest.fixture()
 def db(tmp_path, monkeypatch):
     pfad = str(tmp_path / "b.db")
-    for modul in (TCGInventory, web, auth, setup_db, order_service, lager_manager):
+    for modul in (TCGInventory, web, auth, setup_db, order_service, lager_manager,
+                  direktverkauf):
         monkeypatch.setattr(modul, "DB_FILE", pfad)
     setup_db.initialize_database()
     return pfad
@@ -214,3 +215,80 @@ def test_hochgeladene_kartendaten_werden_sofort_benutzt(db, tmp_path, monkeypatc
         "confirm": "1"}, content_type="multipart/form-data")
     assert (tmp_path / "data" / "default-cards.db").exists()
     assert zurueckgesetzt == [1]
+
+
+def test_zweite_mail_zur_selben_bestellung_wird_keine_zweite_bestellung(db, postfach):
+    """Eine Erinnerung von Cardmarket zur selben Bestellung: einmal in der
+    Liste, nicht zweimal — sonst zog zweimal „Verkauft" doppelt ab."""
+    mails, markiert = postfach
+    mails["m4"] = ("Bestellung 1250416803 für KohlkopfKlaus: Bitte versenden", MAIL)
+    mails["m5"] = ("Bestellung 1250416803 für KohlkopfKlaus: Bitte versenden", MAIL)
+    ok, meldung, anzahl = order_service.OrderIngestionService().sync_orders()
+    assert anzahl == 1
+    assert "übersprungen" in meldung
+    assert _q(db, "SELECT COUNT(*) FROM orders") == [(1,)]
+    assert sorted(markiert) == ["m4", "m5"]
+
+
+# ---------------------------------------------------------------------------
+# Doppelklick auf „Speichern"
+# ---------------------------------------------------------------------------
+def _kennung(klient, adresse):
+    import re
+    html = klient.get(adresse).get_data(as_text=True)
+    return re.search(r'name="formular_id" value="([0-9a-f]+)"', html).group(1)
+
+
+def test_doppelklick_beim_anlegen_legt_nur_einmal_an(db):
+    fid = lager_manager.add_folder("Star Trek", 2)
+    lager_manager.create_binder(fid, 2)
+    web.app.config["TESTING"] = True
+    klient = web.app.test_client()
+    with klient.session_transaction() as s:
+        s["user"] = "melvin"
+    karte = {"name": "Spock", "set_code": "trk", "collector_number": "137",
+             "language": "en", "condition": "NM", "price": "1", "quantity": "2",
+             "folder_id": str(fid), "item_type": "card",
+             "formular_id": _kennung(klient, "/cards/add")}
+    klient.post("/cards/add", data=karte)
+    html = klient.post("/cards/add", data=karte, follow_redirects=True).get_data(as_text=True)
+    assert "Nicht noch einmal angelegt" in html
+    assert _q(db, "SELECT name, quantity FROM cards") == [("Spock", 2)]
+
+    display = {"name": "Hobbit Display", "language": "en", "price": "100",
+               "quantity": "1", "item_type": "display",
+               "formular_id": _kennung(klient, "/cards/add")}
+    klient.post("/cards/add", data=display)
+    klient.post("/cards/add", data=display)
+    assert _q(db, "SELECT COUNT(*) FROM cards WHERE item_type = 'display'") == [(1,)]
+
+    # Ein neues Formular (neue Kennung) legt selbstverständlich wieder an.
+    karte["formular_id"] = _kennung(klient, "/cards/add")
+    klient.post("/cards/add", data=karte)
+    assert _q(db, "SELECT quantity FROM cards WHERE name = 'Spock'") == [(4,)]
+
+
+def test_doppelklick_beim_direktverkauf_bucht_nur_einmal_aus(db):
+    lager_manager.add_card("Spock", "trk", "en", "NM", 1.0, 3, collector_number="137")
+    kid = _q(db, "SELECT id FROM cards")[0][0]
+    web.app.config["TESTING"] = True
+    klient = web.app.test_client()
+    with klient.session_transaction() as s:
+        s["user"] = "melvin"
+    verkauf = {"card_id": str(kid), "card_name": "", "quantity": "1",
+               "unit_price": "2", "kanal": "flohmarkt",
+               "formular_id": _kennung(klient, "/orders/neu")}
+    klient.post("/orders/neu", data=verkauf)
+    html = klient.post("/orders/neu", data=verkauf, follow_redirects=True).get_data(as_text=True)
+    assert "Nicht noch einmal ausgebucht" in html
+    assert _q(db, "SELECT quantity FROM cards") == [(2,)]
+    assert _q(db, "SELECT COUNT(*) FROM orders") == [(1,)]
+
+
+def test_knoepfe_sperren_sich_nach_dem_absenden(db):
+    web.app.config["TESTING"] = True
+    klient = web.app.test_client()
+    with klient.session_transaction() as s:
+        s["user"] = "melvin"
+    html = klient.get("/cards").get_data(as_text=True)
+    assert "if (e.defaultPrevented && !e.wirdGesendet) return;" in html

@@ -411,6 +411,7 @@ document.addEventListener('DOMContentLoaded', function() {
       return;
     }
     e.preventDefault();
+    e.wirdGesendet = true;               // für die Doppelklick-Sperre in base.html
 
     const daten = new FormData(form);
     if (e.submitter && e.submitter.name) daten.append(e.submitter.name, e.submitter.value);

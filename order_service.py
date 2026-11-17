@@ -159,6 +159,7 @@ class OrderIngestionService:
             
             new_orders_count = 0
             ohne_positionen = 0
+            doppelt = 0
 
             # Process each message
             for message in messages:
@@ -184,6 +185,18 @@ class OrderIngestionService:
                 parsed = parse_order_email(email_body or "", message_id,
                                            subject=email_subject, email_date=email_date)
 
+                # Dieselbe Bestellung in einer zweiten Mail (etwa einer
+                # Erinnerung): keine zweite Bestellung daraus. Sonst stand sie
+                # zweimal in der Liste, und zweimal „Versendet / Verkauft"
+                # zog dieselben Karten zweimal ab.
+                nummer = (parsed.get('order_number') or '').strip()
+                if nummer and self._bestellnummer_vorhanden(nummer):
+                    print(f"Order {nummer} already exists (message {message_id})")
+                    if mark_message_processed(service, message_id):
+                        self.processed_message_ids.add(message_id)
+                    doppelt += 1
+                    continue
+
                 # Auch ohne erkannte Positionen wird die Bestellung angelegt.
                 # Früher wurde eine solche Mail als erledigt markiert und
                 # verworfen: die Bestellung tauchte nirgends auf, die Ware
@@ -203,14 +216,18 @@ class OrderIngestionService:
                     new_orders_count += 1
                     print(f"Processed order from {parsed['buyer_name']} with {len(parsed['items'])} items")
 
+            zusatz = ""
+            if doppelt:
+                zusatz = (f" ({doppelt} Mail(s) zu bereits vorhandenen Bestellungen "
+                          "übersprungen)")
             if new_orders_count > 0:
                 meldung = f"Successfully imported {new_orders_count} new order(s)"
                 if ohne_positionen:
                     meldung += (f" – bei {ohne_positionen} wurden keine Positionen "
                                 "erkannt, bitte bei Cardmarket prüfen")
-                return True, meldung, new_orders_count
+                return True, meldung + zusatz, new_orders_count
             else:
-                return True, "No new orders to import", 0
+                return True, "No new orders to import" + zusatz, 0
                 
         except Exception as e:
             print(f"Error syncing orders: {e}")
@@ -223,6 +240,16 @@ class OrderIngestionService:
                 return conn.execute(
                     "SELECT 1 FROM orders WHERE email_message_id = ?",
                     (message_id,)).fetchone() is not None
+        except sqlite3.Error:
+            return False
+
+    def _bestellnummer_vorhanden(self, nummer):
+        """Gibt es schon eine Bestellung mit dieser Cardmarket-Nummer?"""
+        try:
+            with sqlite3.connect(DB_FILE) as conn:
+                return conn.execute(
+                    "SELECT 1 FROM orders WHERE order_number = ?",
+                    (nummer,)).fetchone() is not None
         except sqlite3.Error:
             return False
 
@@ -247,6 +274,12 @@ class OrderIngestionService:
                 )
                 if cursor.fetchone():
                     print(f"Order {parsed_order['message_id']} already exists")
+                    return False
+                nummer = (parsed_order.get('order_number') or '').strip()
+                if nummer and cursor.execute(
+                        "SELECT 1 FROM orders WHERE order_number = ?",
+                        (nummer,)).fetchone():
+                    print(f"Order number {nummer} already exists")
                     return False
 
                 amounts = parsed_order.get('amounts', {})

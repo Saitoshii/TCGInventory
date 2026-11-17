@@ -3,6 +3,7 @@ import os
 import sqlite3
 import re
 import threading
+import time
 import uuid
 from collections import Counter
 from datetime import datetime, timedelta
@@ -127,7 +128,38 @@ def inject_queue_counts() -> dict:
         "queue_count": len(UPLOAD_QUEUE),
         "needs_review_count": len(NEEDS_REVIEW),
         "buchhaltung_url": _buchhaltung_url(),
+        "formular_id": lambda: uuid.uuid4().hex,
     }
+
+
+#: Kennungen bereits abgeschickter Formulare (Kennung → Zeitpunkt).
+_BENUTZTE_FORMULARE: dict[str, float] = {}
+_FORMULAR_SPERRE = threading.Lock()
+#: So lange wird eine Formular-Kennung gemerkt.
+FORMULAR_GEDAECHTNIS = 6 * 3600
+
+
+def _formular_schon_benutzt(kennung: str | None) -> bool:
+    """Wurde dieses Formular schon einmal abgeschickt?
+
+    Ein Doppelklick auf „Speichern" schickte dasselbe Formular zweimal: eine
+    Karte mit Menge 2 stand danach mit 4 im Bestand, ein Display zweimal, und
+    ein Direktverkauf wurde zweimal ausgebucht. Jedes dieser Formulare trägt
+    deshalb eine einmalige Kennung; ein zweites Absenden mit derselben
+    Kennung wird erkannt. Ohne Kennung (ältere Seite) gilt das Formular als neu.
+    """
+    kennung = (kennung or "").strip()
+    if not kennung:
+        return False
+    jetzt = time.time()
+    with _FORMULAR_SPERRE:
+        for alt, zeit in list(_BENUTZTE_FORMULARE.items()):
+            if jetzt - zeit > FORMULAR_GEDAECHTNIS:
+                del _BENUTZTE_FORMULARE[alt]
+        if kennung in _BENUTZTE_FORMULARE:
+            return True
+        _BENUTZTE_FORMULARE[kennung] = jetzt
+        return False
 
 
 def _buchhaltung_url() -> str:
@@ -1347,6 +1379,10 @@ def _vorgabe_fuer_neuen_artikel() -> dict:
 @login_required
 def add_card_view():
     folders = list_folders()
+    if request.method == "POST" and _formular_schon_benutzt(request.form.get("formular_id")):
+        flash("Dieser Artikel wurde eben schon gespeichert – das Formular kam ein "
+              "zweites Mal an (Doppelklick?). Nicht noch einmal angelegt.", "warning")
+        return redirect(url_for("list_cards"))
     if request.method == "POST":
         folder_id = _ordner_aus_formular()
         # Der Set-Code kommt von der Karte (aus dem Formular, dort füllt ihn
@@ -3651,6 +3687,10 @@ def quittung_pdf(order_id: int):
 @login_required
 def direktverkauf_neu():
     """Einen Verkauf ohne Cardmarket-Bestellung von Hand erfassen."""
+    if request.method == "POST" and _formular_schon_benutzt(request.form.get("formular_id")):
+        flash("Dieser Verkauf wurde eben schon erfasst – das Formular kam ein "
+              "zweites Mal an (Doppelklick?). Nicht noch einmal ausgebucht.", "warning")
+        return redirect(url_for("verkaufte_bestellungen"))
     if request.method == "POST":
         positionen = []
         # Die Zeilen kommen als gleich lange Listen aus dem Formular.

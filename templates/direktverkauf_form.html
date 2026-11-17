@@ -12,6 +12,8 @@
 </p>
 
 <form method="post" class="card card-body">
+  {# Einmalige Kennung: ein Doppelklick buchte den Verkauf sonst zweimal aus. #}
+  <input type="hidden" name="formular_id" value="{{ formular_id() }}">
   <div class="row g-3 mb-3">
     <div class="col-md-3">
       <label class="form-label">Kanal</label>
