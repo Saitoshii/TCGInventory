@@ -61,6 +61,24 @@ def _preis(wert) -> float:
     return round(preis, 2)
 
 
+def bestand_treffer(cursor, name: str) -> List[Dict]:
+    """Verfügbare Artikel im Bestand, die genau so heißen.
+
+    Verglichen wird mit dem Namen und — bei Displays und Zubehör — mit dem
+    Namen in der Cardmarket-Mail, ohne Groß- und Kleinschreibung.
+    """
+    text = (name or "").strip()
+    if not text:
+        return []
+    cursor.execute(
+        "SELECT id, name, set_code, quantity, storage_code, location_hint "
+        "FROM cards WHERE status = 'verfügbar' AND quantity > 0 AND "
+        "(LOWER(name) = LOWER(?) OR LOWER(COALESCE(cardmarket_name, '')) = LOWER(?)) "
+        "ORDER BY name, set_code", (text, text))
+    return [{"id": z[0], "name": z[1], "set_code": z[2], "quantity": z[3],
+             "platz": z[4] or z[5] or ""} for z in cursor.fetchall()]
+
+
 def naechste_nummer(cursor) -> str:
     """Fortlaufende Nummer für Direktverkäufe: DV-2026-0001.
 
@@ -99,6 +117,11 @@ def erstelle_bestellung(
     letzten Exemplar wird der Lagerplatz frei. Das ist derselbe Weg wie beim
     Knopf „verkauft" in der Kartenübersicht.
 
+    Ein freier Name, den es **im Bestand gibt**, wird abgelehnt — sonst bliebe
+    die verkaufte Karte im Bestand stehen. Gemeint ist dann die Karte aus dem
+    Bestand (``card_id``). Nur mit ``"ohne_bestand": True`` gilt der Name
+    ausdrücklich als Ware, die nicht im Bestand geführt wird.
+
     Gibt ``{"order_id": …, "order_number": …}`` zurück.
     """
     if not positionen:
@@ -115,6 +138,9 @@ def erstelle_bestellung(
     # Erst prüfen, dann schreiben: eine halb angelegte Bestellung mit schon
     # ausgebuchten Karten wäre die schlechteste aller Zwischenstufen.
     vorbereitet: List[Dict] = []
+    # Je Karte die Menge über alle Positionen: zweimal dieselbe Karte darf
+    # zusammen nicht mehr sein, als im Bestand steht.
+    je_karte: Dict[int, int] = {}
     with sqlite3.connect(pfad) as conn:
         cursor = conn.cursor()
         for nr, position in enumerate(positionen, start=1):
@@ -139,11 +165,12 @@ def erstelle_bestellung(
                 if not karte:
                     raise DirektverkaufFehler(
                         f"Position {nr}: Karte {karte_id} gibt es nicht mehr.")
-                if (karte[5] or 0) < menge:
+                je_karte[int(karte_id)] = je_karte.get(int(karte_id), 0) + menge
+                if (karte[5] or 0) < je_karte[int(karte_id)]:
                     raise DirektverkaufFehler(
                         f"Position {nr}: von „{karte[0]}“ sind nur "
                         f"{karte[5] or 0} Stück im Bestand, verkauft werden "
-                        f"sollen {menge}.")
+                        f"sollen {je_karte[int(karte_id)]}.")
                 vorbereitet.append({
                     "card_id": int(karte_id), "quantity": menge,
                     "unit_price": preis, "card_name": karte[0],
@@ -160,6 +187,17 @@ def erstelle_bestellung(
                 raise DirektverkaufFehler(
                     f"Position {nr}: entweder eine Karte aus dem Bestand "
                     f"wählen oder eine Bezeichnung eintragen.")
+            if not position.get("ohne_bestand"):
+                treffer = bestand_treffer(cursor, name)
+                if treffer:
+                    stueck = sum(t["quantity"] or 0 for t in treffer)
+                    raise DirektverkaufFehler(
+                        f"Position {nr}: „{name}“ liegt im Bestand "
+                        f"({len(treffer)} Eintrag/Einträge, {stueck} Stück). "
+                        f"Bitte die Karte aus der Vorschlagsliste wählen – sonst "
+                        f"wird sie nicht ausgebucht und bleibt im Bestand stehen. "
+                        f"Ist es Ware, die nicht im Bestand geführt wird: "
+                        f"„nicht im Bestand“ anhaken.")
             vorbereitet.append({
                 "card_id": None, "quantity": menge, "unit_price": preis,
                 "card_name": name,

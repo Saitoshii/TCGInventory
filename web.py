@@ -163,6 +163,12 @@ def _formular_schon_benutzt(kennung: str | None) -> bool:
         return False
 
 
+def _formular_freigeben(kennung: str | None) -> None:
+    """Eine Kennung wieder freigeben, wenn das Formular nichts angelegt hat."""
+    with _FORMULAR_SPERRE:
+        _BENUTZTE_FORMULARE.pop((kennung or "").strip(), None)
+
+
 def _buchhaltung_url() -> str:
     """Adresse der eigenstaendigen Buchhaltung -- fuer den Verweis im Menue.
 
@@ -3818,11 +3824,22 @@ def quittung_pdf(order_id: int):
 @app.route("/orders/neu", methods=["GET", "POST"])
 @login_required
 def direktverkauf_neu():
-    """Einen Verkauf ohne Cardmarket-Bestellung von Hand erfassen."""
-    if request.method == "POST" and _formular_schon_benutzt(request.form.get("formular_id")):
+    """Einen Verkauf ohne Cardmarket-Bestellung von Hand erfassen.
+
+    Karten werden über die Bestandssuche im Formular gewählt (``/api/bestand``)
+    und dann ausgebucht. Ein eingetippter Name, den es im Bestand gibt, wird
+    abgelehnt, solange er nicht ausdrücklich als „nicht im Bestand" markiert
+    ist — sonst bliebe die verkaufte Karte im Bestand stehen. Bei einem Fehler
+    bleiben alle Eingaben im Formular stehen.
+    """
+    kennung = request.form.get("formular_id") if request.method == "POST" else None
+    if request.method == "POST" and _formular_schon_benutzt(kennung):
         flash("Dieser Verkauf wurde eben schon erfasst – das Formular kam ein "
               "zweites Mal an (Doppelklick?). Nicht noch einmal ausgebucht.", "warning")
         return redirect(url_for("verkaufte_bestellungen"))
+
+    zeilen: list[dict] = []
+    kopf: dict = {}
     if request.method == "POST":
         positionen = []
         # Die Zeilen kommen als gleich lange Listen aus dem Formular.
@@ -3830,17 +3847,23 @@ def direktverkauf_neu():
         karten_ids = request.form.getlist("card_id")
         mengen = request.form.getlist("quantity")
         preise = request.form.getlist("unit_price")
+        ohne = request.form.getlist("ohne_bestand")
         for i in range(len(preise)):
             karte_id = (karten_ids[i] if i < len(karten_ids) else "").strip()
             name = (namen[i] if i < len(namen) else "").strip()
             if not karte_id and not name and not (preise[i] or "").strip():
                 continue                      # leere Zeile im Formular
-            positionen.append({
+            zeile = {
                 "card_id": int(karte_id) if karte_id.isdigit() else None,
                 "card_name": name,
                 "quantity": mengen[i] if i < len(mengen) else "1",
                 "unit_price": preise[i],
-            })
+                "ohne_bestand": (ohne[i] if i < len(ohne) else "0") == "1",
+            }
+            positionen.append(zeile)
+            zeilen.append(dict(zeile))
+        kopf = {f: request.form.get(f, "") for f in
+                ("kanal", "datum", "kaeufer", "versand", "adresse")}
         try:
             ergebnis = direktverkauf.erstelle_bestellung(
                 positionen=positionen,
@@ -3865,23 +3888,82 @@ def direktverkauf_neu():
                                     order_id=ergebnis["order_id"]))
         except direktverkauf.DirektverkaufFehler as exc:
             flash(str(exc), "error")
+            # Nichts angelegt: dieselbe Kennung darf noch einmal kommen.
+            _formular_freigeben(kennung)
 
     # Vorauswahl, wenn aus der Kartenübersicht heraus aufgerufen.
-    vorgabe = None
     karte_id = request.args.get("card_id", "")
-    if karte_id.isdigit():
-        with sqlite3.connect(DB_FILE) as conn:
-            conn.row_factory = sqlite3.Row
-            zeile = conn.execute(
-                "SELECT id, name, set_code, condition, quantity, price "
-                "FROM cards WHERE id = ?", (int(karte_id),)).fetchone()
-            vorgabe = dict(zeile) if zeile else None
+    if not zeilen and karte_id.isdigit():
+        zeilen = [{"card_id": int(karte_id), "card_name": "", "quantity": "1",
+                   "unit_price": "", "ohne_bestand": False}]
+    # Zu jeder gewählten Karte, was der Bestand über sie sagt.
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        for zeile in zeilen:
+            zeile["info"] = None
+            if zeile.get("card_id"):
+                info = conn.execute(
+                    "SELECT id, name, set_code, collector_number, language, "
+                    "condition, foil, quantity, storage_code, location_hint, "
+                    "item_type FROM cards WHERE id = ?",
+                    (zeile["card_id"],)).fetchone()
+                if info:
+                    zeile["info"] = dict(info)
+                    zeile["card_name"] = zeile["card_name"] or info["name"]
+                else:
+                    zeile["card_id"] = None
+    if not zeilen:
+        zeilen = [{"card_id": None, "card_name": "", "quantity": "1",
+                   "unit_price": "", "ohne_bestand": False, "info": None}]
     return render_template(
         "direktverkauf_form.html",
         kanaele=direktverkauf.KANAELE,
-        vorgabe=vorgabe,
+        zeilen=zeilen,
+        kopf=kopf,
         heute=datetime.now().strftime("%Y-%m-%d"),
     )
+
+
+@app.route("/api/bestand")
+@login_required
+def bestand_api():
+    """Verfügbare Artikel aus dem eigenen Bestand — für den Direktverkauf.
+
+    Alle Wörter der Suche müssen im Namen (oder im Cardmarket-Namen eines
+    Produkts) vorkommen; eine Zahl darf auch die Sammlernummer sein. Genaue
+    Treffer und Namensanfänge zuerst. Rein lesend.
+    """
+    suche = (request.args.get("q") or "").strip()
+    if len(suche) < 2:
+        return jsonify([])
+    bedingungen, werte = [], []
+    for wort in suche.split()[:5]:
+        muster = _like_muster(wort)
+        bedingungen.append(
+            "(name LIKE ? ESCAPE '\\' OR COALESCE(cardmarket_name, '') LIKE ? ESCAPE '\\' "
+            "OR COALESCE(collector_number, '') = ?)")
+        werte += [muster, muster, wort]
+    anfang = _like_muster(suche)[1:]          # „text%": Name beginnt so
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        zeilen = conn.execute(
+            "SELECT id, name, set_code, collector_number, language, foil, "
+            "condition, quantity, storage_code, location_hint, image_url, "
+            "item_type, market_price FROM cards "
+            "WHERE status = 'verfügbar' AND quantity > 0 AND "
+            + " AND ".join(bedingungen) +
+            " ORDER BY (LOWER(name) = LOWER(?)) DESC, (name LIKE ? ESCAPE '\\') DESC, "
+            "name COLLATE NOCASE, set_code, collector_number LIMIT 20",
+            werte + [suche, anfang]).fetchall()
+    return jsonify([{
+        "id": z["id"], "name": z["name"], "set_code": (z["set_code"] or "").upper(),
+        "collector_number": z["collector_number"] or "",
+        "language": (z["language"] or "").upper(), "foil": bool(z["foil"]),
+        "condition": z["condition"] or "", "quantity": z["quantity"],
+        "platz": z["storage_code"] or z["location_hint"] or "",
+        "image_url": z["image_url"] or "", "item_type": z["item_type"] or "card",
+        "market_price": z["market_price"],
+    } for z in zeilen])
 
 
 @app.route("/orders/<int:order_id>/beleg")

@@ -134,6 +134,15 @@ Ausdrücklich **keine** Rechnung im steuerlichen Sinn.
   ein Verkauf im System, während die Karte weiter im Regal liegt.
 * Eigene Nummernfolge `DV-JJJJ-NNNN`, damit man auf dem Papier die Herkunft
   sieht.
+* **Karten kommen aus dem Bestand.** Beim Tippen schlägt das Formular die
+  verfügbaren Artikel vor (`/api/bestand`: Name, Set, Nummer, Sprache, Foil,
+  Zustand, Lagerplatz, Menge); ausgewählt wird die Karte beim Speichern
+  ausgebucht. Ein **eingetippter Name, den es im Bestand gibt**, wird
+  abgelehnt — früher wurde er verkauft, aber nicht ausgebucht, und die Karte
+  blieb im Bestand stehen. Ware, die nicht im Bestand geführt wird, bekommt
+  ausdrücklich das Häkchen „nicht im Bestand" (`ohne_bestand`).
+* Dieselbe Karte in mehreren Zeilen darf zusammen nicht mehr sein, als im
+  Bestand steht. Nach einem Fehler bleiben alle Eingaben im Formular stehen.
 
 ### Weg in die Buchhaltung
 
@@ -355,6 +364,9 @@ ist nichts geschrieben.
   unsinnige Seitenzahlen, Adresse bestätigen mit Rückweg, Bestand unverändert.
 - **`test_direktverkauf.py`** — Anlegen, Bestandsführung, Preisprüfung,
   Formular, Quittung, Kanal durch die API, gescheitertes Ausbuchen.
+- **`test_direktverkauf_bestand.py`** — Bestandssuche, eingetippter Name aus
+  dem Bestand, „nicht im Bestand", Mengen über mehrere Zeilen, Eingaben nach
+  einem Fehler.
 - **`test_order_matching.py`** — `test_find_card_in_inventory`,
   `test_find_card_partial_match`, `test_find_card_not_in_inventory`,
   `test_get_image_from_default_db`.

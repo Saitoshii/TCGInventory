@@ -627,3 +627,17 @@ a.storage-badge:hover { filter: brightness(1.2); text-decoration: underline; }
   .inventur-knoepfe { flex-wrap: wrap; }
   .inventur-knoepfe .btn { padding: 0.1rem 0.35rem; }
 }
+
+/* ============================================================
+ * 11. Direktverkauf: Bestandssuche je Position
+ * ============================================================ */
+.position-suche { position: relative; }
+.bestand-vorschlaege { max-height: 22rem; overflow-y: auto; }
+.bestand-vorschlag { white-space: normal; }
+.bestand-vorschlag__bild {
+  width: 34px;
+  aspect-ratio: 63 / 88;
+  object-fit: cover;
+  border-radius: 3px;
+  flex: none;
+}

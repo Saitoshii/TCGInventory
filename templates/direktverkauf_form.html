@@ -7,11 +7,12 @@
 
 <p class="text-muted">
   Für Verkäufe ohne Cardmarket — auf dem Flohmarkt oder von Hand zu Hand.
-  Karten aus dem Bestand werden dabei ausgebucht und ihr Lagerplatz wird frei,
-  genau wie beim Knopf „verkauft“.
+  Beim Tippen erscheinen die Karten aus dem Bestand: auswählen, dann wird die
+  Karte beim Speichern ausgebucht und ihr Lagerplatz frei, genau wie beim
+  Knopf „verkauft“.
 </p>
 
-<form method="post" class="card card-body">
+<form method="post" class="card card-body" id="direktverkauf-formular">
   {# Einmalige Kennung: ein Doppelklick buchte den Verkauf sonst zweimal aus. #}
   <input type="hidden" name="formular_id" value="{{ formular_id() }}">
   <div class="row g-3 mb-3">
@@ -19,23 +20,57 @@
       <label class="form-label">Kanal</label>
       <select class="form-select" name="kanal">
         {% for schluessel, name in kanaele.items() %}
-        <option value="{{ schluessel }}">{{ name }}</option>
+        <option value="{{ schluessel }}" {% if kopf.kanal == schluessel %}selected{% endif %}>{{ name }}</option>
         {% endfor %}
       </select>
     </div>
     <div class="col-md-3">
       <label class="form-label">Datum</label>
-      <input class="form-control" type="date" name="datum" value="{{ heute }}">
+      <input class="form-control" type="date" name="datum" value="{{ kopf.datum or heute }}">
     </div>
     <div class="col-md-3">
       <label class="form-label">Käufer <span class="text-muted small">(optional)</span></label>
-      <input class="form-control" name="kaeufer" placeholder="Laufkundschaft">
+      <input class="form-control" name="kaeufer" placeholder="Laufkundschaft" value="{{ kopf.kaeufer or '' }}">
     </div>
     <div class="col-md-3">
       <label class="form-label">Versand <span class="text-muted small">(optional)</span></label>
-      <input class="form-control" name="versand" placeholder="0,00">
+      <input class="form-control" name="versand" placeholder="0,00" value="{{ kopf.versand or '' }}">
     </div>
   </div>
+
+  {#
+    Eine Zeile je verkauftem Artikel. Die Felder kommen als gleich lange
+    Listen beim Server an — deshalb hat jede Zeile jedes Feld, auch die
+    versteckten (card_id, ohne_bestand).
+  #}
+  {% macro zeile(z, erste) %}
+  <tr class="position">
+    <td><input class="form-control position-menge" type="number" name="quantity" min="1"
+               value="{{ z.quantity or 1 }}"{% if z.info %} max="{{ z.info.quantity }}"{% endif %}></td>
+    <td class="position-artikel">
+      <div class="position-suche">
+        <input class="form-control artikel-name" name="card_name" autocomplete="off"
+               value="{{ z.card_name or '' }}"
+               placeholder="Karte aus dem Bestand suchen – oder Beschreibung">
+        <div class="dropdown-menu w-100 bestand-vorschlaege" role="listbox"></div>
+      </div>
+      <input type="hidden" name="card_id" value="{{ z.card_id or '' }}">
+      <input type="hidden" name="ohne_bestand" value="{{ '1' if z.ohne_bestand else '0' }}">
+      <div class="form-text bestand-info">{% if z.info %}
+        <span class="text-success">✓ Aus dem Bestand:</span>
+        {{ (z.info.set_code or '')|upper }}{% if z.info.collector_number %} #{{ z.info.collector_number }}{% endif %}{% if z.info.language %} · {{ z.info.language|upper }}{% endif %}{% if z.info.foil %} · ★ Foil{% endif %}{% if z.info.condition %} · {{ z.info.condition }}{% endif %}{% if z.info.storage_code or z.info.location_hint %} · {{ z.info.storage_code or z.info.location_hint }}{% endif %}
+        · {{ z.info.quantity }} vorrätig — wird beim Speichern ausgebucht.
+        <button type="button" class="btn btn-link btn-sm p-0 align-baseline bestand-loesen">andere wählen</button>
+      {% endif %}</div>
+      <label class="form-check small mt-1 ohne-bestand-wahl{% if z.info or not z.ohne_bestand %} d-none{% endif %}">
+        <input type="checkbox" class="form-check-input ohne-bestand-haken"{% if z.ohne_bestand %} checked{% endif %}>
+        <span class="form-check-label">nicht im Bestand – nichts ausbuchen</span>
+      </label>
+    </td>
+    <td><input class="form-control" name="unit_price" placeholder="3,50" value="{{ z.unit_price or '' }}" required></td>
+    <td>{% if not erste %}<button type="button" class="btn btn-sm btn-outline-danger zeile-weg" title="Zeile entfernen">×</button>{% endif %}</td>
+  </tr>
+  {% endmacro %}
 
   <table class="table table-sm align-middle" id="positionen">
     <thead>
@@ -47,36 +82,20 @@
       </tr>
     </thead>
     <tbody>
-      <tr>
-        <td><input class="form-control" type="number" name="quantity" min="1"
-                   value="{{ 1 }}"></td>
-        <td>
-          <input class="form-control" name="card_name"
-                 value="{{ vorgabe.name if vorgabe else '' }}"
-                 placeholder="Kartenname oder Beschreibung">
-          <input type="hidden" name="card_id" value="{{ vorgabe.id if vorgabe else '' }}">
-          {% if vorgabe %}
-          <div class="form-text">
-            Aus dem Bestand: {{ vorgabe.set_code|upper }} · {{ vorgabe.condition }}
-            · {{ vorgabe.quantity }} vorrätig — wird beim Speichern ausgebucht.
-          </div>
-          {% endif %}
-        </td>
-        <td><input class="form-control" name="unit_price" placeholder="3,50" required></td>
-        <td></td>
-      </tr>
+      {% for z in zeilen %}{{ zeile(z, loop.first) }}{% endfor %}
     </tbody>
   </table>
+  <template id="zeile-vorlage">{{ zeile({'quantity': 1}, false) }}</template>
 
   <div class="mb-3">
     <button class="btn btn-sm btn-outline-secondary" type="button" id="zeile-mehr">
       ＋ Weitere Position</button>
   </div>
 
-  <details class="mb-3">
+  <details class="mb-3"{% if kopf.adresse %} open{% endif %}>
     <summary class="text-muted">Lieferadresse (nur nötig, wenn versendet wird)</summary>
     <textarea class="form-control mt-2" name="adresse" rows="4"
-              placeholder="Max Mustermann&#10;Musterweg 12&#10;24103 Kiel"></textarea>
+              placeholder="Max Mustermann&#10;Musterweg 12&#10;24103 Kiel">{{ kopf.adresse or '' }}</textarea>
     <div class="form-text">
       Mit Adresse lässt sich der Beileger drucken, ohne Adresse die Quittung.
     </div>
@@ -95,23 +114,163 @@
 </form>
 
 <script>
-document.getElementById('zeile-mehr').addEventListener('click', function () {
+(function () {
   const koerper = document.querySelector('#positionen tbody');
-  const zeile = koerper.rows[0].cloneNode(true);
-  zeile.querySelectorAll('input').forEach(function (feld) {
-    if (feld.name === 'quantity') { feld.value = '1'; }
-    else { feld.value = ''; }
+  const vorlage = document.getElementById('zeile-vorlage');
+
+  document.getElementById('zeile-mehr').addEventListener('click', function () {
+    koerper.appendChild(vorlage.content.cloneNode(true));
+    const neu = koerper.rows[koerper.rows.length - 1];
+    neu.querySelector('.artikel-name').focus();
   });
-  // Die Hinweiszeile gehoert zur Vorauswahl und passt bei einer neuen Zeile nicht.
-  const hinweis = zeile.querySelector('.form-text');
-  if (hinweis) { hinweis.remove(); }
-  const weg = document.createElement('button');
-  weg.type = 'button';
-  weg.className = 'btn btn-sm btn-outline-danger';
-  weg.textContent = '×';
-  weg.addEventListener('click', function () { zeile.remove(); });
-  zeile.cells[3].appendChild(weg);
-  koerper.appendChild(zeile);
-});
+
+  koerper.addEventListener('click', function (e) {
+    const zeile = e.target.closest('tr.position');
+    if (!zeile) return;
+    if (e.target.closest('.zeile-weg')) { zeile.remove(); return; }
+    if (e.target.closest('.bestand-loesen')) {
+      loesen(zeile);
+      const feld = zeile.querySelector('.artikel-name');
+      feld.focus(); feld.select();
+      suchen(zeile);
+      return;
+    }
+    const wahl = e.target.closest('.bestand-vorschlag');
+    if (wahl) { waehlen(zeile, JSON.parse(wahl.dataset.artikel)); }
+  });
+
+  koerper.addEventListener('change', function (e) {
+    if (e.target.classList.contains('ohne-bestand-haken')) {
+      const zeile = e.target.closest('tr.position');
+      zeile.querySelector('input[name=ohne_bestand]').value = e.target.checked ? '1' : '0';
+    }
+  });
+
+  // Eine Karte aus dem Bestand übernehmen: sie wird beim Speichern ausgebucht.
+  function waehlen(zeile, a) {
+    zeile.querySelector('input[name=card_id]').value = a.id;
+    zeile.querySelector('input[name=ohne_bestand]').value = '0';
+    const feld = zeile.querySelector('.artikel-name');
+    feld.value = a.name;
+    feld.dataset.gewaehlt = a.name;
+    const menge = zeile.querySelector('.position-menge');
+    menge.max = a.quantity;
+    if (Number(menge.value) > a.quantity) menge.value = a.quantity;
+    const teile = [a.set_code + (a.collector_number ? ' #' + a.collector_number : ''),
+                   a.language, a.foil ? '★ Foil' : '', a.condition, a.platz]
+                  .filter(Boolean).join(' · ');
+    const info = zeile.querySelector('.bestand-info');
+    info.innerHTML = '';
+    const ok = document.createElement('span');
+    ok.className = 'text-success'; ok.textContent = '✓ Aus dem Bestand: ';
+    info.appendChild(ok);
+    info.appendChild(document.createTextNode(teile + ' · ' + a.quantity +
+      ' vorrätig — wird beim Speichern ausgebucht. '));
+    const anders = document.createElement('button');
+    anders.type = 'button'; anders.className = 'btn btn-link btn-sm p-0 align-baseline bestand-loesen';
+    anders.textContent = 'andere wählen';
+    info.appendChild(anders);
+    zeile.querySelector('.ohne-bestand-wahl').classList.add('d-none');
+    zeile.querySelector('.ohne-bestand-haken').checked = false;
+    schliessen(zeile);
+    zeile.querySelector('input[name=unit_price]').focus();
+  }
+
+  function loesen(zeile) {
+    zeile.querySelector('input[name=card_id]').value = '';
+    zeile.querySelector('.bestand-info').innerHTML = '';
+    zeile.querySelector('.position-menge').removeAttribute('max');
+    delete zeile.querySelector('.artikel-name').dataset.gewaehlt;
+  }
+
+  function schliessen(zeile) {
+    zeile.querySelector('.bestand-vorschlaege').classList.remove('show');
+  }
+
+  const warte = new WeakMap();
+  koerper.addEventListener('input', function (e) {
+    if (!e.target.classList.contains('artikel-name')) return;
+    const zeile = e.target.closest('tr.position');
+    // Name geändert: die gewählte Karte gilt nicht mehr.
+    if (e.target.dataset.gewaehlt !== undefined && e.target.value !== e.target.dataset.gewaehlt) {
+      loesen(zeile);
+    }
+    clearTimeout(warte.get(zeile));
+    warte.set(zeile, setTimeout(function () { suchen(zeile); }, 250));
+  });
+
+  async function suchen(zeile) {
+    const feld = zeile.querySelector('.artikel-name');
+    const liste = zeile.querySelector('.bestand-vorschlaege');
+    const wahl = zeile.querySelector('.ohne-bestand-wahl');
+    const text = feld.value.trim();
+    if (zeile.querySelector('input[name=card_id]').value || text.length < 2) {
+      schliessen(zeile); wahl.classList.add('d-none'); return;
+    }
+    let treffer = [];
+    try {
+      const antwort = await fetch('{{ url_for("bestand_api") }}?q=' + encodeURIComponent(text),
+                                  { credentials: 'same-origin' });
+      if (antwort.ok) treffer = await antwort.json();
+    } catch (fehler) { treffer = []; }
+    if (feld.value.trim() !== text) return;          // inzwischen weitergetippt
+    liste.innerHTML = '';
+    treffer.forEach(function (a, i) {
+      const knopf = document.createElement('button');
+      knopf.type = 'button';
+      knopf.className = 'dropdown-item bestand-vorschlag d-flex align-items-center gap-2';
+      knopf.dataset.artikel = JSON.stringify(a);
+      knopf.setAttribute('role', 'option');
+      if (a.image_url) {
+        const bild = document.createElement('img');
+        bild.src = a.image_url; bild.alt = ''; bild.loading = 'lazy';
+        bild.className = 'bestand-vorschlag__bild';
+        knopf.appendChild(bild);
+      }
+      const text = document.createElement('span');
+      const name = document.createElement('strong');
+      name.textContent = a.name + (a.foil ? ' ★' : '');
+      const meta = document.createElement('span');
+      meta.className = 'd-block small text-muted';
+      meta.textContent = [a.set_code + (a.collector_number ? ' #' + a.collector_number : ''),
+                          a.language, a.condition, a.platz, a.quantity + ' vorrätig']
+                         .filter(Boolean).join(' · ');
+      text.appendChild(name); text.appendChild(meta);
+      knopf.appendChild(text);
+      liste.appendChild(knopf);
+    });
+    liste.classList.toggle('show', treffer.length > 0);
+    // Gibt es den Namen genau so im Bestand, muss entschieden werden:
+    // auswählen — oder ausdrücklich „nicht im Bestand".
+    const genau = treffer.some(function (a) { return a.name.toLowerCase() === text.toLowerCase(); });
+    wahl.classList.toggle('d-none', !genau);
+  }
+
+  // Pfeiltasten und Enter in der Vorschlagsliste.
+  koerper.addEventListener('keydown', function (e) {
+    if (!e.target.classList.contains('artikel-name')) return;
+    const zeile = e.target.closest('tr.position');
+    const liste = zeile.querySelector('.bestand-vorschlaege');
+    if (!liste.classList.contains('show')) return;
+    const eintraege = Array.from(liste.querySelectorAll('.bestand-vorschlag'));
+    let aktiv = eintraege.findIndex(function (k) { return k.classList.contains('active'); });
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      aktiv = e.key === 'ArrowDown' ? Math.min(aktiv + 1, eintraege.length - 1) : Math.max(aktiv - 1, 0);
+      eintraege.forEach(function (k, i) { k.classList.toggle('active', i === aktiv); });
+    } else if (e.key === 'Enter' && aktiv >= 0) {
+      e.preventDefault();
+      waehlen(zeile, JSON.parse(eintraege[aktiv].dataset.artikel));
+    } else if (e.key === 'Escape') {
+      schliessen(zeile);
+    }
+  });
+
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest('.position-suche')) {
+      document.querySelectorAll('.bestand-vorschlaege.show').forEach(function (l) { l.classList.remove('show'); });
+    }
+  });
+})();
 </script>
 {% endblock %}
